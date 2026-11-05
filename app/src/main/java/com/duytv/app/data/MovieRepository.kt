@@ -18,6 +18,119 @@ class MovieRepository {
 
     private val gson = Gson()
 
+    private var cachedTvSports: TvSportsData? = null
+    private var lastTvSportsFetchTime: Long = 0L
+
+    suspend fun getTvAndSportsData(forceRefresh: Boolean = false): TvSportsData = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && cachedTvSports != null && (now - lastTvSportsFetchTime < 5 * 60 * 1000L)) {
+            return@withContext cachedTvSports!!
+        }
+
+        val url = "https://paste.c-net.org/PostersMistrust"
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
+                .build()
+            val res = client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val body = res.body?.string() ?: return@withContext (cachedTvSports ?: TvSportsData())
+                val parsed = parseM3uData(body)
+                cachedTvSports = parsed
+                lastTvSportsFetchTime = now
+                return@withContext parsed
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        cachedTvSports ?: TvSportsData()
+    }
+
+    private fun parseM3uData(content: String): TvSportsData {
+        val lines = content.lines()
+        var currentExt: String? = null
+        val rawMatches = mutableListOf<FootballMatch>()
+        val channels = mutableListOf<TvChannel>()
+
+        val logoRegex = Regex("""tvg-logo="([^"]+)"""")
+        val groupRegex = Regex("""group-title="([^"]+)"""")
+        val timeRegex = Regex("""\[(\d{1,2}:\d{2})\]""")
+        val vsRegex = Regex("""^(.*?)\s*vs\s*(.*?)\s*\[(\d{1,2}:\d{2})\]""", RegexOption.IGNORE_CASE)
+        val blvRegex = Regex("""\[(?:BLV\s+|Kho Ga\s*-\s*)([^\]]+)\]""", RegexOption.IGNORE_CASE)
+
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("#EXTINF:")) {
+                currentExt = trimmed
+            } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                val ext = currentExt
+                if (ext != null) {
+                    val logo = logoRegex.find(ext)?.groupValues?.get(1)
+                    val group = groupRegex.find(ext)?.groupValues?.get(1) ?: "Chung"
+                    val commaIdx = ext.lastIndexOf(',')
+                    val rawTitle = if (commaIdx >= 0) ext.substring(commaIdx + 1).trim() else ""
+
+                    val vsMatch = vsRegex.find(rawTitle)
+                    val timeMatch = timeRegex.find(rawTitle)
+
+                    if (vsMatch != null && timeMatch != null) {
+                        val home = vsMatch.groupValues[1].replace(Regex("""\[.*?\]"""), "").trim()
+                        val away = vsMatch.groupValues[2].replace(Regex("""\[.*?\]"""), "").trim()
+                        val time = timeMatch.groupValues[1].trim()
+                        val blv = blvRegex.find(rawTitle)?.groupValues?.get(1)?.trim() ?: "Bình Luận Tiếng Việt"
+                        val tournament = group.replace("Kho Ga TV - ", "").trim()
+
+                        rawMatches.add(
+                            FootballMatch(
+                                id = "${home}_${away}_${time}_${rawMatches.size}",
+                                title = rawTitle,
+                                homeTeam = home,
+                                awayTeam = away,
+                                homeLogo = logo,
+                                awayLogo = logo,
+                                tournament = tournament,
+                                kickoffTime = time,
+                                commentator = blv,
+                                streamUrl = trimmed,
+                                groupTitle = group
+                            )
+                        )
+                    } else {
+                        val cleanName = rawTitle.replace(Regex("""\[.*?\]"""), "").replace(Regex("""\(.*?\)"""), "").trim()
+                        channels.add(
+                            TvChannel(
+                                id = "chan_${channels.size}",
+                                name = if (cleanName.isNotBlank()) cleanName else "Kênh TV",
+                                logoUrl = logo,
+                                streamUrl = trimmed,
+                                groupTitle = group
+                            )
+                        )
+                    }
+                    currentExt = null
+                }
+            }
+        }
+
+        // Nhóm các luồng mirror của cùng 1 trận đấu lại với nhau
+        val groupedMatches = rawMatches.groupBy { "${it.homeTeam.lowercase()}_vs_${it.awayTeam.lowercase()}_${it.kickoffTime}" }
+            .map { (key, list) ->
+                val first = list.first()
+                FootballMatchGroup(
+                    id = key,
+                    homeTeam = first.homeTeam,
+                    awayTeam = first.awayTeam,
+                    kickoffTime = first.kickoffTime,
+                    tournament = first.tournament,
+                    logo = first.homeLogo,
+                    streams = list.map { MatchStreamItem(it.title, it.commentator, it.streamUrl) }
+                )
+            }
+
+        return TvSportsData(matches = groupedMatches, channels = channels)
+    }
+
     suspend fun getNewUpdatedMovies(page: Int = 1): List<MovieItemDto> = withContext(Dispatchers.IO) {
         val base = RemoteConfigManager.getBaseUrl()
         val url = "$base/danh-sach/phim-moi-cap-nhat?page=$page"

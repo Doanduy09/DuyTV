@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -109,6 +110,9 @@ fun PlayerScreen(
     var lastSeekTimestamp by remember { mutableLongStateOf(0L) }
     var seekConsecutiveCount by remember { mutableIntStateOf(0) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    val isLive = remember(streamUrl, slug) {
+        slug.startsWith("live_") || streamUrl.contains("/live/") || streamUrl.contains("akamaized.net") || streamUrl.contains("fptplay")
+    }
 
     // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
     var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
@@ -157,9 +161,23 @@ fun PlayerScreen(
                 or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
             )
+
+            @Suppress("DEPRECATION")
+            window.decorView.setOnSystemUiVisibilityChangeListener { visibility ->
+                if ((visibility and android.view.View.SYSTEM_UI_FLAG_FULLSCREEN) == 0) {
+                    window.decorView.postDelayed({
+                        val insets = WindowCompat.getInsetsController(window, window.decorView)
+                        insets.hide(WindowInsetsCompat.Type.systemBars())
+                        insets.hide(WindowInsetsCompat.Type.navigationBars())
+                        insets.hide(WindowInsetsCompat.Type.statusBars())
+                    }, 2000)
+                }
+            }
         }
         onDispose {
             if (window != null) {
+                @Suppress("DEPRECATION")
+                window.decorView.setOnSystemUiVisibilityChangeListener(null)
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 val insetsController = WindowCompat.getInsetsController(window, window.decorView)
                 insetsController.show(WindowInsetsCompat.Type.systemBars())
@@ -304,23 +322,25 @@ fun PlayerScreen(
 
     if (exoPlayer == null) return
 
-    // Track playback position & Save history
+    // Track playback position & Save history (bỏ qua nếu đang xem luồng trực tiếp / TV)
     LaunchedEffect(exoPlayer) {
         while (true) {
             delay(1000)
             if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
                 currentPosMs = exoPlayer.currentPosition
                 totalDurationMs = maxOf(1L, exoPlayer.duration)
-                WatchHistoryManager.saveProgress(
-                    context = context,
-                    slug = slug,
-                    movieTitle = movieTitle,
-                    episodeName = episodeName,
-                    streamUrl = streamUrl,
-                    posterUrl = posterUrl,
-                    positionMs = currentPosMs,
-                    durationMs = totalDurationMs
-                )
+                if (!isLive) {
+                    WatchHistoryManager.saveProgress(
+                        context = context,
+                        slug = slug,
+                        movieTitle = movieTitle,
+                        episodeName = episodeName,
+                        streamUrl = streamUrl,
+                        posterUrl = posterUrl,
+                        positionMs = currentPosMs,
+                        durationMs = totalDurationMs
+                    )
+                }
             }
         }
     }
@@ -336,9 +356,11 @@ fun PlayerScreen(
                 Lifecycle.Event.ON_STOP -> {
                     val pos = exoPlayer.currentPosition
                     val dur = maxOf(1L, exoPlayer.duration)
-                    WatchHistoryManager.saveProgress(
-                        context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
-                    )
+                    if (!isLive) {
+                        WatchHistoryManager.saveProgress(
+                            context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
+                        )
+                    }
                     exoPlayer.stop()
                     exoPlayer.playWhenReady = false
                 }
@@ -385,11 +407,13 @@ fun PlayerScreen(
         exoPlayer.addListener(listener)
 
         onDispose {
-            val pos = exoPlayer.currentPosition
-            val dur = maxOf(1L, exoPlayer.duration)
-            WatchHistoryManager.saveProgress(
-                context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
-            )
+            if (!isLive) {
+                val pos = exoPlayer.currentPosition
+                val dur = maxOf(1L, exoPlayer.duration)
+                WatchHistoryManager.saveProgress(
+                    context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
+                )
+            }
             exoPlayer.removeListener(listener)
             exoPlayer.stop()
             exoPlayer.release()
@@ -434,6 +458,7 @@ fun PlayerScreen(
     }
 
     fun triggerSeek(deltaSeconds: Int) {
+        if (isLive) return
         val deltaMs = deltaSeconds * 1000L
         val basePos = pendingSeekPosMs ?: exoPlayer.currentPosition
         val newTarget = (basePos + deltaMs).coerceIn(0L, maxOf(0L, totalDurationMs - 1000L))
@@ -1158,48 +1183,76 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Time Progress
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = formatTime(currentPosMs),
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = formatTime(totalDurationMs),
-                            color = Color(0xFFA0AAB8),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
+                    if (isLive) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(Color(0xFFFF1744), CircleShape)
+                            )
+                            Text(
+                                text = "🔴 ĐANG PHÁT TRỰC TIẾP (LIVE STREAM)",
+                                color = Color(0xFFFF5252),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text = "TRỰC TIẾP TỰ ĐỘNG CHUẨN FHD",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        // Time Progress
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatTime(currentPosMs),
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = formatTime(totalDurationMs),
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        val progress = if (totalDurationMs > 0) {
+                            (currentPosMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+
+                        Slider(
+                            value = progress,
+                            onValueChange = { newProg ->
+                                val newPos = (newProg * totalDurationMs).toLong()
+                                currentPosMs = newPos
+                                exoPlayer.seekTo(newPos)
+                                showControls = true
+                            },
+                            colors = SliderDefaults.colors(
+                                thumbColor = AccentRed,
+                                activeTrackColor = AccentRed,
+                                inactiveTrackColor = Color(0x66FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(20.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    val progress = if (totalDurationMs > 0) {
-                        (currentPosMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                    } else 0f
-
-                    Slider(
-                        value = progress,
-                        onValueChange = { newProg ->
-                            val newPos = (newProg * totalDurationMs).toLong()
-                            currentPosMs = newPos
-                            exoPlayer.seekTo(newPos)
-                            showControls = true
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = AccentRed,
-                            activeTrackColor = AccentRed,
-                            inactiveTrackColor = Color(0x66FFFFFF)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(20.dp)
-                    )
 
                     Spacer(modifier = Modifier.height(14.dp))
 

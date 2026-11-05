@@ -96,6 +96,17 @@ class MainActivity : ComponentActivity() {
                                     initialPositionMs = historyItem.positionMs
                                 )
                             },
+                            onPlayLiveStream = { title, streamUrl, posterUrl ->
+                                currentScreen = AppScreen.Player(
+                                    slug = "live_${System.currentTimeMillis()}",
+                                    movieTitle = title,
+                                    episodeName = "TRỰC TIẾP",
+                                    streamUrl = streamUrl,
+                                    posterUrl = posterUrl,
+                                    subtitleUrl = null,
+                                    initialPositionMs = 0L
+                                )
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
