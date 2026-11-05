@@ -40,6 +40,16 @@
         "https://yts.mx"
       ],
       "enabled": true
+    },
+    "custom_mephim_ddns_net": {
+      "name": "MEPHIM.DDNS.NET",
+      "api_base": "https://mephim.ddns.net",
+      "enabled": true
+    },
+    "custom_rapphim_vip": {
+      "name": "RAPPHIM.VIP",
+      "api_base": "https://rapphim.vip",
+      "enabled": true
     }
   }
 }
