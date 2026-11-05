@@ -72,10 +72,10 @@ jobs:
       - name: Tự động phát hành bản Release công khai
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v1.2.3-build-${{ github.run_number }}"
-          name: "DuyTV Full Edition v1.2.3 (Build #${{ github.run_number }})"
+          tag_name: "v1.2.4-build-${{ github.run_number }}"
+          name: "DuyTV Full Edition v1.2.4 (Build #${{ github.run_number }})"
           body: |
-            ### 🚀 Bản phát hành DuyTV Full Edition v1.2.3
+            ### 🚀 Bản phát hành DuyTV Full Edition v1.2.4
             - **Cơ chế**: Tự động biên dịch khi file `.config` hoặc nguồn phim thay đổi
             - **Tính năng mới**: Tải phim song song siêu tốc (<1s), cơ chế tự phục hồi đa tầng (tự động chuyển API chuẩn nếu link web nhập vào không trả JSON), Remote Fast Seek 3s/15s cho TV Sharp Aquos & Tablet
             - **Thiết bị hỗ trợ**: TV Sharp Aquos, Tablet Android, Android Box, Smartphone Android.

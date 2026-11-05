@@ -380,7 +380,7 @@ fun HomeScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    items(watchHistory) { item ->
+                                    items(watchHistory, key = { it.slug + it.episodeName }) { item ->
                                         val itemInter = remember { MutableInteractionSource() }
                                         val isFoc by itemInter.collectIsFocusedAsState()
 

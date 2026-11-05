@@ -1,6 +1,8 @@
 package com.duytv.app.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -36,7 +38,11 @@ fun MovieCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val scale by animateFloatAsState(targetValue = if (isFocused) 1.1f else 1.0f, label = "scale")
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.08f else 1.0f,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "scale"
+    )
     val posterUrl = remember(movie.posterUrl, movie.thumbUrl) {
         val path = if (!movie.posterUrl.isNullOrBlank()) movie.posterUrl else movie.thumbUrl
         RemoteConfigManager.resolveImageUrl(path)
@@ -46,7 +52,10 @@ fun MovieCard(
         modifier = modifier
             .width(150.dp)
             .height(235.dp)
-            .scale(scale)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(8.dp))
             .background(CardBg)
             .border(

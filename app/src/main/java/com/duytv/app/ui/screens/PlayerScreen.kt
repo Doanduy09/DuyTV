@@ -160,8 +160,10 @@ fun PlayerScreen(
 
             ExoPlayer.Builder(context, renderersFactory)
                 .setLoadControl(loadControl)
+                .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
                 .build()
                 .apply {
+                    setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
                     setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
                     setMediaSource(mediaSource)
                     prepare()
