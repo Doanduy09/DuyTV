@@ -9,7 +9,7 @@ on:
         default: 'none'
         type: choice
         options:
-          - 'none (Không đổi nguồn, chỉ build lại app)'
+          - 'none'
           - 'ophim'
           - 'kkphim'
           - 'nguonc'
@@ -47,7 +47,7 @@ jobs:
           node-version: 20
 
       - name: Tự động cập nhật nguồn mới vào config nếu có nhập link
-        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none (Không đổi nguồn, chỉ build lại app)' }}"
+        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none' }}"
         run: |
           node -e "
             const fs = require('fs');
@@ -67,7 +67,7 @@ jobs:
           "
 
       - name: Tự động commit cấu hình nguồn mới lên GitHub
-        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none (Không đổi nguồn, chỉ build lại app)' }}"
+        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none' }}"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -108,7 +108,7 @@ jobs:
           body: |
             ### 🚀 Bản phát hành DuyTV Full Edition
             - **Ghi chú**: ${{ github.event.inputs.release_note || 'Tự động cập nhật nguồn và tối ưu hiệu năng' }}
-            - **Nguồn cập nhật**: ${{ github.event.inputs.source_type != 'none (Không đổi nguồn, chỉ build lại app)' && format('{0} -> {1}', github.event.inputs.source_type, github.event.inputs.new_url) || 'Không thay đổi nguồn' }}
+            - **Nguồn cập nhật**: ${{ github.event.inputs.source_type != 'none' && format('{0} -> {1}', github.event.inputs.source_type, github.event.inputs.new_url) || 'Không thay đổi nguồn' }}
             - **Thiết bị hỗ trợ**: TV Sharp Aquos, Tablet Android, Android Box, Smartphone Android.
           files: release_apk/DuyTV-Full-Latest.apk
         env:
