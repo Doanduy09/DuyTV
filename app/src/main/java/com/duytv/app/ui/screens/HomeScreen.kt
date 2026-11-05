@@ -12,13 +12,25 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +48,7 @@ import com.duytv.app.data.*
 import com.duytv.app.ui.components.MovieCard
 import com.duytv.app.ui.components.TvBanner
 import com.duytv.app.ui.theme.*
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -87,28 +100,47 @@ fun HomeScreen(
     var categoryMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
     var categoryPage by remember { mutableIntStateOf(1) }
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
+    var showSourceSettingsDialog by remember { mutableStateOf(false) }
 
     val currentTime = remember {
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
         sdf.format(Date())
     }
 
-    LaunchedEffect(Unit) {
+    fun reloadAllMovies() {
         scope.launch {
-            watchHistory = WatchHistoryManager.getHistory(context)
+            isLoading = true
+            try {
+                if (selectedCategory.id == "all") {
+                    val latestDef = async { try { repository.getNewUpdatedMovies(1) } catch (_: Exception) { emptyList() } }
+                    val cinemaDef = async { try { repository.getMoviesByCategory("phim-chieu-rap", 1) } catch (_: Exception) { emptyList() } }
+                    val torrentDef = async { try { repository.getTop4KTorrents(1) } catch (_: Exception) { emptyList() } }
+                    val seriesDef = async { try { repository.getMoviesByCategory("phim-bo", 1) } catch (_: Exception) { emptyList() } }
+                    val singleDef = async { try { repository.getMoviesByCategory("phim-le", 1) } catch (_: Exception) { emptyList() } }
+                    val animeDef = async { try { repository.getMoviesByCategory("hoat-hinh", 1) } catch (_: Exception) { emptyList() } }
+
+                    latestMovies = latestDef.await()
+                    cinemaMovies = cinemaDef.await()
+                    torrentMovies = torrentDef.await()
+                    seriesMovies = seriesDef.await()
+                    singleMovies = singleDef.await()
+                    animeMovies = animeDef.await()
+                } else {
+                    categoryPage = 1
+                    categoryMovies = try { repository.getMoviesByCategory(selectedCategory.endpoint, 1) } catch (_: Exception) { emptyList() }
+                }
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        RemoteConfigManager.loadLocalCustomSources(context)
+        watchHistory = WatchHistoryManager.getHistory(context)
+        scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
-
-            // Fetch initial swimlane data
-            val newOnes = repository.getNewUpdatedMovies(1)
-            latestMovies = newOnes
-
-            cinemaMovies = repository.getMoviesByCategory("phim-chieu-rap", 1)
-            torrentMovies = repository.getTop4KTorrents(1)
-            seriesMovies = repository.getMoviesByCategory("phim-bo", 1)
-            singleMovies = repository.getMoviesByCategory("phim-le", 1)
-            animeMovies = repository.getMoviesByCategory("hoat-hinh", 1)
-
-            isLoading = false
+            reloadAllMovies()
         }
     }
 
@@ -230,6 +262,43 @@ fun HomeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "TÌM KIẾM TẤT CẢ NGUỒN",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Source Settings Button
+                            val sourceInter = remember { MutableInteractionSource() }
+                            val sourceFoc by sourceInter.collectIsFocusedAsState()
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (sourceFoc) AccentRed else CardBg)
+                                    .border(
+                                        width = if (sourceFoc) 1.5.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = sourceInter)
+                                    .clickable(interactionSource = sourceInter, indication = null) {
+                                        showSourceSettingsDialog = true
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Cài đặt nguồn",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "NGUỒN PHIM",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -561,6 +630,13 @@ fun HomeScreen(
                 }
             }
         }
+
+        if (showSourceSettingsDialog) {
+            SourceSettingsDialog(
+                onDismiss = { showSourceSettingsDialog = false },
+                onSaveSuccess = { reloadAllMovies() }
+            )
+        }
     }
 }
 
@@ -662,5 +738,303 @@ fun MovieSwimlaneWithMore(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SourceSettingsDialog(
+    onDismiss: () -> Unit,
+    onSaveSuccess: () -> Unit
+) {
+    val context = LocalContext.current
+    var inputUrl by remember { mutableStateOf("") }
+    val currentSources = remember { RemoteConfigManager.getSavedCustomSources(context) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xD9000000)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141721)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, Color(0xFF333A4D)),
+                modifier = Modifier
+                    .width(720.dp)
+                    .wrapContentHeight()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = AccentRed,
+                                modifier = Modifier.size(26.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "QUẢN LÝ NGUỒN PHIM (DUYTV)",
+                                color = TextWhite,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        val closeInter = remember { MutableInteractionSource() }
+                        val closeFoc by closeInter.collectIsFocusedAsState()
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (closeFoc) AccentRed else Color(0xFF252A38))
+                                .border(
+                                    width = if (closeFoc) 1.5.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .focusable(interactionSource = closeInter)
+                                .clickable(interactionSource = closeInter, indication = null) { onDismiss() }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("✕ ĐÓNG", color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Nhập đường link nguồn mới hoặc chọn nguồn nhanh bên dưới. App sẽ tự động lưu và tải phim từ nguồn mới ngay lập tức mà không cần cài lại app!",
+                        color = TextDim,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Input box
+                    Text(
+                        text = "ĐƯỜNG LINK NGUỒN PHIM MỚI (URL):",
+                        color = Color(0xFFFFD700),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = inputUrl,
+                        onValueChange = { inputUrl = it },
+                        placeholder = { Text("Ví dụ: https://mephim.ddns.net hoặc https://rapphim.vip", color = Color(0xFF6E7687), fontSize = 13.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF0F1118),
+                            unfocusedContainerColor = Color(0xFF0F1118),
+                            focusedIndicatorColor = AccentRed,
+                            unfocusedIndicatorColor = Color(0xFF333A4D)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Quick presets
+                    Text(
+                        text = "CHỌN NHANH NGUỒN SẴN CÓ:",
+                        color = TextWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val presets = listOf(
+                        "OPhim" to "https://ophim.cc",
+                        "KKPhim" to "https://phimapi.com",
+                        "Mê Phim" to "https://mephim.ddns.net",
+                        "Rạp Phim" to "https://rapphim.vip",
+                        "NguonC" to "https://phim.nguonc.com/api/film"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presets.forEach { (name, url) ->
+                            val pInter = remember { MutableInteractionSource() }
+                            val pFoc by pInter.collectIsFocusedAsState()
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (pFoc) AccentRed else Color(0xFF1E2330))
+                                    .border(
+                                        width = if (pFoc) 1.5.dp else 1.dp,
+                                        color = if (pFoc) Color.White else Color(0xFF333A4D),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = pInter)
+                                    .clickable(interactionSource = pInter, indication = null) {
+                                        inputUrl = url
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = name,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // SAVE & UPDATE BUTTON
+                        val saveInter = remember { MutableInteractionSource() }
+                        val isSaveFoc by saveInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1.5f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSaveFoc) Color(0xFFE50914) else Color(0xFFB81D24))
+                                .border(
+                                    width = if (isSaveFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .focusable(interactionSource = saveInter)
+                                .clickable(interactionSource = saveInter, indication = null) {
+                                    if (inputUrl.isNotBlank()) {
+                                        val saved = RemoteConfigManager.saveCustomSource(context, inputUrl)
+                                        Toast.makeText(context, "✅ Đã lưu: $saved. Đang làm mới dữ liệu...", Toast.LENGTH_SHORT).show()
+                                        onSaveSuccess()
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "Vui lòng nhập hoặc chọn một đường link nguồn!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "💾 LƯU & CẬP NHẬT NGAY",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // RESET BUTTON
+                        val resetInter = remember { MutableInteractionSource() }
+                        val isResetFoc by resetInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isResetFoc) Color(0xFF4A5568) else Color(0xFF2D3748))
+                                .border(
+                                    width = if (isResetFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .focusable(interactionSource = resetInter)
+                                .clickable(interactionSource = resetInter, indication = null) {
+                                    RemoteConfigManager.resetToDefaults(context)
+                                    Toast.makeText(context, "🔄 Đã đặt lại nguồn phim mặc định!", Toast.LENGTH_SHORT).show()
+                                    onSaveSuccess()
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🔄 ĐẶT LẠI GỐC",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Current Active Sources List
+                    Text(
+                        text = "NGUỒN HIỆN TẠI ĐANG SỬ DỤNG TRÊN APP:",
+                        color = Color(0xFFA0AEC0),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0F1118))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        currentSources.forEach { (name, url) ->
+                            SourceItemRow(name = name, url = url)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceItemRow(name: String, url: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF00FF66))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = name,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Text(
+            text = url,
+            color = Color(0xFF8892B0),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
