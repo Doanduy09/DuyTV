@@ -128,10 +128,15 @@ fun PlayerScreen(
     // Danh sách kênh & index hiện tại khi xem truyền hình
     val availableChannels = remember { AppCacheManager.activeChannels }
     val initialChIndex = remember(availableChannels, streamUrl, movieTitle) {
-        val idx = availableChannels.indexOfFirst { it.streamUrl == streamUrl || it.name.equals(movieTitle, ignoreCase = true) }
+        val idx = availableChannels.indexOfFirst {
+            it.streamUrl == streamUrl ||
+            it.backupUrls.contains(streamUrl) ||
+            it.name.equals(movieTitle, ignoreCase = true)
+        }
         if (idx >= 0) idx else 0
     }
     var currentChannelIndex by remember { mutableIntStateOf(initialChIndex) }
+    var currentBackupIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(currentChannelIndex, availableChannels) {
         if (isLive && availableChannels.isNotEmpty() && currentChannelIndex in availableChannels.indices) {
@@ -436,11 +441,62 @@ fun PlayerScreen(
         }
     }
 
+    fun showChannelOsd(channel: TvChannel, index: Int, total: Int, sourceIdx: Int = 0) {
+        val totalSources = channel.allStreamUrls().size
+        val sourceLabel = if (totalSources > 1) " • Nguồn ${sourceIdx + 1}/$totalSources" else ""
+        channelOsdName = channel.name
+        channelOsdSub = "${channel.groupTitle} • Kênh ${index + 1}/$total$sourceLabel"
+        channelOsdLogo = channel.logoUrl
+        channelOsdVisible = true
+        channelOsdJob?.cancel()
+        channelOsdJob = scope.launch {
+            delay(3500)
+            channelOsdVisible = false
+        }
+    }
+
+    fun loadLiveStreamUrl(url: String) {
+        val player = exoPlayer ?: return
+        currentStreamUrl = url
+        try {
+            val userAgent = if (url.contains("hainghia.net")) {
+                "TiviMate/4.7.0"
+            } else {
+                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
+            }
+            val dsFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent(userAgent)
+                .setConnectTimeoutMs(8000)
+                .setReadTimeoutMs(20000)
+                .setAllowCrossProtocolRedirects(true)
+            val msFactory = DefaultMediaSourceFactory(dsFactory)
+            val mediaItemB = MediaItem.Builder().setUri(url)
+            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.endsWith(".ts")) {
+                mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
+            } else if (url.contains(".m3u8") || url.contains("/hls/")) {
+                mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
+            }
+            mediaItemB.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(4000L)
+                    .setMinOffsetMs(2000L)
+                    .setMaxOffsetMs(10000L)
+                    .build()
+            )
+            val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+            player.stop()
+            player.setMediaSource(newMediaSource)
+            player.prepare()
+            player.play()
+        } catch (_: Exception) {}
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_READY) {
+                    errorMessage = null
                     totalDurationMs = maxOf(1L, exoPlayer.duration)
                 }
             }
@@ -463,8 +519,29 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
-                exoPlayer.prepare()
+                val currentChannel = if (isLive && currentChannelIndex in availableChannels.indices) {
+                    availableChannels[currentChannelIndex]
+                } else null
+                val allUrls = currentChannel?.allStreamUrls() ?: emptyList()
+
+                if (currentChannel != null && currentBackupIndex + 1 < allUrls.size) {
+                    val nextBackupIdx = currentBackupIndex + 1
+                    currentBackupIndex = nextBackupIdx
+                    errorMessage = null
+                    loadLiveStreamUrl(allUrls[nextBackupIdx])
+                    channelOsdName = currentChannel.name
+                    channelOsdSub = "⚡ Đường truyền lỗi • Tự chuyển Dự phòng ${nextBackupIdx + 1}/${allUrls.size}"
+                    channelOsdLogo = currentChannel.logoUrl
+                    channelOsdVisible = true
+                    channelOsdJob?.cancel()
+                    channelOsdJob = scope.launch {
+                        delay(4000)
+                        channelOsdVisible = false
+                    }
+                } else {
+                    errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
+                    exoPlayer.prepare()
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -589,63 +666,20 @@ fun PlayerScreen(
         triggerSeek(if (forward) stepSeconds else -stepSeconds)
     }
 
-    fun showChannelOsd(channel: TvChannel, index: Int, total: Int) {
-        channelOsdName = channel.name
-        channelOsdSub = "${channel.groupTitle} • Kênh ${index + 1}/$total"
-        channelOsdLogo = channel.logoUrl
-        channelOsdVisible = true
-        channelOsdJob?.cancel()
-        channelOsdJob = scope.launch {
-            delay(3500)
-            channelOsdVisible = false
-        }
-    }
-
     fun switchToChannel(targetIndex: Int) {
         val channels = availableChannels
-        val player = exoPlayer ?: return
         if (channels.isEmpty()) return
         val safeIndex = (targetIndex % channels.size + channels.size) % channels.size
         currentChannelIndex = safeIndex
+        currentBackupIndex = 0
+        errorMessage = null
         val ch = channels[safeIndex]
         currentTitle = ch.name
-        currentStreamUrl = ch.streamUrl
         currentPosterUrl = ch.logoUrl
         currentGroupName = ch.groupTitle
 
-        try {
-            val userAgent = if (ch.streamUrl.contains("hainghia.net")) {
-                "TiviMate/4.7.0"
-            } else {
-                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
-            }
-            val dsFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent(userAgent)
-                .setConnectTimeoutMs(8000)
-                .setReadTimeoutMs(20000)
-                .setAllowCrossProtocolRedirects(true)
-            val msFactory = DefaultMediaSourceFactory(dsFactory)
-            val mediaItemB = MediaItem.Builder().setUri(ch.streamUrl)
-            if (ch.streamUrl.contains("/rtp/") || ch.streamUrl.contains("video/mp2t") || ch.streamUrl.endsWith(".ts")) {
-                mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
-            } else if (ch.streamUrl.contains(".m3u8") || ch.streamUrl.contains("/hls/")) {
-                mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-            mediaItemB.setLiveConfiguration(
-                MediaItem.LiveConfiguration.Builder()
-                    .setTargetOffsetMs(4000L)
-                    .setMinOffsetMs(2000L)
-                    .setMaxOffsetMs(10000L)
-                    .build()
-            )
-            val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
-            player.stop()
-            player.setMediaSource(newMediaSource)
-            player.prepare()
-            player.play()
-        } catch (_: Exception) {}
-
-        showChannelOsd(ch, safeIndex, channels.size)
+        loadLiveStreamUrl(ch.streamUrl)
+        showChannelOsd(ch, safeIndex, channels.size, sourceIdx = 0)
     }
 
     fun nextChannel() {

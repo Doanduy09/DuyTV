@@ -39,8 +39,12 @@ data class TvChannel(
     val name: String,
     val logoUrl: String? = null,
     val streamUrl: String,
-    val groupTitle: String = "Truyền Hình"
-)
+    val groupTitle: String = "Truyền Hình",
+    val backupUrls: List<String> = emptyList()
+) {
+    fun allStreamUrls(): List<String> =
+        (listOf(streamUrl) + backupUrls).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+}
 
 data class TvSportsData(
     val matches: List<FootballMatchGroup> = emptyList(),

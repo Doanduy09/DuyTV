@@ -47,12 +47,19 @@ object AppCacheManager {
         if (cachedTvSports == null) {
             val diskTv = readDiskCache(appContext!!, TV_SPORTS_CACHE_FILE, TvSportsData::class.java)
             if (diskTv != null) {
-                cachedTvSports = diskTv
-                if (diskTv.channels.isNotEmpty()) {
-                    activeChannels = diskTv.channels
+                val mergedCh = MovieRepository.mergeAndDeduplicateChannels(defaultOfficialChannels + diskTv.channels)
+                val activeMatches = diskTv.matches.filter {
+                    MatchStateHelper.calculateMatchState(it.kickoffTime).status != MatchStatus.FINISHED
+                }
+                val cleaned = diskTv.copy(matches = activeMatches, channels = mergedCh)
+                cachedTvSports = cleaned
+                if (mergedCh.isNotEmpty()) {
+                    activeChannels = mergedCh
                 }
             } else if (defaultOfficialChannels.isNotEmpty()) {
-                activeChannels = defaultOfficialChannels
+                val dedupOfficial = MovieRepository.mergeAndDeduplicateChannels(defaultOfficialChannels)
+                activeChannels = dedupOfficial
+                cachedTvSports = TvSportsData(channels = dedupOfficial)
             }
         }
     }

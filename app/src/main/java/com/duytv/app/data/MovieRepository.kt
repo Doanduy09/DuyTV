@@ -62,30 +62,21 @@ class MovieRepository {
         val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
         val parsedTv = if (!tvBody.isNullOrBlank()) parseM3uData(tvBody, "Truyền Hình") else TvSportsData()
 
-        val combinedChannels = mutableListOf<TvChannel>()
-
-        // 1. Nạp danh sách các kênh truyền hình chính thống ĐÃ ĐƯỢC KIỂM TRA 100% HOẠT ĐỘNG
+        // 1. Gộp tất cả kênh truyền hình (Chính thống + M3U Truyền hình + M3U Thể thao)
+        // Các kênh trùng tên sẽ tự động gộp làm 1 và đưa các đường link khác vào backupUrls
         val officialChannels = getVerifiedOfficialChannels()
-        combinedChannels.addAll(officialChannels)
+        val rawAllChannels = officialChannels + parsedTv.channels + parsedSports.channels
+        val mergedChannels = mergeAndDeduplicateChannels(rawAllChannels)
 
-        // 2. Bổ sung các kênh phát hiện từ online M3U nếu chưa có trong danh sách chính thống
-        val existingUrls = officialChannels.map { it.streamUrl }.toSet()
-        val existingNames = officialChannels.map { it.name.lowercase() }.toSet()
-
-        for (ch in parsedTv.channels) {
-            if (!existingUrls.contains(ch.streamUrl) && !existingNames.contains(ch.name.lowercase())) {
-                combinedChannels.add(ch)
-            }
-        }
-
-        // 3. Nếu danh sách kênh rỗng, nạp dự phòng từ thể thao
-        if (combinedChannels.isEmpty()) {
-            combinedChannels.addAll(parsedSports.channels)
+        // 2. Lọc bỏ các trận bóng đã kết thúc (FINISHED) ngay khi cập nhật dữ liệu mới
+        val rawMatches = parsedSports.matches.ifEmpty { parsedTv.matches }
+        val activeMatches = rawMatches.filter { m ->
+            MatchStateHelper.calculateMatchState(m.kickoffTime, now).status != MatchStatus.FINISHED
         }
 
         val result = TvSportsData(
-            matches = parsedSports.matches.ifEmpty { parsedTv.matches },
-            channels = combinedChannels
+            matches = activeMatches,
+            channels = mergedChannels
         )
 
         cachedTvSports = result
@@ -95,154 +86,227 @@ class MovieRepository {
     }
 
     companion object {
+        fun normalizeChannelKey(rawName: String): String {
+            val noAccent = java.text.Normalizer.normalize(rawName, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .replace('đ', 'd').replace('Đ', 'D')
+                .lowercase()
+            val cleaned = noAccent
+                .replace(Regex("\\[.*?]"), " ")
+                .replace(Regex("\\(.*?\\)"), " ")
+                .substringBefore(" - ")
+                .trim()
+            val compact = cleaned.replace(Regex("[^a-z0-9+]"), "")
+
+            return when {
+                compact.contains("thvl1") || compact.contains("vinhlong1") -> "thvl1"
+                compact.contains("thvl2") || compact.contains("vinhlong2") -> "thvl2"
+                compact.contains("thvl3") || compact.contains("vinhlong3") -> "thvl3"
+                compact.contains("thvl4") || compact.contains("vinhlong4") -> "thvl4"
+                compact.contains("thvl5") || compact.contains("vinhlong5") -> "thvl5"
+                compact.contains("vtv5tnb") || compact.contains("vtv5taynambo") -> "vtv5tnb"
+                compact.contains("vtv5tn") || compact.contains("vtv5taynguyen") -> "vtv5tn"
+                compact.contains("vtv10") -> "vtv10"
+                compact.contains("vtv1") -> "vtv1"
+                compact.contains("vtv2") -> "vtv2"
+                compact.contains("vtv3") -> "vtv3"
+                compact.contains("vtv4") -> "vtv4"
+                compact.contains("vtv5") -> "vtv5"
+                compact.contains("vtv6") || compact.contains("vtvcantho") -> "vtv6"
+                compact.contains("vtv7") -> "vtv7"
+                compact.contains("vtv8") -> "vtv8"
+                compact.contains("vtv9") -> "vtv9"
+                compact.contains("htvcthethao") || compact.contains("htvthethao") -> "htvcthethao"
+                compact.contains("htvcphim") -> "htvcphim"
+                compact.contains("htvcdulich") -> "htvcdulich"
+                compact.contains("htvcgiadinh") -> "htvcgiadinh"
+                compact.contains("htvcphunu") -> "htvcphunu"
+                compact.contains("htvcthuanviet") -> "htvcthuanviet"
+                compact.contains("htvc+") || compact.contains("htvcplus") -> "htvcplus"
+                compact.contains("htv1") -> "htv1"
+                compact.contains("htv2") || compact.contains("viechannel") -> "htv2"
+                compact.contains("htv3") -> "htv3"
+                compact.contains("htv4") -> "htv4"
+                compact.contains("htv5") -> "htv5"
+                compact.contains("htv7") -> "htv7"
+                compact.contains("htv9") -> "htv9"
+                compact.contains("antv") || compact.contains("anninhtv") -> "antv"
+                compact.contains("qpvn") || compact.contains("quocphong") || compact.contains("qptv") -> "qpvn"
+                compact.contains("hanoi1") || compact.contains("hntv1") -> "hanoi1"
+                compact.contains("hanoi2") || compact.contains("hntv2") -> "hanoi2"
+                compact.contains("quangninh1") || compact.contains("qtv1") -> "quangninh1"
+                compact.contains("quangninh3") || compact.contains("qtv3") -> "quangninh3"
+                compact.contains("dongnai1") || compact.contains("dnrtv1") -> "dongnai1"
+                compact.contains("dongnai2") || compact.contains("dnrtv2") -> "dongnai2"
+                compact.contains("dongthap2") || compact.contains("thdt2") -> "dongthap2"
+                compact.contains("dongthap") || compact.contains("thdt") -> "dongthap1"
+                compact.contains("cantho2") -> "cantho2"
+                compact.contains("cantho3") -> "cantho3"
+                compact.contains("cantho") || compact.contains("thtpct") -> "cantho1"
+                compact.contains("angiang2") -> "angiang2"
+                compact.contains("angiang3") -> "angiang3"
+                compact.contains("angiang") || compact.contains("atv") -> "angiang1"
+                compact.contains("danang2") || compact.contains("drt2") -> "danang2"
+                compact.contains("danang") || compact.contains("drt1") -> "danang1"
+                compact.contains("haiphong3") || compact.contains("thp3") -> "haiphong3"
+                compact.contains("haiphong") || compact.contains("thp") -> "haiphong1"
+                compact.contains("khanhhoa") || compact.contains("ktv") -> "khanhhoa1"
+                compact.contains("hue") || compact.contains("trt") -> "hue"
+                else -> {
+                    cleaned.replace(Regex("\\b(fhd|uhd|4k|1080p|720p|hd|sd|hevc|tv|kenh|dai|truyen hinh)\\b"), "")
+                        .replace(Regex("[^a-z0-9]"), "")
+                        .ifBlank { compact }
+                }
+            }
+        }
+
+        fun mergeAndDeduplicateChannels(allInputs: List<TvChannel>): List<TvChannel> {
+            val mergedMap = LinkedHashMap<String, TvChannel>()
+            for (ch in allInputs) {
+                if (ch.streamUrl.isBlank()) continue
+                val key = normalizeChannelKey(ch.name)
+                if (key.isBlank()) continue
+                val existing = mergedMap[key]
+                if (existing == null) {
+                    val allUrls = ch.allStreamUrls()
+                    mergedMap[key] = ch.copy(
+                        streamUrl = allUrls.first(),
+                        backupUrls = allUrls.drop(1)
+                    )
+                } else {
+                    val combinedUrls = (existing.allStreamUrls() + ch.allStreamUrls()).distinct()
+                    val bestLogo = if (!existing.logoUrl.isNullOrBlank() &&
+                        !existing.logoUrl.contains("vZYlGIW") &&
+                        !existing.logoUrl.contains("qWWpYRR")
+                    ) {
+                        existing.logoUrl
+                    } else if (!ch.logoUrl.isNullOrBlank()) {
+                        ch.logoUrl
+                    } else {
+                        existing.logoUrl
+                    }
+                    mergedMap[key] = existing.copy(
+                        logoUrl = bestLogo,
+                        streamUrl = combinedUrls.first(),
+                        backupUrls = combinedUrls.drop(1)
+                    )
+                }
+            }
+            return mergedMap.values.toList()
+        }
+
         fun getVerifiedOfficialChannels(): List<TvChannel> {
         return listOf(
-            // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - CHÍNH THỐNG VIETTEL TV360 & FPT CDN 1080P
+            // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - ĐÃ GỘP LINK DỰ PHÒNG VÀO 1 KÊNH DUY NHẤT
             TvChannel(
-                id = "thvl1_hd_tv360",
-                name = "THVL1 HD - Vĩnh Long",
-                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                id = "thvl1_hd",
+                name = "THVL1 HD",
+                logoUrl = "https://i.imgur.com/q3fjpYc.png",
                 streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=25",
-                groupTitle = "THVL Vĩnh Long"
+                groupTitle = "THVL Vĩnh Long",
+                backupUrls = listOf("https://1011154949.vnns.net/CDN-FPT02/THVL1-HD-1080p/playlist.m3u8")
             ),
             TvChannel(
-                id = "thvl1_hd_fpt",
-                name = "THVL1 HD (Dự phòng FPT)",
-                logoUrl = "https://i.imgur.com/gvPtTR2.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/THVL1-HD-1080p/playlist.m3u8",
-                groupTitle = "THVL Vĩnh Long"
-            ),
-            TvChannel(
-                id = "thvl2_hd_tv360",
-                name = "THVL2 HD - Vĩnh Long",
-                logoUrl = "https://i.imgur.com/wYadDFn.png",
+                id = "thvl2_hd",
+                name = "THVL2 HD",
+                logoUrl = "https://i.imgur.com/zGv54Ed.png",
                 streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=26",
-                groupTitle = "THVL Vĩnh Long"
+                groupTitle = "THVL Vĩnh Long",
+                backupUrls = listOf("https://1011154949.vnns.net/CDN-FPT02/THVL2-HD-1080p/playlist.m3u8")
             ),
             TvChannel(
-                id = "thvl2_hd_fpt",
-                name = "THVL2 HD (Dự phòng FPT)",
-                logoUrl = "https://i.imgur.com/wYadDFn.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/THVL2-HD-1080p/playlist.m3u8",
-                groupTitle = "THVL Vĩnh Long"
-            ),
-            TvChannel(
-                id = "thvl3_hd_tv360",
-                name = "THVL3 HD - Phim Hay",
-                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                id = "thvl3_hd",
+                name = "THVL3 HD",
+                logoUrl = "https://i.imgur.com/44c1Yoz.png",
                 streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=219",
                 groupTitle = "THVL Vĩnh Long"
             ),
             TvChannel(
-                id = "thvl4_hd_tv360",
-                name = "THVL4 HD - Giải Trí",
-                logoUrl = "https://i.imgur.com/wYadDFn.png",
+                id = "thvl4_hd",
+                name = "THVL4 HD",
+                logoUrl = "https://i.imgur.com/JWDsJxB.png",
                 streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=220",
                 groupTitle = "THVL Vĩnh Long"
             ),
             TvChannel(
-                id = "thvl5_hd_tv360",
-                name = "THVL5 HD - Tin Tức",
-                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                id = "thvl5_hd",
+                name = "THVL5 HD",
+                logoUrl = "https://i.imgur.com/hSdSUqx.png",
                 streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=91",
                 groupTitle = "THVL Vĩnh Long"
             ),
 
-            // 🔴 TRUYỀN HÌNH QUỐC GIA VIỆT NAM (VTV 1 - 9, ANTV, QPVN) - CHÍNH THỐNG VTV DIGITAL & TV360
+            // 🔴 TRUYỀN HÌNH QUỐC GIA VIỆT NAM (VTV 1 - 9, ANTV, QPVN) - ĐÃ GỘP LINK DỰ PHÒNG
             TvChannel(
-                id = "vtv1_hd_chinhthong",
-                name = "VTV1 HD - Thời Sự",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                id = "vtv1_hd",
+                name = "VTV1 HD",
+                logoUrl = "https://i.postimg.cc/F1FvzstX/V1.png",
                 streamUrl = "https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8",
-                groupTitle = "VTV Quốc Gia"
+                groupTitle = "VTV Quốc Gia",
+                backupUrls = listOf("https://vmttv.dpdns.org/tv360/?id=vtv1")
             ),
             TvChannel(
-                id = "vtv1_hd_tv360",
-                name = "VTV1 HD (Dự phòng TV360)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv1",
-                groupTitle = "VTV Quốc Gia"
-            ),
-            TvChannel(
-                id = "vtv2_hd_vtvdigital",
-                name = "VTV2 HD - Khoa Học Giáo Dục",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                id = "vtv2_hd",
+                name = "VTV2 HD",
+                logoUrl = "https://i.postimg.cc/yDR4tDRm/V2.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv2/master.m3u8",
-                groupTitle = "VTV Quốc Gia"
+                groupTitle = "VTV Quốc Gia",
+                backupUrls = listOf("https://vmttv.dpdns.org/tv360/?id=vtv2")
             ),
             TvChannel(
-                id = "vtv2_hd_tv360",
-                name = "VTV2 HD (Dự phòng TV360)",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv2",
-                groupTitle = "VTV Quốc Gia"
-            ),
-            TvChannel(
-                id = "vtv3_hd_tv360",
-                name = "VTV3 HD - Giải Trí & Thể Thao",
-                logoUrl = "https://i.imgur.com/7rLCvgS.png",
+                id = "vtv3_hd",
+                name = "VTV3 HD",
+                logoUrl = "https://i.postimg.cc/B8cWZRM0/V3.png",
                 streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv3",
                 groupTitle = "VTV Quốc Gia"
             ),
             TvChannel(
-                id = "vtv4_hd_vtvdigital",
-                name = "VTV4 HD - Đối Ngoại",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                id = "vtv4_hd",
+                name = "VTV4 HD",
+                logoUrl = "https://i.postimg.cc/Wqzxnzj0/V4.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8",
-                groupTitle = "VTV Quốc Gia"
+                groupTitle = "VTV Quốc Gia",
+                backupUrls = listOf("https://vmttv.dpdns.org/tv360/?id=vtv4")
             ),
             TvChannel(
-                id = "vtv4_hd_tv360",
-                name = "VTV4 HD (Dự phòng TV360)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv4",
-                groupTitle = "VTV Quốc Gia"
-            ),
-            TvChannel(
-                id = "vtv5_tnb_vtvdigital",
-                name = "VTV5 HD - Tây Nam Bộ",
-                logoUrl = "https://i.imgur.com/7qPKNFU.png",
+                id = "vtv5_tnb",
+                name = "VTV5 Tây Nam Bộ",
+                logoUrl = "https://i.postimg.cc/68ngzDsM/V5TNB.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
                 groupTitle = "VTV Quốc Gia"
             ),
             TvChannel(
-                id = "vtv7_hd_vtvdigital",
-                name = "VTV7 HD - Kênh Giáo Dục",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                id = "vtv7_hd",
+                name = "VTV7 HD",
+                logoUrl = "https://i.postimg.cc/ykSbYwN8/V7.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8",
                 groupTitle = "VTV Quốc Gia"
             ),
             TvChannel(
-                id = "vtv8_hd_vtvdigital",
-                name = "VTV8 HD - Miền Trung Tây Nguyên",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                id = "vtv8_hd",
+                name = "VTV8 HD",
+                logoUrl = "https://i.postimg.cc/k2QYWK8w/V8.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8",
                 groupTitle = "VTV Quốc Gia"
             ),
             TvChannel(
-                id = "vtv9_hd_vtvdigital",
-                name = "VTV9 HD - Miền Nam",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                id = "vtv9_hd",
+                name = "VTV9 HD",
+                logoUrl = "https://i.postimg.cc/phT0NSS6/V9.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv9/master.m3u8",
-                groupTitle = "VTV Quốc Gia"
+                groupTitle = "VTV Quốc Gia",
+                backupUrls = listOf("https://vmttv.dpdns.org/tv360/?id=vtv9")
             ),
             TvChannel(
-                id = "vtv9_hd_tv360",
-                name = "VTV9 HD (Dự phòng TV360)",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv9",
-                groupTitle = "VTV Quốc Gia"
-            ),
-            TvChannel(
-                id = "antv_hd_prime",
-                name = "ANTV HD - Truyền Hình Công An",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                id = "antv_hd",
+                name = "ANTV HD",
+                logoUrl = "https://i.imgur.com/39xKjU9.png",
                 streamUrl = "https://liveh12.vtvprime.vn/hls/ANNINHTV/index.m3u8",
                 groupTitle = "VTV Quốc Gia"
             ),
             TvChannel(
-                id = "qpvn_hd_prime",
-                name = "QPVN HD - Truyền Hình Quốc Phòng",
+                id = "qpvn_hd",
+                name = "QPVN HD",
                 logoUrl = "https://i.imgur.com/qWWpYRR.png",
                 streamUrl = "https://liveh12.vtvprime.vn/hls/QPTV/index.m3u8",
                 groupTitle = "VTV Quốc Gia"
@@ -520,8 +584,19 @@ class MovieRepository {
                             .replace("|", "-")
                             .trim()
 
-                        if (cleanName.contains("THVL", ignoreCase = true) || cleanName.contains("Vĩnh Long", ignoreCase = true) || cleanName.contains("Vinh Long", ignoreCase = true)) {
-                            group = "THVL Vĩnh Long"
+                        when {
+                            cleanName.contains("THVL", ignoreCase = true) || cleanName.contains("Vĩnh Long", ignoreCase = true) || cleanName.contains("Vinh Long", ignoreCase = true) -> {
+                                group = "THVL Vĩnh Long"
+                            }
+                            group.equals("VTV", ignoreCase = true) || cleanName.startsWith("VTV", ignoreCase = true) || cleanName.contains("ANTV", ignoreCase = true) || cleanName.contains("QPVN", ignoreCase = true) -> {
+                                group = "VTV Quốc Gia"
+                            }
+                            group.equals("HTV", ignoreCase = true) || cleanName.startsWith("HTV", ignoreCase = true) -> {
+                                group = "HTV TP.HCM"
+                            }
+                            group.contains("Địa phương", ignoreCase = true) || group.contains("Dia phuong", ignoreCase = true) -> {
+                                group = "Đài Tỉnh Thành"
+                            }
                         }
 
                         channels.add(

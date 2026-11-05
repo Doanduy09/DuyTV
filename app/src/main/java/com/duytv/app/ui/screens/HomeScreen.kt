@@ -510,9 +510,12 @@ fun HomeScreen(
                         }
                     }
 
-                    // Swimlane Live: ⚽ BÓNG ĐÁ TRỰC TIẾP & TRUYỀN HÌNH HD
+                    // Swimlane Live: ⚽ BÓNG ĐÁ TRỰC TIẾP & TRUYỀN HÌNH HD HÀNG NGANG
                     val sportsSnapshot = tvSportsData
                     if (sportsSnapshot != null && (sportsSnapshot.matches.isNotEmpty() || sportsSnapshot.channels.isNotEmpty())) {
+                        val activeHomeMatches = sportsSnapshot.matches.filter {
+                            MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status != MatchStatus.FINISHED
+                        }
                         item {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Row(
@@ -522,7 +525,7 @@ fun HomeScreen(
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "⚽ BÓNG ĐÁ TRỰC TIẾP & TRUYỀN HÌNH HD",
+                                            text = "📺 TRUYỀN HÌNH TRỰC TIẾP & BÓNG ĐÁ HD",
                                             color = TextWhite,
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold
@@ -550,7 +553,7 @@ fun HomeScreen(
                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
                                         Text(
-                                            text = "Xem tất cả (${sportsSnapshot.matches.size} trận • ${sportsSnapshot.channels.size} kênh) >",
+                                            text = "Xem tất cả (${activeHomeMatches.size} trận • ${sportsSnapshot.channels.size} kênh) >",
                                             color = if (seeAllFoc) Color.White else AccentRed,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
@@ -560,35 +563,56 @@ fun HomeScreen(
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                    contentPadding = PaddingValues(vertical = 4.dp)
-                                ) {
-                                    items(sportsSnapshot.matches.take(6), key = { it.id }) { match ->
-                                        FootballMatchCard(
-                                            match = match,
-                                            nowMillis = currentHeartbeatMillis,
-                                            onSelectStream = { streamItem ->
-                                                if (match.streams.size > 1) {
-                                                    selectedMatchForStreams = match
-                                                } else {
-                                                    onPlayLiveStream(
-                                                        "${match.homeTeam} vs ${match.awayTeam}",
-                                                        streamItem.streamUrl,
-                                                        match.logo
-                                                    )
-                                                }
+                                // Thanh Dock Kênh Truyền Hình Hàng Ngang (Phong cách Glass Dock)
+                                if (sportsSnapshot.channels.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .background(Color(0x99121722))
+                                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
+                                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    ) {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                            contentPadding = PaddingValues(horizontal = 4.dp)
+                                        ) {
+                                            items(sportsSnapshot.channels, key = { it.id }) { channel ->
+                                                TvChannelCard(
+                                                    channel = channel,
+                                                    onClick = {
+                                                        onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
+                                                    }
+                                                )
                                             }
-                                        )
+                                        }
                                     }
+                                }
 
-                                    items(sportsSnapshot.channels.take(8), key = { it.id }) { channel ->
-                                        TvChannelCard(
-                                            channel = channel,
-                                            onClick = {
-                                                onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
-                                            }
-                                        )
+                                // Hàng ngang Trận Cầu Đang Diễn Ra / Sắp Đá (Bỏ các trận đã kết thúc)
+                                if (activeHomeMatches.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                    ) {
+                                        items(activeHomeMatches, key = { it.id }) { match ->
+                                            FootballMatchCard(
+                                                match = match,
+                                                nowMillis = currentHeartbeatMillis,
+                                                onSelectStream = { streamItem ->
+                                                    if (match.streams.size > 1) {
+                                                        selectedMatchForStreams = match
+                                                    } else {
+                                                        onPlayLiveStream(
+                                                            "${match.homeTeam} vs ${match.awayTeam}",
+                                                            streamItem.streamUrl,
+                                                            match.logo
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -696,7 +720,7 @@ fun HomeScreen(
                                         fontWeight = FontWeight.ExtraBold
                                     )
                                     Text(
-                                        text = "Đa nguồn BLV Tiếng Việt • Tự động đếm ngược giờ đá • 131 kênh TV",
+                                        text = "Gộp kênh trùng & tự nhảy link dự phòng • Đã lọc trận kết thúc • ${sports.channels.size} kênh truyền hình",
                                         color = TextDim,
                                         fontSize = 12.sp
                                     )
@@ -717,8 +741,8 @@ fun HomeScreen(
                                     }
                                     val filters = listOf(
                                         "all" to "TẤT CẢ",
-                                        "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
                                         "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
+                                        "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
                                         "htv" to "📺 HTV TP.HCM ($htvCount)",
                                         "tinh" to "🏛️ ĐÀI TỈNH THÀNH ($tinhCount)",
                                         "live" to "🔴 ĐANG LIVE",
@@ -761,15 +785,17 @@ fun HomeScreen(
                         }
                     }
 
-                    // Danh sách trận đấu được sắp xếp và lọc theo trạng thái thời gian thực
-                    val allMatchesSorted = sports.matches.sortedBy { m ->
-                        val st = MatchStateHelper.calculateMatchState(m.kickoffTime, currentHeartbeatMillis)
-                        when (st.status) {
-                            MatchStatus.LIVE -> 0
-                            MatchStatus.UPCOMING -> 1
-                            MatchStatus.FINISHED -> 2
+                    // Danh sách trận đấu: Tự động loại bỏ các trận ĐÃ KẾT THÚC (FINISHED)
+                    val allMatchesSorted = sports.matches
+                        .filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status != MatchStatus.FINISHED }
+                        .sortedBy { m ->
+                            val st = MatchStateHelper.calculateMatchState(m.kickoffTime, currentHeartbeatMillis)
+                            when (st.status) {
+                                MatchStatus.LIVE -> 0
+                                MatchStatus.UPCOMING -> 1
+                                MatchStatus.FINISHED -> 2
+                            }
                         }
-                    }
                     val filteredMatches = when (tvSubFilter) {
                         "live" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.LIVE }
                         "upcoming" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.UPCOMING }
@@ -778,101 +804,98 @@ fun HomeScreen(
                     }
 
                     val showChannels = (tvSubFilter == "all" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "tinh")
-                    val filteredChannels = when (tvSubFilter) {
-                        "thvl" -> sports.channels.filter {
-                            it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
-                        }
-                        "vtv" -> sports.channels.filter {
-                            it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
-                        }
-                        "htv" -> sports.channels.filter {
-                            it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
-                        }
-                        "tinh" -> sports.channels.filter {
-                            it.groupTitle == "Đài Tỉnh Thành"
-                        }
-                        "live", "upcoming" -> emptyList()
-                        else -> sports.channels
+                    val vtvChannels = sports.channels.filter {
+                        it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
                     }
+                    val thvlChannels = sports.channels.filter {
+                        it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
+                    }
+                    val htvChannels = sports.channels.filter {
+                        it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+                    }
+                    val usedIds = (vtvChannels + thvlChannels + htvChannels).map { it.id }.toSet()
+                    val tinhChannels = sports.channels.filter { it.id !in usedIds }
 
                     if (filteredMatches.isNotEmpty()) {
                         item {
-                            Text(
-                                text = "🔥 DANH SÁCH TRẬN CẦU TÂM ĐIỂM (${filteredMatches.size} TRẬN)",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-
-                        // Hiển thị 3 card bóng đá mỗi hàng trên màn hình TV & Tablet
-                        val matchRows = filteredMatches.chunked(3)
-                        itemsIndexed(matchRows) { _, rowItems ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                for (match in rowItems) {
-                                    FootballMatchCard(
-                                        match = match,
-                                        nowMillis = currentHeartbeatMillis,
-                                        onSelectStream = { streamItem ->
-                                            if (match.streams.size > 1) {
-                                                selectedMatchForStreams = match
-                                            } else {
-                                                onPlayLiveStream("${match.homeTeam} vs ${match.awayTeam}", streamItem.streamUrl, match.logo)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "🔥 DANH SÁCH TRẬN CẦU ĐANG & SẮP DIỄN RA (${filteredMatches.size} TRẬN)",
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(vertical = 4.dp)
+                                ) {
+                                    items(filteredMatches, key = { it.id }) { match ->
+                                        FootballMatchCard(
+                                            match = match,
+                                            nowMillis = currentHeartbeatMillis,
+                                            onSelectStream = { streamItem ->
+                                                if (match.streams.size > 1) {
+                                                    selectedMatchForStreams = match
+                                                } else {
+                                                    onPlayLiveStream("${match.homeTeam} vs ${match.awayTeam}", streamItem.streamUrl, match.logo)
+                                                }
                                             }
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                val rem = 3 - rowItems.size
-                                if (rem > 0) {
-                                    for (i in 0 until rem) {
-                                        Spacer(modifier = Modifier.weight(1f))
+                                        )
                                     }
                                 }
                             }
                         }
                     }
 
-                    if (showChannels && filteredChannels.isNotEmpty()) {
-                        val headerText = if (tvSubFilter == "thvl") {
-                            "⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)"
-                        } else {
-                            "📺 KÊNH TRUYỀN HÌNH VIỆT NAM & QUỐC TẾ (${filteredChannels.size} KÊNH FHD)"
-                        }
-                        item {
-                            Text(
-                                text = headerText,
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 16.dp)
+                    if (showChannels && sports.channels.isNotEmpty()) {
+                        val channelGroupsToDisplay = when (tvSubFilter) {
+                            "vtv" -> listOf("🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV)" to vtvChannels)
+                            "thvl" -> listOf("⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels)
+                            "htv" -> listOf("📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels)
+                            "tinh" -> listOf("🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH & TỔNG HỢP" to tinhChannels)
+                            else -> listOf(
+                                "🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV1 - VTV9, ANTV, QPVN)" to vtvChannels,
+                                "⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels,
+                                "📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels,
+                                "🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH & TỔNG HỢP (${tinhChannels.size} KÊNH)" to tinhChannels
                             )
                         }
 
-                        // Hiển thị 6 kênh TV mỗi hàng
-                        val channelRows = filteredChannels.chunked(6)
-                        itemsIndexed(channelRows) { _, rowItems ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                for (channel in rowItems) {
-                                    TvChannelCard(
-                                        channel = channel,
-                                        onClick = {
-                                            onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                val rem = 6 - rowItems.size
-                                if (rem > 0) {
-                                    for (i in 0 until rem) {
-                                        Spacer(modifier = Modifier.weight(1f))
+                        for ((groupHeader, groupList) in channelGroupsToDisplay) {
+                            if (groupList.isNotEmpty()) {
+                                item(key = "row_$groupHeader") {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = groupHeader,
+                                            color = Color.White,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)
+                                        )
+                                        // Thanh Dock Kênh Hàng Ngang (Phong cách Glass Dock như ảnh mẫu)
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(22.dp))
+                                                .background(Color(0x99121722))
+                                                .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
+                                                .padding(horizontal = 16.dp, vertical = 14.dp)
+                                        ) {
+                                            LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                                contentPadding = PaddingValues(horizontal = 4.dp)
+                                            ) {
+                                                items(groupList, key = { it.id }) { channel ->
+                                                    TvChannelCard(
+                                                        channel = channel,
+                                                        onClick = {
+                                                            onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
