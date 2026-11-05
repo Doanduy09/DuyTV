@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -37,8 +38,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +72,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import java.util.Locale
+
+enum class VideoAspectMode(val mode: Int, val label: String, val desc: String) {
+    ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "🌟 TRÀN MÀN HÌNH (100%)", "Xóa sạch 100% viền đen, lấp kín toàn màn hình"),
+    FILL(AspectRatioFrameLayout.RESIZE_MODE_FILL, "↔️ CO GIÃN ĐẦY MÀN HÌNH", "Kéo phẳng vừa khít toàn bộ diện tích tấm nền"),
+    FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT, "📺 VỪA VẶN CHUẨN GỐC", "Giữ nguyên tỷ lệ chuẩn điện ảnh gốc")
+}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -99,12 +110,83 @@ fun PlayerScreen(
     var seekConsecutiveCount by remember { mutableIntStateOf(0) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
 
-    // Keep TV screen awake during playback
+    // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
+    var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
+    var aspectBadgeText by remember { mutableStateOf<String?>(null) }
+    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+
+    fun cycleAspectMode() {
+        val modes = VideoAspectMode.values()
+        val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
+        currentAspectMode = modes[nextIdx]
+        aspectBadgeText = currentAspectMode.label
+        scope.launch {
+            delay(2200)
+            aspectBadgeText = null
+        }
+    }
+
+    // Keep screen awake & Immersive Sticky Fullscreen (Ẩn 100% thanh điều hướng và thanh trạng thái)
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (window != null) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+            // Cho phép vẽ tràn qua Notch / Camera nốt ruồi / Tai thỏ trên Tablet & Phone
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                window.attributes.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+
+            // Tắt DecorFitsSystemWindows để chiếm trọn 100% diện tích màn hình
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+            )
+        }
         onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (window != null) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+            }
+        }
+    }
+
+    // Tự động tái khóa Immersive Fullscreen mỗi khi thanh điều khiển ẩn đi
+    LaunchedEffect(showControls) {
+        if (!showControls) {
+            val window = (context as? Activity)?.window
+            if (window != null) {
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                insetsController.hide(WindowInsetsCompat.Type.navigationBars())
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                )
+            }
         }
     }
 
@@ -559,11 +641,15 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(focusRequester)
             .focusable()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                showControls = !showControls
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        cycleAspectMode()
+                    },
+                    onTap = {
+                        showControls = !showControls
+                    }
+                )
             }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
@@ -607,6 +693,14 @@ fun PlayerScreen(
                             showControls = !showControls
                             return@onKeyEvent true
                         }
+                        KeyEvent.KEYCODE_WINDOW,
+                        KeyEvent.KEYCODE_PROG_GREEN,
+                        KeyEvent.KEYCODE_CAPTIONS,
+                        KeyEvent.KEYCODE_INFO -> {
+                            cycleAspectMode()
+                            showControls = true
+                            return@onKeyEvent true
+                        }
                         KeyEvent.KEYCODE_MENU -> {
                             showQualityMenu = !showQualityMenu
                             showControls = true
@@ -630,17 +724,62 @@ fun PlayerScreen(
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = currentAspectMode.mode
                     isFocusable = false
                     descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
+                    playerViewRef = this
+                }
+            },
+            update = { pv ->
+                pv.player = exoPlayer
+                pv.resizeMode = currentAspectMode.mode
+                pv.subtitleView?.let { subView ->
+                    if (currentAspectMode == VideoAspectMode.ZOOM) {
+                        subView.setBottomPaddingFraction(0.12f)
+                    } else {
+                        subView.setBottomPaddingFraction(0.04f)
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // HUD Pill Badge hiển thị khi đổi tỷ lệ màn hình (Double-Tap hoặc bấm nút)
+        AnimatedVisibility(
+            visible = aspectBadgeText != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 80.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xEE111827))
+                    .border(1.5.dp, Color(0xFF00E676), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = aspectBadgeText ?: "",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = currentAspectMode.desc,
+                        color = Color(0xFFA0AAB8),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
 
         if (isBuffering && errorMessage == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -819,6 +958,38 @@ fun PlayerScreen(
                             }
                         }
 
+                        // Nút Tỷ Lệ Màn Hình / Full Màn Hình (Chạm hoặc D-Pad trên TV)
+                        val aspectInter = remember { MutableInteractionSource() }
+                        val isAspectFoc by aspectInter.collectIsFocusedAsState()
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isAspectFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isAspectFoc) 1.5.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = aspectInter)
+                                .clickable(interactionSource = aspectInter, indication = null) {
+                                    cycleAspectMode()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = when (currentAspectMode) {
+                                    VideoAspectMode.ZOOM -> "🌟 MÀN HÌNH: TRÀN VIỀN (100%)"
+                                    VideoAspectMode.FILL -> "↔️ MÀN HÌNH: CĂNG ĐẦY (FILL)"
+                                    VideoAspectMode.FIT -> "📺 MÀN HÌNH: CHUẨN GỐC (FIT)"
+                                },
+                                color = if (currentAspectMode == VideoAspectMode.ZOOM) Color(0xFF00E676) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
                         // Quality Switcher Button on HUD
                         val qualInter = remember { MutableInteractionSource() }
                         val isQualFoc by qualInter.collectIsFocusedAsState()
@@ -973,6 +1144,16 @@ fun PlayerScreen(
                             text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
                             onClick = { cyclePlaybackSpeed() }
                         )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        QuickSeekPill(
+                            text = when (currentAspectMode) {
+                                VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
+                                VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
+                                VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
+                            },
+                            highlight = (currentAspectMode == VideoAspectMode.ZOOM),
+                            onClick = { cycleAspectMode() }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -1029,14 +1210,16 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         GuideItem(key = "OK / PLAY", desc = "Tạm dừng / Phát")
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
                         GuideItem(key = "◄ / ►", desc = "Tua tăng tốc (10s - 1p - 5p)")
-                        Spacer(modifier = Modifier.width(16.dp))
-                        GuideItem(key = "⚡ 1.0x - 2.0x", desc = "Tốc độ phát")
-                        Spacer(modifier = Modifier.width(16.dp))
-                        GuideItem(key = "MENU", desc = "Băng thông (4K/2K/Auto)")
-                        Spacer(modifier = Modifier.width(16.dp))
-                        GuideItem(key = "BACK", desc = "Thoát xem")
+                        Spacer(modifier = Modifier.width(14.dp))
+                        GuideItem(key = "🌟 TỶ LỆ", desc = "Tràn viền (100%)")
+                        Spacer(modifier = Modifier.width(14.dp))
+                        GuideItem(key = "⚡ 1.0x - 2.0x", desc = "Tốc độ")
+                        Spacer(modifier = Modifier.width(14.dp))
+                        GuideItem(key = "MENU", desc = "Băng thông (4K/2K)")
+                        Spacer(modifier = Modifier.width(14.dp))
+                        GuideItem(key = "BACK", desc = "Thoát")
                     }
                 }
             }
