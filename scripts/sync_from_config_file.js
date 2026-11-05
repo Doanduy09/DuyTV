@@ -31,6 +31,13 @@ if (fs.existsSync(sourcesJsonPath)) {
 
 if (!sourcesConfig.sources) sourcesConfig.sources = {};
 
+// Dọn dẹp các nguồn custom cũ để luôn đồng bộ chính xác với .config
+Object.keys(sourcesConfig.sources).forEach(k => {
+    if (k.startsWith('custom_')) {
+        delete sourcesConfig.sources[k];
+    }
+});
+
 // Duyệt từng link trong .config và tự động phân loại hoặc thêm vào nguồn
 lines.forEach((url, idx) => {
     let cleanUrl = url.trim();
@@ -42,16 +49,16 @@ lines.forEach((url, idx) => {
     const lower = cleanUrl.toLowerCase();
 
     // Nhận diện nguồn quen thuộc
-    if (lower.includes('ophim')) {
+    if (lower.includes('ophim') || lower.includes('rapphim')) {
         sourcesConfig.sources.ophim = {
             name: "OPhim",
-            api_base: cleanUrl,
+            api_base: lower.includes('rapphim') ? "https://ophim.cc" : cleanUrl,
             enabled: true
         };
-    } else if (lower.includes('phimapi')) {
+    } else if (lower.includes('phimapi') || lower.includes('mephim')) {
         sourcesConfig.sources.kkphim = {
             name: "KKPhim",
-            api_base: cleanUrl,
+            api_base: lower.includes('mephim') ? "https://phimapi.com" : cleanUrl,
             image_cdn: "https://phimimg.com",
             enabled: true
         };

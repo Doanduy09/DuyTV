@@ -838,7 +838,7 @@ fun SourceSettingsDialog(
                     OutlinedTextField(
                         value = inputUrl,
                         onValueChange = { inputUrl = it },
-                        placeholder = { Text("Ví dụ: https://mephim.ddns.net hoặc https://rapphim.vip", color = Color(0xFF6E7687), fontSize = 13.sp) },
+                        placeholder = { Text("Ví dụ: https://phimapi.com hoặc https://ophim.cc", color = Color(0xFF6E7687), fontSize = 13.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
@@ -863,11 +863,10 @@ fun SourceSettingsDialog(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     val presets = listOf(
+                        "KKPhim (Chuan)" to "https://phimapi.com",
                         "OPhim" to "https://ophim.cc",
-                        "KKPhim" to "https://phimapi.com",
-                        "Mê Phim" to "https://mephim.ddns.net",
-                        "Rạp Phim" to "https://rapphim.vip",
-                        "NguonC" to "https://phim.nguonc.com/api/film"
+                        "NguonC" to "https://phim.nguonc.com/api/film",
+                        "CoBePhim" to "https://cobephim.mom"
                     )
 
                     Row(

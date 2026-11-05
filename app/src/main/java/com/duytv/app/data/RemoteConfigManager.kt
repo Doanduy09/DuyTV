@@ -8,8 +8,6 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 object RemoteConfigManager {
-    // URL to remote JSON configuration (e.g., Anh Duy's GitHub Gist or Raw repo)
-    // If unreachable or null, automatically uses fallback defaults.
     private const val REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/sources.json"
     private const val RAW_DOT_CONFIG_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/.config"
 
@@ -61,14 +59,14 @@ object RemoteConfigManager {
                     val lower = clean.lowercase()
 
                     when {
-                        lower.contains("ophim") || lower.contains("rap") -> {
+                        lower.contains("ophim") -> {
                             currentConfig = currentConfig.copy(
                                 sources = currentConfig.sources.copy(
                                     ophim = currentConfig.sources.ophim.copy(apiBase = clean)
                                 )
                             )
                         }
-                        lower.contains("phimapi") || lower.contains("mephim") -> {
+                        lower.contains("phimapi") -> {
                             currentConfig = currentConfig.copy(
                                 primaryDomain = clean,
                                 sources = currentConfig.sources.copy(
@@ -90,15 +88,6 @@ object RemoteConfigManager {
                                 )
                             )
                         }
-                        else -> {
-                            currentConfig = currentConfig.copy(
-                                primaryDomain = clean,
-                                sources = currentConfig.sources.copy(
-                                    kkphim = currentConfig.sources.kkphim.copy(apiBase = clean),
-                                    ophim = currentConfig.sources.ophim.copy(apiBase = clean)
-                                )
-                            )
-                        }
                     }
                 }
             }
@@ -107,16 +96,34 @@ object RemoteConfigManager {
         currentConfig
     }
 
-    fun getBaseUrl(): String = currentConfig.sources.kkphim.apiBase.ifBlank { currentConfig.primaryDomain }
-    fun getOphimBaseUrl(): String = currentConfig.sources.ophim.apiBase.ifBlank { "https://ophim.cc" }
+    fun getBaseUrl(): String {
+        val kk = currentConfig.sources.kkphim.apiBase
+        if (kk.isNotBlank() && !kk.contains("mephim") && !kk.contains("rapphim")) {
+            return kk
+        }
+        val pri = currentConfig.primaryDomain
+        if (pri.isNotBlank() && !pri.contains("mephim") && !pri.contains("rapphim")) {
+            return pri
+        }
+        return "https://phimapi.com"
+    }
+
+    fun getOphimBaseUrl(): String {
+        val op = currentConfig.sources.ophim.apiBase
+        if (op.isNotBlank() && !op.contains("mephim") && !op.contains("rapphim")) {
+            return op
+        }
+        return "https://ophim.cc"
+    }
+
     fun getNguonCBaseUrl(): String = currentConfig.sources.nguonc.apiBase.ifBlank { "https://phim.nguonc.com/api/film" }
     fun getCoBePhimBaseUrl(): String = currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.mom" }
 
     fun getSavedCustomSources(context: android.content.Context): Map<String, String> {
         val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
         return mapOf(
-            "Nguồn Chính (KKPhim/MêPhim)" to (prefs.getString("kkphim_url", null) ?: currentConfig.sources.kkphim.apiBase.ifBlank { currentConfig.primaryDomain }),
-            "Nguồn OPhim / Rạp Phim" to (prefs.getString("ophim_url", null) ?: currentConfig.sources.ophim.apiBase.ifBlank { "https://ophim.cc" }),
+            "Nguồn Chính (KKPhim)" to (prefs.getString("kkphim_url", null) ?: currentConfig.sources.kkphim.apiBase.ifBlank { currentConfig.primaryDomain }),
+            "Nguồn OPhim" to (prefs.getString("ophim_url", null) ?: currentConfig.sources.ophim.apiBase.ifBlank { "https://ophim.cc" }),
             "Nguồn NguonC" to (prefs.getString("nguonc_url", null) ?: currentConfig.sources.nguonc.apiBase.ifBlank { "https://phim.nguonc.com/api/film" }),
             "Nguồn CoBePhim" to (prefs.getString("cobe_url", null) ?: currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.mom" })
         )
@@ -130,10 +137,10 @@ object RemoteConfigManager {
         val customCoBe = prefs.getString("cobe_url", null)
 
         var updatedSources = currentConfig.sources
-        if (!customOphim.isNullOrBlank()) {
+        if (!customOphim.isNullOrBlank() && !customOphim.contains("rapphim") && !customOphim.contains("mephim")) {
             updatedSources = updatedSources.copy(ophim = updatedSources.ophim.copy(apiBase = customOphim))
         }
-        if (!customKkphim.isNullOrBlank()) {
+        if (!customKkphim.isNullOrBlank() && !customKkphim.contains("rapphim") && !customKkphim.contains("mephim")) {
             updatedSources = updatedSources.copy(kkphim = updatedSources.kkphim.copy(apiBase = customKkphim))
         }
         if (!customNguonC.isNullOrBlank()) {
@@ -157,15 +164,15 @@ object RemoteConfigManager {
         val detectedName: String
 
         when {
-            lower.contains("ophim") || lower.contains("rap") -> {
+            lower.contains("ophim") -> {
                 prefs.putString("ophim_url", clean).apply()
                 currentConfig = currentConfig.copy(sources = currentConfig.sources.copy(ophim = currentConfig.sources.ophim.copy(apiBase = clean)))
-                detectedName = "OPhim / Rạp Phim ($clean)"
+                detectedName = "OPhim ($clean)"
             }
-            lower.contains("phimapi") || lower.contains("mephim") -> {
+            lower.contains("phimapi") -> {
                 prefs.putString("kkphim_url", clean).apply()
                 currentConfig = currentConfig.copy(primaryDomain = clean, sources = currentConfig.sources.copy(kkphim = currentConfig.sources.kkphim.copy(apiBase = clean)))
-                detectedName = "KKPhim / Mê Phim ($clean)"
+                detectedName = "KKPhim ($clean)"
             }
             lower.contains("nguon") -> {
                 prefs.putString("nguonc_url", clean).apply()
@@ -178,16 +185,13 @@ object RemoteConfigManager {
                 detectedName = "CoBePhim ($clean)"
             }
             else -> {
-                prefs.putString("kkphim_url", clean).apply()
-                prefs.putString("ophim_url", clean).apply()
-                currentConfig = currentConfig.copy(
-                    primaryDomain = clean,
-                    sources = currentConfig.sources.copy(
-                        kkphim = currentConfig.sources.kkphim.copy(apiBase = clean),
-                        ophim = currentConfig.sources.ophim.copy(apiBase = clean)
-                    )
-                )
-                detectedName = "Nguồn tùy chỉnh ($clean)"
+                if (!lower.contains("mephim") && !lower.contains("rapphim")) {
+                    prefs.putString("kkphim_url", clean).apply()
+                    currentConfig = currentConfig.copy(primaryDomain = clean, sources = currentConfig.sources.copy(kkphim = currentConfig.sources.kkphim.copy(apiBase = clean)))
+                    detectedName = "Nguồn tùy chỉnh ($clean)"
+                } else {
+                    detectedName = "Link web xem phim (App giữ API chuẩn để không lỗi tải phim)"
+                }
             }
         }
         return detectedName

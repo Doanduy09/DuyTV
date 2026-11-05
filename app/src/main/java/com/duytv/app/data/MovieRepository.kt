@@ -732,7 +732,7 @@ class MovieRepository {
         null
     }
 
-    private fun executeListRequest(url: String, defaultBadge: String? = null): List<MovieItemDto> {
+    private fun tryExecuteList(url: String, defaultBadge: String? = null): List<MovieItemDto> {
         try {
             val req = Request.Builder()
                 .url(url)
@@ -760,6 +760,26 @@ class MovieRepository {
                 }
             }
         } catch (_: Exception) {}
+        return emptyList()
+    }
+
+    private fun executeListRequest(url: String, defaultBadge: String? = null): List<MovieItemDto> {
+        val directResult = tryExecuteList(url, defaultBadge)
+        if (directResult.isNotEmpty()) return directResult
+
+        // Failover: nếu nguồn chính gặp sự cố, tự động dùng mirror dự phòng https://phimapi.com
+        val fallbackBases = listOf("https://phimapi.com", "https://ophim.cc")
+        for (backupBase in fallbackBases) {
+            try {
+                val uri = java.net.URI(url)
+                val pathAndQuery = (uri.rawPath ?: "") + if (uri.rawQuery != null) "?${uri.rawQuery}" else ""
+                val backupUrl = "$backupBase$pathAndQuery"
+                if (backupUrl != url) {
+                    val backupResult = tryExecuteList(backupUrl, defaultBadge)
+                    if (backupResult.isNotEmpty()) return backupResult
+                }
+            } catch (_: Exception) {}
+        }
         return emptyList()
     }
 }
