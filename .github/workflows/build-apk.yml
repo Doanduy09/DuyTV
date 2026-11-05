@@ -3,25 +3,10 @@ name: "Tự Động Cập Nhật Nguồn & Build DuyTV APK (One-Click Build)"
 on:
   workflow_dispatch:
     inputs:
-      source_type:
-        description: 'Chọn nguồn cần đổi (Bỏ qua nếu chỉ muốn build lại)'
-        required: true
-        default: 'none'
-        type: choice
-        options:
-          - 'none'
-          - 'ophim'
-          - 'kkphim'
-          - 'nguonc'
-          - 'cobephim'
-      new_url:
-        description: 'Dán domain/link API mới vào đây (ví dụ: https://ophim.cc)'
+      config_link:
+        description: 'Dán đường link file config (hoặc link nguồn mới) vào đây'
         required: false
         default: ''
-      release_note:
-        description: 'Ghi chú cập nhật'
-        required: false
-        default: 'Tự động cập nhật nguồn phim và biên dịch APK mới'
   push:
     branches:
       - main
@@ -46,33 +31,74 @@ jobs:
         with:
           node-version: 20
 
-      - name: Tự động cập nhật nguồn mới vào config nếu có nhập link
-        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none' }}"
+      - name: Tự động phân tích và cập nhật cấu hình từ đường link
+        if: "${{ github.event.inputs.config_link != '' }}"
         run: |
           node -e "
             const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('config/sources.json', 'utf8'));
-            const type = '${{ github.event.inputs.source_type }}';
-            let newUrl = '${{ github.event.inputs.new_url }}'.trim();
-            if (!newUrl.startsWith('http://') && !newUrl.startsWith('https://')) {
-              newUrl = 'https://' + newUrl;
+            const https = require('https');
+            const http = require('http');
+
+            let inputUrl = '${{ github.event.inputs.config_link }}'.trim();
+            if (!inputUrl.startsWith('http://') && !inputUrl.startsWith('https://')) {
+              inputUrl = 'https://' + inputUrl;
             }
-            if (newUrl.endsWith('/')) newUrl = newUrl.slice(0, -1);
-            if (cfg.sources[type]) {
-              cfg.sources[type].api_base = newUrl;
-              console.log('✅ Đã cập nhật nguồn ' + type + ' sang domain: ' + newUrl);
+            if (inputUrl.endsWith('/')) inputUrl = inputUrl.slice(0, -1);
+
+            const configPath = 'config/sources.json';
+            let cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+            function fetchText(url) {
+              return new Promise((res) => {
+                const client = url.startsWith('https') ? https : http;
+                client.get(url, { headers: { 'User-Agent': 'DuyTV/1.0' }, timeout: 8000 }, (r) => {
+                  let d = '';
+                  r.on('data', c => d += c);
+                  r.on('end', () => res(d));
+                }).on('error', () => res(''));
+              });
             }
-            cfg.last_updated = new Date().toISOString().split('T')[0];
-            fs.writeFileSync('config/sources.json', JSON.stringify(cfg, null, 2), 'utf8');
+
+            async function run() {
+              let updated = false;
+              if (inputUrl.includes('.json') || inputUrl.includes('raw') || inputUrl.includes('pastebin')) {
+                const text = await fetchText(inputUrl);
+                try {
+                  const parsed = JSON.parse(text);
+                  if (parsed.sources || parsed.primary_domain) {
+                    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), 'utf8');
+                    console.log('✅ Đã cập nhật file config từ đường link thành công!');
+                    updated = true;
+                  }
+                } catch {}
+              }
+
+              if (!updated) {
+                const lower = inputUrl.toLowerCase();
+                let targetKey = 'kkphim';
+                if (lower.includes('ophim')) targetKey = 'ophim';
+                else if (lower.includes('nguon') || lower.includes('phimapi')) targetKey = lower.includes('nguon') ? 'nguonc' : 'kkphim';
+                else if (lower.includes('cobe')) targetKey = 'cobephim';
+
+                if (cfg.sources[targetKey]) {
+                  cfg.sources[targetKey].api_base = inputUrl;
+                  cfg.last_updated = new Date().toISOString().split('T')[0];
+                  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+                  console.log('✅ Đã tự cập nhật nguồn ' + targetKey + ' sang: ' + inputUrl);
+                }
+              }
+            }
+
+            run();
           "
 
-      - name: Tự động commit cấu hình nguồn mới lên GitHub
-        if: "${{ github.event.inputs.new_url != '' && github.event.inputs.source_type != 'none' }}"
+      - name: Tự động commit cấu hình mới lên GitHub
+        if: "${{ github.event.inputs.config_link != '' }}"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add config/sources.json
-          git commit -m "chore(sources): cập nhật domain ${{ github.event.inputs.source_type }} sang ${{ github.event.inputs.new_url }} [skip ci]" || echo "No changes"
+          git commit -m "chore(config): tự động cập nhật cấu hình từ link dán [skip ci]" || echo "No changes"
           git push origin main || echo "Push skipped"
 
       - name: Thiết lập môi trường Java JDK 17
@@ -107,8 +133,8 @@ jobs:
           name: "DuyTV Full Edition (Build #${{ github.run_number }})"
           body: |
             ### 🚀 Bản phát hành DuyTV Full Edition
-            - **Ghi chú**: ${{ github.event.inputs.release_note || 'Tự động cập nhật nguồn và tối ưu hiệu năng' }}
-            - **Nguồn cập nhật**: ${{ github.event.inputs.source_type != 'none' && format('{0} -> {1}', github.event.inputs.source_type, github.event.inputs.new_url) || 'Không thay đổi nguồn' }}
+            - **Trạng thái**: Tự động biên dịch từ link cấu hình
+            - **Đường link nạp vào**: ${{ github.event.inputs.config_link || 'Mặc định từ repo' }}
             - **Thiết bị hỗ trợ**: TV Sharp Aquos, Tablet Android, Android Box, Smartphone Android.
           files: release_apk/DuyTV-Full-Latest.apk
         env:
