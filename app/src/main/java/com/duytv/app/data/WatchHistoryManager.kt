@@ -1,0 +1,69 @@
+package com.duytv.app.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+
+data class WatchHistoryItem(
+    val slug: String,
+    val movieTitle: String,
+    val episodeName: String,
+    val streamUrl: String,
+    val posterUrl: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+object WatchHistoryManager {
+    private const val PREFS_NAME = "duytv_watch_history"
+    private const val KEY_HISTORY = "history_items"
+    private val gson = Gson()
+
+    private fun getPrefs(context: Context): SharedPreferences {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun saveProgress(
+        context: Context,
+        slug: String,
+        movieTitle: String,
+        episodeName: String,
+        streamUrl: String,
+        posterUrl: String?,
+        positionMs: Long,
+        durationMs: Long
+    ) {
+        if (positionMs < 5000) return // Don't save if watched less than 5s
+
+        val list = getHistory(context).toMutableList()
+        list.removeAll { it.slug == slug }
+        list.add(
+            0,
+            WatchHistoryItem(
+                slug = slug,
+                movieTitle = movieTitle,
+                episodeName = episodeName,
+                streamUrl = streamUrl,
+                posterUrl = posterUrl,
+                positionMs = positionMs,
+                durationMs = durationMs
+            )
+        )
+        // Keep max 15 recent items
+        val trimmed = if (list.size > 15) list.subList(0, 15) else list
+        val json = gson.toJson(trimmed)
+        getPrefs(context).edit().putString(KEY_HISTORY, json).apply()
+    }
+
+    fun getHistory(context: Context): List<WatchHistoryItem> {
+        val json = getPrefs(context).getString(KEY_HISTORY, null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<WatchHistoryItem>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+}

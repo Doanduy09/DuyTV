@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "last_updated": "2026-11-05",
+  "sources": {
+    "kkphim": {
+      "name": "KKPhim (Nguồn Chính)",
+      "api_base": "https://phimapi.com",
+      "image_cdn": "https://phimimg.com",
+      "enabled": true
+    },
+    "ophim": {
+      "name": "OPhim",
+      "api_base": "https://ophim.cc",
+      "enabled": true
+    },
+    "nguonc": {
+      "name": "NguonC",
+      "api_base": "https://phim.nguonc.com/api/film",
+      "enabled": true
+    },
+    "cobephim": {
+      "name": "CoBePhim (Cổ Trang & Xưa)",
+      "api_base": "https://cobephim.mom",
+      "enabled": true
+    },
+    "torrent4k": {
+      "name": "YTS 4K Ultra HD",
+      "mirrors": [
+        "https://yts.gg",
+        "https://yts.torrentbay.st"
+      ],
+      "enabled": true
+    }
+  }
+}

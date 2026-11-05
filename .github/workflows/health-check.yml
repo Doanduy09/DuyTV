@@ -1,0 +1,47 @@
+name: "Kiểm Tra Sống Chết Của Nguồn Phim (Daily Health Check)"
+
+on:
+  schedule:
+    # Chạy tự động lúc 00:00 UTC (07:00 sáng giờ Việt Nam) mỗi ngày
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Cho phép Anh Duy ấn nút kiểm tra thủ công bất cứ lúc nào trên GitHub
+
+jobs:
+  check-sources:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Tải mã nguồn repository
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Node.js môi trường kiểm thử
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Quét và kiểm tra kết nối từng nguồn phim
+        id: health_check
+        run: |
+          node scripts/health_check.js
+
+      - name: Báo động và tự động tạo Issue nếu phát hiện nguồn sập
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './health_report.md';
+            let body = 'Phát hiện nguồn phim không phản hồi. Vui lòng kiểm tra và cập nhật domain mới trong file config/sources.json!';
+            if (fs.existsSync(path)) {
+              body = fs.readFileSync(path, 'utf8');
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 [CẢNH BÁO] Phát hiện nguồn phim bị sập hoặc đổi tên miền!',
+              body: body,
+              labels: ['bug', 'source-monitor']
+            });

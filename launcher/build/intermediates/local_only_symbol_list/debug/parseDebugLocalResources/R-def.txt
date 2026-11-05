@@ -1,0 +1,5 @@
+R_DEF: Internal format may change without notice
+local
+drawable wallpaper_alt
+drawable wallpaper_default
+style Theme.DuyLauncher

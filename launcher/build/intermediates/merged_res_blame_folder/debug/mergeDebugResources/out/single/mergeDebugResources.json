@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.duytv.launcher-debug-4:/drawable_wallpaper_default.jpg.flat",
+        "source": "com.duytv.launcher-main-6:/drawable/wallpaper_default.jpg"
+    },
+    {
+        "merged": "com.duytv.launcher-debug-4:/drawable_wallpaper_alt.jpg.flat",
+        "source": "com.duytv.launcher-main-6:/drawable/wallpaper_alt.jpg"
+    }
+]
