@@ -5,29 +5,23 @@
   "huong_dan_nhanh": "Khi một nguồn bị đổi domain hoặc sập, anh chỉ cần sửa lại link ở dòng 'api_base' tương ứng, sau đó bấm 'Commit changes' trên GitHub là app sẽ tự động build lại ngay lập tức!",
   "sources": {
     "kkphim": {
-      "name": "KKPhim (Nguồn Chính)",
-      "description": "Kho phim điện ảnh, phim chiếu rạp, phim bộ cập nhật liên tục",
+      "name": "KKPhim",
       "api_base": "https://phimapi.com",
-      "backup_api": "https://phimapi.com/v1/api",
       "image_cdn": "https://phimimg.com",
       "enabled": true
     },
     "ophim": {
-      "name": "OPhim (Nguồn Phim Tổng Hợp)",
-      "description": "Kho phim lẻ, phim bộ châu Á, hoạt hình anime",
+      "name": "OPhim",
       "api_base": "https://ophim.cc",
-      "backup_api": "https://ophim17.cc",
       "enabled": true
     },
     "nguonc": {
-      "name": "NguonC (Nguồn VIP Mượt Mà)",
-      "description": "Server phim chất lượng cao, tốc độ tải nhanh",
+      "name": "NguonC",
       "api_base": "https://phim.nguonc.com/api/film",
       "enabled": true
     },
     "cobephim": {
-      "name": "CoBePhim (Cổ Trang & Xưa)",
-      "description": "Đặc sản phim kiếm hiệp Kim Dung, cổ trang xưa, TVB kinh điển",
+      "name": "CoBePhim",
       "api_base": "https://cobephim.mom",
       "enabled": true
     },
