@@ -66,8 +66,13 @@ import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.duytv.app.MainActivity
+import com.duytv.app.data.AppCacheManager
+import com.duytv.app.data.TvChannel
 import com.duytv.app.data.WatchHistoryManager
 import com.duytv.app.ui.theme.AccentRed
+import com.duytv.app.ui.theme.CardBg
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -113,6 +118,33 @@ fun PlayerScreen(
     val isLive = remember(streamUrl, slug) {
         slug.startsWith("live_") || streamUrl.contains("/live/") || streamUrl.contains("akamaized.net") || streamUrl.contains("fptplay")
     }
+
+    var currentTitle by remember(movieTitle) { mutableStateOf(movieTitle) }
+    var currentEpisodeName by remember(episodeName) { mutableStateOf(episodeName) }
+    var currentStreamUrl by remember(streamUrl) { mutableStateOf(streamUrl) }
+    var currentPosterUrl by remember(posterUrl) { mutableStateOf(posterUrl) }
+    var currentGroupName by remember { mutableStateOf("") }
+
+    // Danh sách kênh & index hiện tại khi xem truyền hình
+    val availableChannels = remember { AppCacheManager.activeChannels }
+    val initialChIndex = remember(availableChannels, streamUrl, movieTitle) {
+        val idx = availableChannels.indexOfFirst { it.streamUrl == streamUrl || it.name.equals(movieTitle, ignoreCase = true) }
+        if (idx >= 0) idx else 0
+    }
+    var currentChannelIndex by remember { mutableIntStateOf(initialChIndex) }
+
+    LaunchedEffect(currentChannelIndex, availableChannels) {
+        if (isLive && availableChannels.isNotEmpty() && currentChannelIndex in availableChannels.indices) {
+            currentGroupName = availableChannels[currentChannelIndex].groupTitle
+        }
+    }
+
+    // Trạng thái HUD OSD chuyển kênh truyền hình
+    var channelOsdVisible by remember { mutableStateOf(false) }
+    var channelOsdName by remember { mutableStateOf("") }
+    var channelOsdSub by remember { mutableStateOf("") }
+    var channelOsdLogo by remember { mutableStateOf<String?>(null) }
+    var channelOsdJob by remember { mutableStateOf<Job?>(null) }
 
     // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
     var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
@@ -557,6 +589,73 @@ fun PlayerScreen(
         triggerSeek(if (forward) stepSeconds else -stepSeconds)
     }
 
+    fun showChannelOsd(channel: TvChannel, index: Int, total: Int) {
+        channelOsdName = channel.name
+        channelOsdSub = "${channel.groupTitle} • Kênh ${index + 1}/$total"
+        channelOsdLogo = channel.logoUrl
+        channelOsdVisible = true
+        channelOsdJob?.cancel()
+        channelOsdJob = scope.launch {
+            delay(3500)
+            channelOsdVisible = false
+        }
+    }
+
+    fun switchToChannel(targetIndex: Int) {
+        val channels = availableChannels
+        val player = exoPlayer ?: return
+        if (channels.isEmpty()) return
+        val safeIndex = (targetIndex % channels.size + channels.size) % channels.size
+        currentChannelIndex = safeIndex
+        val ch = channels[safeIndex]
+        currentTitle = ch.name
+        currentStreamUrl = ch.streamUrl
+        currentPosterUrl = ch.logoUrl
+        currentGroupName = ch.groupTitle
+
+        try {
+            val userAgent = if (ch.streamUrl.contains("hainghia.net")) {
+                "TiviMate/4.7.0"
+            } else {
+                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
+            }
+            val dsFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent(userAgent)
+                .setConnectTimeoutMs(8000)
+                .setReadTimeoutMs(20000)
+                .setAllowCrossProtocolRedirects(true)
+            val msFactory = DefaultMediaSourceFactory(dsFactory)
+            val mediaItemB = MediaItem.Builder().setUri(ch.streamUrl)
+            if (ch.streamUrl.contains("/rtp/") || ch.streamUrl.contains("video/mp2t") || ch.streamUrl.endsWith(".ts")) {
+                mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
+            } else if (ch.streamUrl.contains(".m3u8") || ch.streamUrl.contains("/hls/")) {
+                mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
+            }
+            mediaItemB.setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(4000L)
+                    .setMinOffsetMs(2000L)
+                    .setMaxOffsetMs(10000L)
+                    .build()
+            )
+            val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+            player.stop()
+            player.setMediaSource(newMediaSource)
+            player.prepare()
+            player.play()
+        } catch (_: Exception) {}
+
+        showChannelOsd(ch, safeIndex, channels.size)
+    }
+
+    fun nextChannel() {
+        switchToChannel(currentChannelIndex + 1)
+    }
+
+    fun previousChannel() {
+        switchToChannel(currentChannelIndex - 1)
+    }
+
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
     val currentPendingSeekPosMs by rememberUpdatedState(pendingSeekPosMs)
     val currentIsPlaying by rememberUpdatedState(isPlaying)
@@ -567,15 +666,29 @@ fun PlayerScreen(
             val keyCode = event.keyCode
             val action = event.action
 
+            val isChannelUpKey = when (keyCode) {
+                KeyEvent.KEYCODE_CHANNEL_UP -> true
+                KeyEvent.KEYCODE_PAGE_UP -> isLive
+                KeyEvent.KEYCODE_DPAD_UP -> isLive && !currentShowQualityMenu
+                else -> false
+            }
+
+            val isChannelDownKey = when (keyCode) {
+                KeyEvent.KEYCODE_CHANNEL_DOWN -> true
+                KeyEvent.KEYCODE_PAGE_DOWN -> isLive
+                KeyEvent.KEYCODE_DPAD_DOWN -> isLive && !currentShowQualityMenu
+                else -> false
+            }
+
             val isDedicatedFastForward = when (keyCode) {
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
                 KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD,
                 KeyEvent.KEYCODE_MEDIA_STEP_FORWARD,
                 KeyEvent.KEYCODE_FORWARD,
                 KeyEvent.KEYCODE_MEDIA_NEXT,
-                KeyEvent.KEYCODE_BUTTON_R1,
-                KeyEvent.KEYCODE_PAGE_DOWN,
-                KeyEvent.KEYCODE_CHANNEL_UP -> true
+                KeyEvent.KEYCODE_BUTTON_R1 -> true
+                KeyEvent.KEYCODE_PAGE_DOWN -> !isLive
+                KeyEvent.KEYCODE_CHANNEL_UP -> !isLive
                 else -> false
             }
 
@@ -584,9 +697,9 @@ fun PlayerScreen(
                 KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD,
                 KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD,
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                KeyEvent.KEYCODE_BUTTON_L1,
-                KeyEvent.KEYCODE_PAGE_UP,
-                KeyEvent.KEYCODE_CHANNEL_DOWN -> true
+                KeyEvent.KEYCODE_BUTTON_L1 -> true
+                KeyEvent.KEYCODE_PAGE_UP -> !isLive
+                KeyEvent.KEYCODE_CHANNEL_DOWN -> !isLive
                 else -> false
             }
 
@@ -600,6 +713,18 @@ fun PlayerScreen(
             }
 
             when {
+                isLive && isChannelDownKey -> {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        nextChannel()
+                    }
+                    true
+                }
+                isLive && isChannelUpKey -> {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        previousChannel()
+                    }
+                    true
+                }
                 isDedicatedFastForward -> {
                     if (action == KeyEvent.ACTION_DOWN) {
                         handleSeek(forward = true, isDedicatedMediaKey = true, repeatCount = event.repeatCount)
@@ -648,7 +773,11 @@ fun PlayerScreen(
                 }
                 (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) && !currentShowQualityMenu -> {
                     if (action == KeyEvent.ACTION_DOWN) {
-                        showControls = !showControls
+                        if (isLive) {
+                            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) previousChannel() else nextChannel()
+                        } else {
+                            showControls = !showControls
+                        }
                     }
                     true
                 }
@@ -745,9 +874,33 @@ fun PlayerScreen(
                                 return@onKeyEvent true
                             }
                         }
-                        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (isLive && !showQualityMenu) {
+                                previousChannel()
+                                return@onKeyEvent true
+                            }
                             showControls = !showControls
                             return@onKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            if (isLive && !showQualityMenu) {
+                                nextChannel()
+                                return@onKeyEvent true
+                            }
+                            showControls = !showControls
+                            return@onKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_CHANNEL_UP -> {
+                            if (isLive) {
+                                previousChannel()
+                                return@onKeyEvent true
+                            }
+                        }
+                        KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                            if (isLive) {
+                                nextChannel()
+                                return@onKeyEvent true
+                            }
                         }
                         KeyEvent.KEYCODE_WINDOW,
                         KeyEvent.KEYCODE_PROG_GREEN,
@@ -803,6 +956,73 @@ fun PlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // 📺 OSD BANNER KHI BẤM PHÍM LÊN / XUỐNG ĐỂ CHUYỂN KÊNH TRUYỀN HÌNH
+        AnimatedVisibility(
+            visible = channelOsdVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 40.dp, start = 48.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xF00A0E17))
+                    .border(2.dp, AccentRed, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+            ) {
+                if (!channelOsdLogo.isNullOrBlank()) {
+                    AsyncImage(
+                        model = channelOsdLogo,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Fit
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(CardBg, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("📺", fontSize = 24.sp)
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = channelOsdName,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(AccentRed, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = channelOsdSub,
+                        color = Color(0xFF00E676),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
 
         // HUD Pill Badge hiển thị khi đổi tỷ lệ màn hình (Double-Tap hoặc bấm nút)
         AnimatedVisibility(
@@ -982,14 +1202,14 @@ fun PlayerScreen(
                 ) {
                     Column {
                         Text(
-                            text = movieTitle,
+                            text = currentTitle,
                             color = Color.White,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Đang phát: $episodeName • Độ phân giải: $videoResolution • Chế độ: $selectedQualityMode",
+                            text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $episodeName • Độ phân giải: $videoResolution • Chế độ: $selectedQualityMode",
                             color = Color(0xFFA0AAB8),
                             fontSize = 14.sp
                         )

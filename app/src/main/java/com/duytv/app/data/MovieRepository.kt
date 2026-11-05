@@ -90,10 +90,12 @@ class MovieRepository {
 
         cachedTvSports = result
         lastTvSportsFetchTime = now
+        AppCacheManager.saveTvSports(result)
         result
     }
 
-    private fun getVerifiedOfficialChannels(): List<TvChannel> {
+    companion object {
+        fun getVerifiedOfficialChannels(): List<TvChannel> {
         return listOf(
             // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - CHÍNH THỐNG VIETTEL TV360 & FPT CDN 1080P
             TvChannel(
@@ -461,6 +463,7 @@ class MovieRepository {
             )
         )
     }
+}
 
     private fun parseM3uData(content: String, defaultGroup: String = "Truyền Hình"): TvSportsData {
         val lines = content.lines()

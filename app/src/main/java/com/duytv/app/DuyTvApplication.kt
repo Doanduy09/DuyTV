@@ -6,8 +6,15 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.duytv.app.data.AppCacheManager
+import com.duytv.app.data.MovieRepository
 
 class DuyTvApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        AppCacheManager.init(this, MovieRepository.getVerifiedOfficialChannels())
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {

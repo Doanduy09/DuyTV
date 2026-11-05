@@ -89,20 +89,27 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var isLoading by remember { mutableStateOf(true) }
+
+    // Khởi tạo ngay tức thì từ bộ nhớ đệm L1 RAM / L2 Disk để mở app không độ trễ
+    val cachedHome = AppCacheManager.cachedHomeData
+    val initialTvSports = AppCacheManager.cachedTvSports ?: TvSportsData(channels = AppCacheManager.activeChannels)
+    val hasCache = cachedHome != null && cachedHome.latestMovies.isNotEmpty()
+
+    var isLoading by remember { mutableStateOf(!hasCache) }
+    var isSilentSyncing by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf(NAV_CATEGORIES.first()) }
 
-    // Swimlane lists for "TẤT CẢ" view
-    var latestMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
-    var cinemaMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
-    var torrentMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
-    var seriesMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
-    var singleMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
-    var animeMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
+    // Swimlane lists for "TẤT CẢ" view - Nạp trực tiếp từ Cache
+    var latestMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.latestMovies ?: emptyList()) }
+    var cinemaMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.cinemaMovies ?: emptyList()) }
+    var torrentMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.torrentMovies ?: emptyList()) }
+    var seriesMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.seriesMovies ?: emptyList()) }
+    var singleMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.singleMovies ?: emptyList()) }
+    var animeMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.animeMovies ?: emptyList()) }
     var watchHistory by remember { mutableStateOf<List<WatchHistoryItem>>(emptyList()) }
 
     // Dữ liệu Bóng đá & TV Live đa luồng
-    var tvSportsData by remember { mutableStateOf<TvSportsData?>(null) }
+    var tvSportsData by remember { mutableStateOf<TvSportsData?>(initialTvSports) }
     var currentHeartbeatMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var selectedMatchForStreams by remember { mutableStateOf<FootballMatchGroup?>(null) }
     var tvSubFilter by remember { mutableStateOf("all") }
@@ -126,9 +133,13 @@ fun HomeScreen(
         sdf.format(Date())
     }
 
-    fun reloadAllMovies() {
+    fun reloadAllMovies(silent: Boolean = false) {
         scope.launch {
-            isLoading = true
+            if (!silent) {
+                isLoading = true
+            } else {
+                isSilentSyncing = true
+            }
             try {
                 if (selectedCategory.id == "all") {
                     val latestDef = async { try { repository.getNewUpdatedMovies(1) } catch (_: Exception) { emptyList() } }
@@ -139,31 +150,62 @@ fun HomeScreen(
                     val animeDef = async { try { repository.getMoviesByCategory("hoat-hinh", 1) } catch (_: Exception) { emptyList() } }
                     val tvSportsDef = async { try { repository.getTvAndSportsData() } catch (_: Exception) { TvSportsData() } }
 
-                    latestMovies = latestDef.await()
-                    cinemaMovies = cinemaDef.await()
-                    torrentMovies = torrentDef.await()
-                    seriesMovies = seriesDef.await()
-                    singleMovies = singleDef.await()
-                    animeMovies = animeDef.await()
-                    tvSportsData = tvSportsDef.await()
+                    val resLatest = latestDef.await()
+                    val resCinema = cinemaDef.await()
+                    val resTorrent = torrentDef.await()
+                    val resSeries = seriesDef.await()
+                    val resSingle = singleDef.await()
+                    val resAnime = animeDef.await()
+                    val resTvSports = tvSportsDef.await()
+
+                    if (resLatest.isNotEmpty()) latestMovies = resLatest
+                    if (resCinema.isNotEmpty()) cinemaMovies = resCinema
+                    if (resTorrent.isNotEmpty()) torrentMovies = resTorrent
+                    if (resSeries.isNotEmpty()) seriesMovies = resSeries
+                    if (resSingle.isNotEmpty()) singleMovies = resSingle
+                    if (resAnime.isNotEmpty()) animeMovies = resAnime
+                    if (resTvSports.channels.isNotEmpty() || resTvSports.matches.isNotEmpty()) {
+                        tvSportsData = resTvSports
+                        AppCacheManager.saveTvSports(resTvSports, context)
+                    }
+
+                    // Lưu snapshot vào cache L1/L2
+                    AppCacheManager.saveHomeData(
+                        HomeCacheData(
+                            latestMovies = latestMovies,
+                            cinemaMovies = cinemaMovies,
+                            torrentMovies = torrentMovies,
+                            seriesMovies = seriesMovies,
+                            singleMovies = singleMovies,
+                            animeMovies = animeMovies
+                        ),
+                        context
+                    )
                 } else if (selectedCategory.id == "tv-live") {
-                    tvSportsData = try { repository.getTvAndSportsData() } catch (_: Exception) { TvSportsData() }
+                    val res = try { repository.getTvAndSportsData() } catch (_: Exception) { TvSportsData() }
+                    if (res.channels.isNotEmpty() || res.matches.isNotEmpty()) {
+                        tvSportsData = res
+                        AppCacheManager.saveTvSports(res, context)
+                    }
                 } else {
                     categoryPage = 1
                     categoryMovies = try { repository.getMoviesByCategory(selectedCategory.endpoint, 1) } catch (_: Exception) { emptyList() }
                 }
             } finally {
                 isLoading = false
+                isSilentSyncing = false
             }
         }
     }
 
     LaunchedEffect(Unit) {
+        AppCacheManager.init(context, MovieRepository.getVerifiedOfficialChannels())
         RemoteConfigManager.loadLocalCustomSources(context)
         watchHistory = WatchHistoryManager.getHistory(context)
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
-            reloadAllMovies()
+            val shouldBeSilent = latestMovies.isNotEmpty() || (tvSportsData?.channels?.isNotEmpty() == true)
+            reloadAllMovies(silent = shouldBeSilent)
         }
     }
 
@@ -257,8 +299,8 @@ fun HomeScreen(
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = "ĐA NGUỒN • 4K CINEMA",
-                                    color = Color(0xFF00E676),
+                                    text = if (isSilentSyncing) "⚡ ĐANG ĐỒNG BỘ..." else "ĐA NGUỒN • 4K CINEMA",
+                                    color = if (isSilentSyncing) Color(0xFFFFD600) else Color(0xFF00E676),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )

@@ -45,11 +45,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Khi người dùng bấm HOME hoặc chuyển sang app khác:
-        // Đóng hẳn activity để dập tắt 100% âm thanh nền và giải phóng RAM ("thoát app tương đương với tắt app")
-        if (!isChangingConfigurations) {
-            finish()
-        }
+        // Giữ Activity ấm trong RAM (Hot Process) để khi người dùng bấm mở DuyTV sẽ bật lên tức thì (0ms).
+        // Âm thanh và MediaCodec của ExoPlayer đã được LifecycleEventObserver trong PlayerScreen
+        // tự động pause/stop an toàn khi nhận sự kiện ON_STOP, bảo đảm 100% không rò rỉ âm thanh nền.
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,7 +147,9 @@ class MainActivity : ComponentActivity() {
                             posterUrl = screen.posterUrl,
                             subtitleUrl = screen.subtitleUrl,
                             initialPositionMs = screen.initialPositionMs,
-                            onClose = { currentScreen = AppScreen.Detail(screen.slug) },
+                            onClose = {
+                                currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
