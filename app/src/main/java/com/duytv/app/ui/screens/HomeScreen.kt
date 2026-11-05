@@ -661,11 +661,26 @@ fun HomeScreen(
                                 }
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val thvlCount = sports.channels.count {
+                                        it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
+                                    }
+                                    val vtvCount = sports.channels.count {
+                                        it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
+                                    }
+                                    val htvCount = sports.channels.count {
+                                        it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+                                    }
+                                    val tinhCount = sports.channels.count {
+                                        it.groupTitle == "Đài Tỉnh Thành"
+                                    }
                                     val filters = listOf(
                                         "all" to "TẤT CẢ",
+                                        "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
+                                        "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
+                                        "htv" to "📺 HTV TP.HCM ($htvCount)",
+                                        "tinh" to "🏛️ ĐÀI TỈNH THÀNH ($tinhCount)",
                                         "live" to "🔴 ĐANG LIVE",
-                                        "upcoming" to "⏳ SẮP ĐÁ",
-                                        "tv" to "📺 KÊNH TV (${sports.channels.size})"
+                                        "upcoming" to "⏳ SẮP ĐÁ"
                                     )
                                     for ((key, label) in filters) {
                                         val isFiltSel = (tvSubFilter == key)
@@ -716,11 +731,27 @@ fun HomeScreen(
                     val filteredMatches = when (tvSubFilter) {
                         "live" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.LIVE }
                         "upcoming" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.UPCOMING }
-                        "tv" -> emptyList()
+                        "tv", "thvl", "vtv", "htv", "tinh" -> emptyList()
                         else -> allMatchesSorted
                     }
 
-                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "tv")
+                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "tinh")
+                    val filteredChannels = when (tvSubFilter) {
+                        "thvl" -> sports.channels.filter {
+                            it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
+                        }
+                        "vtv" -> sports.channels.filter {
+                            it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
+                        }
+                        "htv" -> sports.channels.filter {
+                            it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+                        }
+                        "tinh" -> sports.channels.filter {
+                            it.groupTitle == "Đài Tỉnh Thành"
+                        }
+                        "live", "upcoming" -> emptyList()
+                        else -> sports.channels
+                    }
 
                     if (filteredMatches.isNotEmpty()) {
                         item {
@@ -764,10 +795,15 @@ fun HomeScreen(
                         }
                     }
 
-                    if (showChannels && sports.channels.isNotEmpty()) {
+                    if (showChannels && filteredChannels.isNotEmpty()) {
+                        val headerText = if (tvSubFilter == "thvl") {
+                            "⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)"
+                        } else {
+                            "📺 KÊNH TRUYỀN HÌNH VIỆT NAM & QUỐC TẾ (${filteredChannels.size} KÊNH FHD)"
+                        }
                         item {
                             Text(
-                                text = "📺 KÊNH TRUYỀN HÌNH VIỆT NAM & QUỐC TẾ (${sports.channels.size} KÊNH FHD)",
+                                text = headerText,
                                 color = Color.White,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
@@ -776,7 +812,7 @@ fun HomeScreen(
                         }
 
                         // Hiển thị 6 kênh TV mỗi hàng
-                        val channelRows = sports.channels.chunked(6)
+                        val channelRows = filteredChannels.chunked(6)
                         itemsIndexed(channelRows) { _, rowItems ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

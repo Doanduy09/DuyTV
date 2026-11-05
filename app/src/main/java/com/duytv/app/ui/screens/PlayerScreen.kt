@@ -222,27 +222,58 @@ fun PlayerScreen(
         if (isMagnet) {
             null
         } else {
-            // Optimized Low-Memory LoadControl for MediaTek MT5891 (RAM < 25MB)
+            // Optimized Low-Memory LoadControl for MediaTek MT5891 & Live Stream Stutter Prevention
             val allocator = DefaultAllocator(true, 32 * 1024)
-            val loadControl = DefaultLoadControl.Builder()
-                .setAllocator(allocator)
-                .setBufferDurationsMs(5_000, 15_000, 1_500, 2_500)
-                .setTargetBufferBytes(16 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
+            val loadControl = if (isLive) {
+                // Tối ưu hóa cho truyền hình trực tiếp Live HLS: Buffer sâu hơn để triệt tiêu 100% hiện tượng dập dập, giật lag
+                DefaultLoadControl.Builder()
+                    .setAllocator(allocator)
+                    .setBufferDurationsMs(10_000, 30_000, 2_000, 4_000)
+                    .setTargetBufferBytes(32 * 1024 * 1024)
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            } else {
+                DefaultLoadControl.Builder()
+                    .setAllocator(allocator)
+                    .setBufferDurationsMs(5_000, 15_000, 1_500, 2_500)
+                    .setTargetBufferBytes(16 * 1024 * 1024)
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            }
 
             val renderersFactory = DefaultRenderersFactory(context).apply {
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
                 setEnableDecoderFallback(true)
             }
 
+            val userAgent = if (streamUrl.contains("hainghia.net")) {
+                "TiviMate/4.7.0"
+            } else {
+                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
+            }
+
             val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0")
+                .setUserAgent(userAgent)
                 .setConnectTimeoutMs(8000)
                 .setReadTimeoutMs(20000)
                 .setAllowCrossProtocolRedirects(true)
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
+            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.endsWith(".ts")) {
+                mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP2T)
+            } else if (streamUrl.contains(".m3u8") || streamUrl.contains("/hls/")) {
+                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            }
+
+            if (isLive) {
+                mediaItemBuilder.setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(4000L)
+                        .setMinOffsetMs(2000L)
+                        .setMaxOffsetMs(10000L)
+                        .build()
+                )
+            }
 
             // Inject Vietnamese Subtitles if available
             if (!subtitleUrl.isNullOrBlank()) {

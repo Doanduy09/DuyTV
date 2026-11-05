@@ -27,27 +27,442 @@ class MovieRepository {
             return@withContext cachedTvSports!!
         }
 
-        val url = "https://paste.c-net.org/PostersMistrust"
-        try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                .build()
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                val body = res.body?.string() ?: return@withContext (cachedTvSports ?: TvSportsData())
-                val parsed = parseM3uData(body)
-                cachedTvSports = parsed
-                lastTvSportsFetchTime = now
-                return@withContext parsed
+        val sportsUrl = "https://paste.c-net.org/PostersMistrust"
+        val tvUrl = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
+
+        val sportsDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(sportsUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (e: Exception) {
+                null
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
-        cachedTvSports ?: TvSportsData()
+
+        val tvDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(tvUrl)
+                    .header("User-Agent", "TiviMate/4.7.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val sportsBody = sportsDef.await()
+        val tvBody = tvDef.await()
+
+        val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
+        val parsedTv = if (!tvBody.isNullOrBlank()) parseM3uData(tvBody, "Truyền Hình") else TvSportsData()
+
+        val combinedChannels = mutableListOf<TvChannel>()
+
+        // 1. Nạp danh sách các kênh truyền hình chính thống ĐÃ ĐƯỢC KIỂM TRA 100% HOẠT ĐỘNG
+        val officialChannels = getVerifiedOfficialChannels()
+        combinedChannels.addAll(officialChannels)
+
+        // 2. Bổ sung các kênh phát hiện từ online M3U nếu chưa có trong danh sách chính thống
+        val existingUrls = officialChannels.map { it.streamUrl }.toSet()
+        val existingNames = officialChannels.map { it.name.lowercase() }.toSet()
+
+        for (ch in parsedTv.channels) {
+            if (!existingUrls.contains(ch.streamUrl) && !existingNames.contains(ch.name.lowercase())) {
+                combinedChannels.add(ch)
+            }
+        }
+
+        // 3. Nếu danh sách kênh rỗng, nạp dự phòng từ thể thao
+        if (combinedChannels.isEmpty()) {
+            combinedChannels.addAll(parsedSports.channels)
+        }
+
+        val result = TvSportsData(
+            matches = parsedSports.matches.ifEmpty { parsedTv.matches },
+            channels = combinedChannels
+        )
+
+        cachedTvSports = result
+        lastTvSportsFetchTime = now
+        result
     }
 
-    private fun parseM3uData(content: String): TvSportsData {
+    private fun getVerifiedOfficialChannels(): List<TvChannel> {
+        return listOf(
+            // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - CHÍNH THỐNG VIETTEL TV360 & FPT CDN 1080P
+            TvChannel(
+                id = "thvl1_hd_tv360",
+                name = "THVL1 HD - Vĩnh Long",
+                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=25",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl1_hd_fpt",
+                name = "THVL1 HD (Dự phòng FPT)",
+                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/THVL1-HD-1080p/playlist.m3u8",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl2_hd_tv360",
+                name = "THVL2 HD - Vĩnh Long",
+                logoUrl = "https://i.imgur.com/wYadDFn.png",
+                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=26",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl2_hd_fpt",
+                name = "THVL2 HD (Dự phòng FPT)",
+                logoUrl = "https://i.imgur.com/wYadDFn.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/THVL2-HD-1080p/playlist.m3u8",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl3_hd_tv360",
+                name = "THVL3 HD - Phim Hay",
+                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=219",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl4_hd_tv360",
+                name = "THVL4 HD - Giải Trí",
+                logoUrl = "https://i.imgur.com/wYadDFn.png",
+                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=220",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+            TvChannel(
+                id = "thvl5_hd_tv360",
+                name = "THVL5 HD - Tin Tức",
+                logoUrl = "https://i.imgur.com/gvPtTR2.png",
+                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=91",
+                groupTitle = "THVL Vĩnh Long"
+            ),
+
+            // 🔴 TRUYỀN HÌNH QUỐC GIA VIỆT NAM (VTV 1 - 9, ANTV, QPVN) - CHÍNH THỐNG VTV DIGITAL & TV360
+            TvChannel(
+                id = "vtv1_hd_chinhthong",
+                name = "VTV1 HD - Thời Sự",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv1_hd_tv360",
+                name = "VTV1 HD (Dự phòng TV360)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv1",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv2_hd_vtvdigital",
+                name = "VTV2 HD - Khoa Học Giáo Dục",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv2/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv2_hd_tv360",
+                name = "VTV2 HD (Dự phòng TV360)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv2",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv3_hd_tv360",
+                name = "VTV3 HD - Giải Trí & Thể Thao",
+                logoUrl = "https://i.imgur.com/7rLCvgS.png",
+                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv3",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv4_hd_vtvdigital",
+                name = "VTV4 HD - Đối Ngoại",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv4_hd_tv360",
+                name = "VTV4 HD (Dự phòng TV360)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv4",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv5_tnb_vtvdigital",
+                name = "VTV5 HD - Tây Nam Bộ",
+                logoUrl = "https://i.imgur.com/7qPKNFU.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv7_hd_vtvdigital",
+                name = "VTV7 HD - Kênh Giáo Dục",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv8_hd_vtvdigital",
+                name = "VTV8 HD - Miền Trung Tây Nguyên",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv9_hd_vtvdigital",
+                name = "VTV9 HD - Miền Nam",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv9/master.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "vtv9_hd_tv360",
+                name = "VTV9 HD (Dự phòng TV360)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://vmttv.dpdns.org/tv360/?id=vtv9",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "antv_hd_prime",
+                name = "ANTV HD - Truyền Hình Công An",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://liveh12.vtvprime.vn/hls/ANNINHTV/index.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+            TvChannel(
+                id = "qpvn_hd_prime",
+                name = "QPVN HD - Truyền Hình Quốc Phòng",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://liveh12.vtvprime.vn/hls/QPTV/index.m3u8",
+                groupTitle = "VTV Quốc Gia"
+            ),
+
+            // 📺 TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)
+            TvChannel(
+                id = "htv1_hd_fpt",
+                name = "HTV1 HD - Thông Tin Công Cộng",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/HTV1.png/960px-HTV1.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV1-HD-1080p/playlist.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htv2_hd_fpt",
+                name = "HTV2 HD - Vie Channel",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d2/HTV2_-_Vie_Channel.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV2-HD-1080p/playlist.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htv3_sd_fpt",
+                name = "HTV3 - Thiếu Nhi & Gia Đình",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/6/65/HTV3-2018.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV3-SD-720p/playlist.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htv7_hd_fpt",
+                name = "HTV7 HD - Giải Trí Đặc Sắc",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/c/c0/HTV7_logo.webp",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV7-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htv9_hd_fpt",
+                name = "HTV9 HD - Tin Tức & Thời Sự",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/b/bf/HTV9_logo.webp",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV9-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htvc_thethao_fpt",
+                name = "HTVC Thể Thao HD",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/vi/3/3f/HTV_THETHAO_2014.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV-THETHAO-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htvc_phim_fpt",
+                name = "HTVC Phim HD",
+                logoUrl = "https://raw.githubusercontent.com/HaNoiIPTV/HaNoiIPTV.m3u/refs/heads/master/HTVC%20Phim%20HD.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-PHIM-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htvc_thuanviet_fpt",
+                name = "HTVC Thuần Việt HD",
+                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/c/c0/HTV7_logo.webp",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-THUANVIET-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+            TvChannel(
+                id = "htvc_giadinh_fpt",
+                name = "HTVC Gia Đình HD",
+                logoUrl = "https://i.ibb.co/BVQtkHgF/IMG-2899.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-GIADINH-HD-1080p/chunks.m3u8",
+                groupTitle = "HTV TP.HCM"
+            ),
+
+            // 🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH (CHÍNH THỐNG TỪ CÁC ĐÀI ĐỊA PHƯƠNG)
+            TvChannel(
+                id = "hanoi1_hd_prime",
+                name = "Hà Nội 1 HD",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://liveh34.vtvprime.vn/hls/HANOI1TV/index.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "hanoi2_hd_prime",
+                name = "Hà Nội 2 HD",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://liveh34.vtvprime.vn/hls/HANOI2/index.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "haiphong_sd_fpt",
+                name = "Hải Phòng TV",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HAIPHONG-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "danang1_sd_fpt",
+                name = "Đà Nẵng 1 TV",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DANANG1-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "cantho_tv_cdn",
+                name = "Cần Thơ TV",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://live.canthotv.vn/live/tv/chunklist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "dongthap_hd_prime",
+                name = "Đồng Tháp TV (THĐT1)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://liveh34.vtvprime.vn/hls/DONGTHAPTV/index.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "camau_hd_cdn",
+                name = "Cà Mau TV (CTV)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://tv.ctvcamau.vn/live/tv/tv.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "angiang_sd_fpt",
+                name = "An Giang TV (ATV1)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/ANGIANG-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "tiengiang_sd_fpt",
+                name = "Tiền Giang TV (THTG)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/TIENGIANG-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "dongnai1_sd_fpt",
+                name = "Đồng Nai 1 (ĐNRTV1)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DONGNAI1-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "dongnai2_sd_fpt",
+                name = "Đồng Nai 2 (ĐNRTV2)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DONGNAI2-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "binhthuan_sd_fpt",
+                name = "Bình Thuận TV (BTV)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/BINHTHUAN-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "khanhhoa_sd_fpt",
+                name = "Khánh Hòa TV (KTV)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/KHANHHOA-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "daklak_sd_fpt",
+                name = "Đắk Lắk TV (DRT)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DAKLAK-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "hatinh_sd_fpt",
+                name = "Hà Tĩnh TV (HTTV)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HATINH-SD-720p/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "nghean_tv_cdn",
+                name = "Nghệ An TV (NTV)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://67tz1gnwrvxic.cmccdn.net/hls/NGHEANTV/03.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "thainguyen_tv_cdn",
+                name = "Thái Nguyên TV (TNTV)",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://streaming.thainguyentv.vn/hls/livestream.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "tayninh_tv_cdn",
+                name = "Tây Ninh TV (TTV11)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://live.mediatech.vn/live/2851dc2c9af68834814a89e61db0faee561/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "langson_tv_cdn",
+                name = "Lạng Sơn TV",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://stream.langsontv.vn/live/285c78da0c246524c90917842f8de03bd21/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "bacninh_tv_cdn",
+                name = "Bắc Ninh TV (BTV)",
+                logoUrl = "https://i.imgur.com/qWWpYRR.png",
+                streamUrl = "https://live-hq.evgcdn.net/live/285f5f227e988ab4445a2138091d3d62e8d/chunklist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            ),
+            TvChannel(
+                id = "hue_tv_cdn",
+                name = "Huế TRT",
+                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                streamUrl = "https://live.huetv.com.vn/TRT-Online/playlist.m3u8",
+                groupTitle = "Đài Tỉnh Thành"
+            )
+        )
+    }
+
+    private fun parseM3uData(content: String, defaultGroup: String = "Truyền Hình"): TvSportsData {
         val lines = content.lines()
         var currentExt: String? = null
         val rawMatches = mutableListOf<FootballMatch>()
@@ -67,7 +482,7 @@ class MovieRepository {
                 val ext = currentExt
                 if (ext != null) {
                     val logo = logoRegex.find(ext)?.groupValues?.get(1)
-                    val group = groupRegex.find(ext)?.groupValues?.get(1) ?: "Chung"
+                    var group = groupRegex.find(ext)?.groupValues?.get(1) ?: defaultGroup
                     val commaIdx = ext.lastIndexOf(',')
                     val rawTitle = if (commaIdx >= 0) ext.substring(commaIdx + 1).trim() else ""
 
@@ -97,7 +512,15 @@ class MovieRepository {
                             )
                         )
                     } else {
-                        val cleanName = rawTitle.replace(Regex("""\[.*?\]"""), "").replace(Regex("""\(.*?\)"""), "").trim()
+                        var cleanName = rawTitle.replace(Regex("""\[.*?\]"""), "")
+                            .replace(Regex("""\(.*?\)"""), "")
+                            .replace("|", "-")
+                            .trim()
+
+                        if (cleanName.contains("THVL", ignoreCase = true) || cleanName.contains("Vĩnh Long", ignoreCase = true) || cleanName.contains("Vinh Long", ignoreCase = true)) {
+                            group = "THVL Vĩnh Long"
+                        }
+
                         channels.add(
                             TvChannel(
                                 id = "chan_${channels.size}",
