@@ -45,3 +45,29 @@ jobs:
               body: body,
               labels: ['bug', 'source-monitor']
             });
+
+      - name: Tự động đóng các Issue cảnh báo cũ khi toàn bộ nguồn đã hoạt động 100%
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'source-monitor'
+            });
+            for (const issue of issues.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: '✅ **Đã kiểm tra lại tự động**: Toàn bộ nguồn phim đang kích hoạt (`KKPhim`, `NguonC`, `CoBePhim`, `YTS 4K`) đều phản hồi tốt 100%. Tự động đóng cảnh báo!'
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+            }

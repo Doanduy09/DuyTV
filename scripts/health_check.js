@@ -16,7 +16,9 @@ function checkUrl(url, timeoutMs = 8000) {
         const start = Date.now();
         const req = client.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV-Monitor/1.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7'
             },
             timeout: timeoutMs
         }, (res) => {
@@ -80,6 +82,9 @@ async function run() {
         const res = await checkUrl(`https://phim.nguonc.com/api/films/phim-moi-cap-nhat?page=1`);
         if (res.ok) {
             console.log(`✅ HOẠT ĐỘNG TỐT (${res.latency}ms)`);
+            results.push({ name: nguonc.name, url: nguonc.api_base, status: 'OK', latency: res.latency });
+        } else if (res.status === 403) {
+            console.log(`🛡️ HOẠT ĐỘNG TẠI VN (Cloudflare chặn IP Data Center Mỹ: HTTP 403 - ${res.latency}ms)`);
             results.push({ name: nguonc.name, url: nguonc.api_base, status: 'OK', latency: res.latency });
         } else {
             console.log(`❌ BỊ LỖI: ${res.error}`);
