@@ -19,6 +19,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.media.audiofx.LoudnessEnhancer
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -65,6 +67,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -88,6 +91,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import java.util.Locale
+
+
+enum class CinematicFilter(val title: String, val desc: String) {
+    OFF("TẮT", "Màu sắc nguyên bản của luồng phát"),
+    VINTAGE_MARTIAL_ARTS("🎬 CỔ TRANG KIẾM HIỆP", "Tăng tương phản & màu ấm điện ảnh cho phim TVB và kiếm hiệp"),
+    VIBRANT_CINEMA("💎 ĐIỆN ẢNH SỐNG ĐỘNG", "Tăng độ bão hòa và độ trong trẻo cho phim chiếu rạp")
+}
 
 enum class VideoAspectMode(val mode: Int, val label: String, val desc: String) {
     ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "🌟 TRÀN MÀN HÌNH (100%)", "Xóa sạch 100% viền đen, lấp kín toàn màn hình"),
@@ -235,6 +245,14 @@ fun PlayerScreen(
     var previousVisitedChannelIndex by remember { mutableIntStateOf(-1) }
     var isScreenOffAudioMode by remember { mutableStateOf(false) }
     var isNightWarmMode by remember { mutableStateOf(false) }
+    var cinematicFilter by remember { mutableStateOf(CinematicFilter.OFF) }
+    var isAmbilightEnabled by remember { mutableStateOf(false) }
+    var isDrcVoiceEnabled by remember { mutableStateOf(false) }
+    var zeroStallFailoverEnabled by remember { mutableStateOf(true) }
+    var autoSkipIntroEnabled by remember { mutableStateOf(true) }
+    var showQuickActionSheet by remember { mutableStateOf(false) }
+    var quickActionTab by remember { mutableIntStateOf(0) }
+    var stallTimerJob by remember { mutableStateOf<Job?>(null) }
     var isCurrentChannelFav by remember(currentTitle) {
         mutableStateOf(AppCacheManager.isFavoriteChannel(currentTitle))
     }
@@ -257,6 +275,8 @@ fun PlayerScreen(
             }
         }
     }
+
+    
 
     // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
     var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
@@ -686,7 +706,29 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
-                if (playbackState == Player.STATE_READY) {
+                if (playbackState == Player.STATE_BUFFERING) {
+                    if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
+                        stallTimerJob?.cancel()
+                        stallTimerJob = scope.launch {
+                            delay(3000L)
+                            val allUrls = getActiveLiveUrls()
+                            if (allUrls.size > 1) {
+                                val nextBackupIdx = (currentBackupIndex + 1) % allUrls.size
+                                currentBackupIndex = nextBackupIdx
+                                errorMessage = null
+                                loadLiveStreamUrl(allUrls[nextBackupIdx])
+                                val curCh = if (isLive && currentChannelIndex in availableChannels.indices) availableChannels[currentChannelIndex] else null
+                                channelOsdName = curCh?.name ?: currentTitle
+                                channelOsdSub = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
+                                channelOsdLogo = curCh?.logoUrl ?: currentPosterUrl
+                                channelOsdVisible = true
+                                delay(3000L)
+                                channelOsdVisible = false
+                            }
+                        }
+                    }
+                } else if (playbackState == Player.STATE_READY) {
+                    stallTimerJob?.cancel()
                     errorRetryJob?.cancel()
                     errorMessage = null
                     totalDurationMs = maxOf(1L, exoPlayer.duration)
@@ -805,6 +847,57 @@ fun PlayerScreen(
         scope.launch {
             delay(2000)
             aspectBadgeText = null
+        }
+    }
+
+    // DRC Voice & Audio Gain
+    LaunchedEffect(isDrcVoiceEnabled, audioBoostPercent, loudnessEnhancer) {
+        loudnessEnhancer?.let { le ->
+            try {
+                if (isDrcVoiceEnabled) {
+                    le.setTargetGain(1200)
+                    le.enabled = true
+                } else if (audioBoostPercent > 100) {
+                    val gainMilliBels = when (audioBoostPercent) {
+                        150 -> 1000
+                        200 -> 1800
+                        else -> 0
+                    }
+                    le.setTargetGain(gainMilliBels)
+                    le.enabled = (gainMilliBels > 0)
+                } else {
+                    le.enabled = false
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Tự động bỏ qua mở đầu (Auto-Skip Intro 85s cho phim bộ)
+    LaunchedEffect(currentStreamUrl, exoPlayer) {
+        if (autoSkipIntroEnabled && !isLive && availableEpisodes.size > 1 && exoPlayer != null) {
+            delay(1200L)
+            if (currentPosMs < 10_000L && totalDurationMs > 600_000L) {
+                exoPlayer.seekTo(85_000L)
+                channelOsdName = currentTitle
+                channelOsdSub = "⏭️ Đã tự động bỏ qua mở đầu 85s"
+                channelOsdLogo = currentPosterUrl
+                channelOsdVisible = true
+                delay(2500L)
+                channelOsdVisible = false
+            }
+        }
+    }
+
+    // Smooth Fade-out Sleep Timer Volume Control
+    LaunchedEffect(sleepTimerMinutes, exoPlayer) {
+        if (exoPlayer != null) {
+            if (sleepTimerMinutes == 2) {
+                exoPlayer.volume = 0.6f
+            } else if (sleepTimerMinutes == 1) {
+                exoPlayer.volume = 0.3f
+            } else if (sleepTimerMinutes == 0) {
+                exoPlayer.volume = 1.0f
+            }
         }
     }
 
@@ -1014,6 +1107,7 @@ fun PlayerScreen(
     }
 
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
+    val currentShowQuickActionSheet by rememberUpdatedState(showQuickActionSheet)
     val currentShowChannelRibbon by rememberUpdatedState(showChannelRibbon)
     val currentIsTouchLocked by rememberUpdatedState(isTouchLocked)
     val currentPendingSeekPosMs by rememberUpdatedState(pendingSeekPosMs)
@@ -1163,13 +1257,18 @@ fun PlayerScreen(
                 }
                 keyCode == KeyEvent.KEYCODE_MENU -> {
                     if (action == KeyEvent.ACTION_DOWN) {
-                        showQualityMenu = !showQualityMenu
+                        showQuickActionSheet = !showQuickActionSheet
                         showControls = true
                     }
                     true
                 }
                 keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE -> {
-                    if (currentShowQualityMenu) {
+                    if (currentShowQuickActionSheet) {
+                        if (action == KeyEvent.ACTION_DOWN) {
+                            showQuickActionSheet = false
+                        }
+                        true
+                    } else if (currentShowQualityMenu) {
                         if (action == KeyEvent.ACTION_DOWN) {
                             showQualityMenu = false
                         }
@@ -1351,6 +1450,48 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // 🌌 Ánh Sáng Viền Vô Cực (Virtual Ambilight Glow)
+        if (isAmbilightEnabled && !isScreenOffAudioMode) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color(0x44FFD54F), Color.Transparent)
+                            )
+                        )
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color(0x44FFD54F))
+                            )
+                        )
+                )
+            }
+        }
+
+        // 🎬 Bộ Lọc Màu & Độ Nét Điện Ảnh (Cinematic Filter)
+        if (cinematicFilter == CinematicFilter.VINTAGE_MARTIAL_ARTS && !isScreenOffAudioMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x15FFA000))
+            )
+        } else if (cinematicFilter == CinematicFilter.VIBRANT_CINEMA && !isScreenOffAudioMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x1000E5FF))
+            )
+        }
+
         // 📺 OSD BANNER KHI BẤM PHÍM LÊN / XUỐNG ĐỂ CHUYỂN KÊNH TRUYỀN HÌNH
         AnimatedVisibility(
             visible = channelOsdVisible && !showControls,
@@ -1473,101 +1614,348 @@ fun PlayerScreen(
             }
         }
 
-        // Quality Selection Overlay Modal
-        if (showQualityMenu) {
+        val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
+        // ⚙️ BẢNG ĐIỀU KHIỂN TIỆN ÍCH HỢP NHẤT (UNIFIED QUICK-ACTION SHEET)
+        if (showQuickActionSheet) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color(0xCC0A0E17))
-                    .padding(48.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF161B26))
-                        .border(1.dp, Color(0xFF30363D), RoundedCornerShape(12.dp))
-                        .padding(28.dp)
+                        .widthIn(max = 640.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF141923))
+                        .border(1.5.dp, Color(0xFF2E384D), RoundedCornerShape(16.dp))
+                        .padding(20.dp)
                 ) {
-                    Text(
-                        text = "⚙️ TÙY CHỈNH BĂNG THÔNG & ĐỘ PHÂN GIẢI",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Chế độ Tự Động sẽ thích ứng theo đường truyền mạng: mạng khỏe tự động phát 4K/2K, mạng yếu tự hạ bitrate để không bị lag.",
-                        color = Color(0xFFA0AAB8),
-                        fontSize = 12.sp,
-                        modifier = Modifier.width(550.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+                    // Title
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚙️", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "BẢNG TIỆN ÍCH & TÙY CHỈNH THÔNG MINH",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                        Text(
+                            text = "Bấm BACK để đóng",
+                            color = Color(0xFF8B949E),
+                            fontSize = 11.sp
+                        )
+                    }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    val qualityOptions = listOf(
-                        Triple("AUTO", "⚡ TỰ ĐỘNG (Thích ứng tới 12K)", "Tự động đẩy lên 4K / 8K / 12K tối đa theo mạng"),
-                        Triple("12K", "👑 12K / 8K Ultra HD (Không giới hạn)", "Mở khóa 100% băng thông & độ phân giải tối đa"),
-                        Triple("4K", "💎 4K Ultra HD (2160p)", "Ưu tiên độ nét 4K Cinema (yêu cầu mạng > 25Mbps)"),
-                        Triple("2K", "🌟 2K QHD (1440p)", "Cân bằng siêu nét cho màn hình lớn"),
-                        Triple("1080P", "📺 Full HD (1080p)", "Chuẩn nét ổn định & mượt mà"),
-                        Triple("720P", "⚡ HD (720p)", "Tiết kiệm băng thông tối đa")
-                    )
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for ((key, title, desc) in qualityOptions) {
-                            val isSelected = (selectedQualityMode == key)
-                            val qInter = remember { MutableInteractionSource() }
-                            val isQFoc by qInter.collectIsFocusedAsState()
-
-                            Row(
+                    // 4 Tabs: 🎬 HÌNH ẢNH | 🎧 ÂM THANH | ⚡ TỐC ĐỘ & LUỒNG | 📱 ĐIỀU KHIỂN
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val tabs = listOf(
+                            "🎬 HÌNH ẢNH",
+                            "🎧 ÂM THANH",
+                            "⚡ TỐC ĐỘ & LUỒNG",
+                            "📱 ĐIỀU KHIỂN"
+                        )
+                        tabs.forEachIndexed { idx, title ->
+                            val isSelected = (quickActionTab == idx)
+                            val tInter = remember { MutableInteractionSource() }
+                            val isTFoc by tInter.collectIsFocusedAsState()
+                            Box(
                                 modifier = Modifier
-                                    .widthIn(max = 540.dp)
-                                    .fillMaxWidth(0.92f)
+                                    .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isQFoc) AccentRed else if (isSelected) Color(0xFF252B3B) else Color(0xFF1F2430))
+                                    .background(if (isTFoc) AccentRed else if (isSelected) Color(0xFF252E40) else Color(0xFF1B202D))
                                     .border(
-                                        width = if (isQFoc) 2.dp else if (isSelected) 1.dp else 0.dp,
-                                        color = if (isQFoc) Color.White else if (isSelected) AccentRed else Color.Transparent,
+                                        width = if (isTFoc) 2.dp else if (isSelected) 1.dp else 0.dp,
+                                        color = if (isTFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .focusable(interactionSource = qInter)
-                                    .clickable(interactionSource = qInter, indication = null) {
-                                        applyQualitySetting(key)
+                                    .focusable(interactionSource = tInter)
+                                    .clickable(interactionSource = tInter, indication = null) {
+                                        quickActionTab = idx
                                     }
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Column {
-                                    Text(
-                                        text = title,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected || isQFoc) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = desc,
-                                        color = if (isQFoc) Color(0xFFEEEEEE) else Color(0xFF8B949E),
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                if (isSelected) {
-                                    Text(
-                                        text = "✓ ĐANG DÙNG",
-                                        color = Color(0xFF00E676),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Text(
+                                    text = title,
+                                    color = if (isSelected) Color(0xFF00E676) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Nhấn BACK trên điều khiển để đóng menu này", color = Color(0xFF6E7681), fontSize = 11.sp)
+
+                    // Tab Contents (Scrollable if height constrained)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        when (quickActionTab) {
+                            0 -> {
+                                // 🎬 TAB HÌNH ẢNH
+                                SettingSectionHeader("🎬 BỘ LỌC ĐIỆN ẢNH CỔ TRANG / PHIM CŨ")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    CinematicFilter.values().forEach { filter ->
+                                        SettingChoicePill(
+                                            title = filter.title,
+                                            isSelected = (cinematicFilter == filter),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { cinematicFilter = filter }
+                                        )
+                                    }
+                                }
+
+                                SettingSectionHeader("🌌 ÁNH SÁNG VIỀN VÔ CỰC (VIRTUAL AMBILIGHT)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !isAmbilightEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isAmbilightEnabled = false }
+                                    )
+                                    SettingChoicePill(
+                                        title = "🌌 BẬT HÀO QUANG",
+                                        isSelected = isAmbilightEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isAmbilightEnabled = true }
+                                    )
+                                }
+
+                                SettingSectionHeader("📺 TỶ LỆ KHUNG HÌNH (ASPECT RATIO)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "📺 CHUẨN GỐC",
+                                        isSelected = (currentAspectMode == VideoAspectMode.FIT),
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { currentAspectMode = VideoAspectMode.FIT }
+                                    )
+                                    SettingChoicePill(
+                                        title = "🌟 TRÀN VIỀN 100%",
+                                        isSelected = (currentAspectMode == VideoAspectMode.ZOOM),
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { currentAspectMode = VideoAspectMode.ZOOM }
+                                    )
+                                    SettingChoicePill(
+                                        title = "↔️ CO GIÃN",
+                                        isSelected = (currentAspectMode == VideoAspectMode.FILL),
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { currentAspectMode = VideoAspectMode.FILL }
+                                    )
+                                }
+
+                                SettingSectionHeader("🌆 CHẾ ĐỘ DỊU MẮT BAN ĐÊM")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !isNightWarmMode,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isNightWarmMode = false }
+                                    )
+                                    SettingChoicePill(
+                                        title = "🌆 BẬT DỊU MẮT",
+                                        isSelected = isNightWarmMode,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isNightWarmMode = true }
+                                    )
+                                }
+
+                                SettingSectionHeader("💎 ĐỘ PHÂN GIẢI & BĂNG THÔNG")
+                                val qualityOptions = listOf("AUTO", "4K", "2K", "1080P", "720P")
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    qualityOptions.forEach { q ->
+                                        SettingChoicePill(
+                                            title = q,
+                                            isSelected = (selectedQualityMode == q),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { applyQualitySetting(q) }
+                                        )
+                                    }
+                                }
+                            }
+                            1 -> {
+                                // 🎧 TAB ÂM THANH
+                                SettingSectionHeader("🔊 KHUẾCH ĐẠI ÂM LƯỢNG DSP (PHẦN CỨNG)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(100 to "100% GỐC", 150 to "150% TO RÕ", 200 to "200% CỰC ĐẠI").forEach { (boost, label) ->
+                                        SettingChoicePill(
+                                            title = label,
+                                            isSelected = (audioBoostPercent == boost && !isDrcVoiceEnabled),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                isDrcVoiceEnabled = false
+                                                audioBoostPercent = boost
+                                            }
+                                        )
+                                    }
+                                }
+
+                                SettingSectionHeader("🌙 CHẾ ĐỘ BAN ĐÊM & LỌC GIỌNG (DRC VOICE CLEAR)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !isDrcVoiceEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isDrcVoiceEnabled = false }
+                                    )
+                                    SettingChoicePill(
+                                        title = "🌙 LỌC GIỌNG RÕ THOẠI",
+                                        isSelected = isDrcVoiceEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { isDrcVoiceEnabled = true }
+                                    )
+                                }
+
+                                SettingSectionHeader("⏲️ HẸN GIỜ TỰ TẮT GIẢM DẦN ÂM LƯỢNG (FADE-OUT)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(0 to "TẮT", 15 to "15P", 30 to "30P", 60 to "60P", 90 to "90P").forEach { (min, label) ->
+                                        SettingChoicePill(
+                                            title = label,
+                                            isSelected = (sleepTimerMinutes == min),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { sleepTimerMinutes = min }
+                                        )
+                                    }
+                                }
+
+                                SettingSectionHeader("🌙 TIẾT KIỆM ĐIỆN")
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "🌙 TẮT MÀN HÌNH CHỈ NGHE TIẾNG",
+                                        isSelected = false,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onClick = {
+                                            isScreenOffAudioMode = true
+                                            showQuickActionSheet = false
+                                            showControls = false
+                                        }
+                                    )
+                                }
+                            }
+                            2 -> {
+                                // ⚡ TAB TỐC ĐỘ & LUỒNG
+                                SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                    listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
+                                        SettingChoicePill(
+                                            title = "${spd}x",
+                                            isSelected = (playbackSpeed == spd),
+                                            modifier = Modifier.weight(1f),
+                                            onClick = {
+                                                playbackSpeed = spd
+                                                exoPlayer?.playbackParameters = PlaybackParameters(spd)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                SettingSectionHeader("🛡️ TỰ ĐỘNG TRÁO SERVER CHỐNG LAG (> 3S)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "🛡️ BẬT (KHUYÊN DÙNG)",
+                                        isSelected = zeroStallFailoverEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { zeroStallFailoverEnabled = true }
+                                    )
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !zeroStallFailoverEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { zeroStallFailoverEnabled = false }
+                                    )
+                                }
+
+                                SettingSectionHeader("⏭️ TỰ ĐỘNG BỎ QUA MỞ ĐẦU 85S")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "⏭️ BẬT",
+                                        isSelected = autoSkipIntroEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { autoSkipIntroEnabled = true }
+                                    )
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !autoSkipIntroEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { autoSkipIntroEnabled = false }
+                                    )
+                                }
+
+                                if (isLive && activeChannelTotalSources > 1) {
+                                    SettingSectionHeader("🔄 ĐỔI SERVER TRUYỀN HÌNH THỦ CÔNG")
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        SettingChoicePill(
+                                            title = "🔄 TRÁO SANG SERVER DỰ PHÒNG (${currentBackupIndex + 1}/$activeChannelTotalSources)",
+                                            isSelected = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = { switchBackupSource() }
+                                        )
+                                    }
+                                }
+                            }
+                            3 -> {
+                                // 📱 TAB ĐIỀU KHIỂN & ĐA MÀN HÌNH
+                                SettingSectionHeader("📱 REMOTE ẢO QUA MẠNG WI-FI")
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1B202D))
+                                        .padding(14.dp)
+                                ) {
+                                    Text(
+                                        text = "📱 Dùng điện thoại / tablet làm Remote điều khiển:",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Kết nối cùng mạng Wi-Fi, mở trình duyệt trên điện thoại và gõ IP của thiết bị để điều khiển điều hướng D-pad, âm lượng và nhảy kênh mượt mà.",
+                                        color = Color(0xFFA0AAB8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                SettingSectionHeader("🔒 KHÓA CẢM ỨNG MÀN HÌNH")
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Chống chạm nhầm)",
+                                        isSelected = false,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onClick = {
+                                            isTouchLocked = true
+                                            showQuickActionSheet = false
+                                            showControls = false
+                                            showUnlockPill = true
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1576,7 +1964,6 @@ fun PlayerScreen(
         val screenWidthDp = LocalConfiguration.current.screenWidthDp
         val hudHorizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
         val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
-        val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
 
         // 🌆 Lớp Lọc Ánh Sáng Xanh Ban Đêm (Night Warm Eye-Care Filter)
         if (isNightWarmMode && !isScreenOffAudioMode) {
@@ -1673,7 +2060,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = showControls && !showQualityMenu && !isTouchLocked,
+            visible = showControls && !showQualityMenu && !showQuickActionSheet && !isTouchLocked,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -1799,259 +2186,26 @@ fun PlayerScreen(
                             }
                         }
 
-                        // 🔊 Nút Khuếch Đại Âm Thanh (100% / 150% / 200%)
-                        val boostInter = remember { MutableInteractionSource() }
-                        val isBoostFoc by boostInter.collectIsFocusedAsState()
+                        // ⚙️ NÚT TIỆN ÍCH HỢP NHẤT (Chứa toàn bộ 20 tính năng)
+                        val utilInter = remember { MutableInteractionSource() }
+                        val isUtilFoc by utilInter.collectIsFocusedAsState()
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isBoostFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isBoostFoc || audioBoostPercent > 100) 1.5.dp else 0.dp,
-                                    color = if (isBoostFoc) Color.White else if (audioBoostPercent > 100) Color(0xFF00E676) else Color.Transparent,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = boostInter)
-                                .clickable(interactionSource = boostInter, indication = null) {
-                                    cycleAudioBoost()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isUtilFoc) AccentRed else Color(0xFF6200EA))
+                                .border(1.5.dp, if (isUtilFoc) Color.White else Color(0xFFBB86FC), RoundedCornerShape(6.dp))
+                                .focusable(interactionSource = utilInter)
+                                .clickable(interactionSource = utilInter, indication = null) {
+                                    showQuickActionSheet = true
                                 }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
-                                text = "🔊 ÂM LƯỢNG: ${audioBoostPercent}%",
-                                color = if (audioBoostPercent > 100) Color(0xFF00E676) else Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // ⏲️ Nút Hẹn Giờ Ngủ Thông Minh
-                        val sleepInter = remember { MutableInteractionSource() }
-                        val isSleepFoc by sleepInter.collectIsFocusedAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSleepFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isSleepFoc || sleepTimerMinutes > 0) 1.5.dp else 0.dp,
-                                    color = if (isSleepFoc) Color.White else if (sleepTimerMinutes > 0) Color(0xFFFFD600) else Color.Transparent,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = sleepInter)
-                                .clickable(interactionSource = sleepInter, indication = null) {
-                                    cycleSleepTimer()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = if (sleepTimerMinutes > 0) "⏲️ HẸN GIỜ: ${sleepTimerMinutes}P" else "⏲️ HẸN GIỜ: TẮT",
-                                color = if (sleepTimerMinutes > 0) Color(0xFFFFD600) else Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // 🔒 Nút Khóa Cảm Ứng Trẻ Em (Bé An cầm máy không bị bấm nhầm)
-                        val lockInter = remember { MutableInteractionSource() }
-                        val isLockFoc by lockInter.collectIsFocusedAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isLockFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isLockFoc) 1.5.dp else 0.dp,
-                                    color = Color.White,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = lockInter)
-                                .clickable(interactionSource = lockInter, indication = null) {
-                                    isTouchLocked = true
-                                    showControls = false
-                                    showUnlockPill = true
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "🔒 KHÓA TRẺ EM",
+                                text = "⚙️ TIỆN ÍCH",
                                 color = Color.White,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // 🌆 Nút Lọc Ánh Sáng Xanh Ban Đêm (Bảo vệ mắt Bé An & Gia Đình)
-                        val nightInter = remember { MutableInteractionSource() }
-                        val isNightFoc by nightInter.collectIsFocusedAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isNightFoc) AccentRed else if (isNightWarmMode) Color(0xFF3E2723) else Color(0xFF222938))
-                                .border(
-                                    width = if (isNightFoc || isNightWarmMode) 1.5.dp else 0.dp,
-                                    color = if (isNightFoc) Color.White else if (isNightWarmMode) Color(0xFFFFD600) else Color.Transparent,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = nightInter)
-                                .clickable(interactionSource = nightInter, indication = null) {
-                                    isNightWarmMode = !isNightWarmMode
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = if (isNightWarmMode) "🌆 DỊU MẮT: BẬT" else "🌆 DỊU MẮT",
-                                color = if (isNightWarmMode) Color(0xFFFFD600) else Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // 🌙 Nút Tắt Đèn Màn Hình Chỉ Nghe Tiếng
-                        val screenOffInter = remember { MutableInteractionSource() }
-                        val isScreenOffFoc by screenOffInter.collectIsFocusedAsState()
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isScreenOffFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isScreenOffFoc) 1.5.dp else 0.dp,
-                                    color = Color.White,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = screenOffInter)
-                                .clickable(interactionSource = screenOffInter, indication = null) {
-                                    isScreenOffAudioMode = true
-                                    showControls = false
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "🌙 TẮT MÀN HÌNH",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // 🖼️ Nút Thu Nhỏ Cửa Sổ Nổi Hình-Trong-Hình (PiP trên Máy tính bảng & Điện thoại)
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                            val pipInter = remember { MutableInteractionSource() }
-                            val isPipFoc by pipInter.collectIsFocusedAsState()
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isPipFoc) AccentRed else Color(0xFF222938))
-                                    .border(
-                                        width = if (isPipFoc) 1.5.dp else 0.dp,
-                                        color = Color.White,
-                                        shape = RoundedCornerShape(4.dp)
-                                    )
-                                    .focusable(interactionSource = pipInter)
-                                    .clickable(interactionSource = pipInter, indication = null) {
-                                        try {
-                                            val act = context as? Activity
-                                            if (act != null) {
-                                                showControls = false
-                                                val params = android.app.PictureInPictureParams.Builder()
-                                                    .setAspectRatio(android.util.Rational(16, 9))
-                                                    .build()
-                                                act.enterPictureInPictureMode(params)
-                                            }
-                                        } catch (_: Exception) {}
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                            ) {
-                                Text(
-                                    text = "🖼️ CỬA SỔ NỔI (PiP)",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Nút Tỷ Lệ Màn Hình / Full Màn Hình (Chạm hoặc D-Pad trên TV)
-                        val aspectInter = remember { MutableInteractionSource() }
-                        val isAspectFoc by aspectInter.collectIsFocusedAsState()
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isAspectFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isAspectFoc) 1.5.dp else 0.dp,
-                                    color = Color.White,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = aspectInter)
-                                .clickable(interactionSource = aspectInter, indication = null) {
-                                    cycleAspectMode()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = when (currentAspectMode) {
-                                    VideoAspectMode.ZOOM -> "🌟 MÀN HÌNH: TRÀN VIỀN (100%)"
-                                    VideoAspectMode.FILL -> "↔️ MÀN HÌNH: CĂNG ĐẦY (FILL)"
-                                    VideoAspectMode.FIT -> "📺 MÀN HÌNH: CHUẨN GỐC (FIT)"
-                                },
-                                color = if (currentAspectMode == VideoAspectMode.ZOOM) Color(0xFF00E676) else Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Quality Switcher Button on HUD
-                        val qualInter = remember { MutableInteractionSource() }
-                        val isQualFoc by qualInter.collectIsFocusedAsState()
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isQualFoc) AccentRed else Color(0xFF222938))
-                                .border(
-                                    width = if (isQualFoc) 1.5.dp else 0.dp,
-                                    color = Color.White,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .focusable(interactionSource = qualInter)
-                                .clickable(interactionSource = qualInter, indication = null) {
-                                    showQualityMenu = true
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "BĂNG THÔNG: $selectedQualityMode",
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFF1F2430), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = videoResolution,
-                                color = Color(0xFF00E676),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Black
                             )
                         }
                     }
@@ -2461,5 +2615,48 @@ private fun formatTime(ms: Long): String {
         String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+}
+@Composable
+fun SettingSectionHeader(title: String) {
+    Text(
+        text = title,
+        color = Color(0xFF64B5F6),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+    )
+}
+
+@Composable
+fun SettingChoicePill(
+    title: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val inter = remember { MutableInteractionSource() }
+    val isFoc by inter.collectIsFocusedAsState()
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isFoc) AccentRed else if (isSelected) Color(0xFF263238) else Color(0xFF181D28))
+            .border(
+                width = if (isFoc) 1.5.dp else if (isSelected) 1.dp else 0.dp,
+                color = if (isFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
+                shape = RoundedCornerShape(6.dp)
+            )
+            .focusable(interactionSource = inter)
+            .clickable(interactionSource = inter, indication = null, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = title,
+            color = if (isSelected) Color(0xFF00E676) else Color.White,
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1
+        )
     }
 }

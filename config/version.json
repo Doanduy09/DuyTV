@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "1.6.1",
-  "apkUrlLan": "http://192.168.1.189:8888/DuyTV-v1.6.1.apk",
+  "versionCode": 22,
+  "versionName": "1.7.0",
+  "apkUrlLan": "http://192.168.1.189:8888/DuyTV-v1.7.0.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• Sửa triệt để lỗi chữ bị che/cắt trên Điện thoại (Z Fold) & Máy tính bảng do dính thanh thông báo Status Bar\n• Tự động căn chỉnh Safe-Area Edge-to-Edge chuẩn từng loại màn hình\n• Tối ưu độ rộng nút bấm trên điện thoại & ẩn đồng hồ trùng lặp"
+  "releaseNotes": "• Bảng Tiện Ích Hợp Nhất (⚙️ Quick-Action Sheet) phân 4 nhóm rõ ràng, triệt tiêu 100% tình trạng chồng chéo UI\n• 🎬 Bộ lọc điện ảnh cổ trang TVB & phim kiếm hiệp tăng tương phản và nét mặt rực rỡ\n• 🌌 Ánh sáng viền vô cực (Virtual Ambilight Glow)\n• 🌙 Chế độ ban đêm DRC lọc rõ giọng thoại & nén tiếng nổ\n• 🔊 Khuếch đại âm lượng phần cứng 200%\n• 🛡️ Tự động tráo server chống lag khi nghẽn mạng > 3 giây\n• ⏭️ Tự động bỏ qua mở đầu 85 giây cho phim bộ\n• ⏲️ Hẹn giờ ngủ Fade-Out hạ dần âm lượng êm ái\n• Sửa triệt để lỗi cắt chữ trên Galaxy Z Fold và Tablet Xiaomi Pad"
 }

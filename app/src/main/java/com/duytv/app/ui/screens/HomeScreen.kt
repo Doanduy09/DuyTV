@@ -72,7 +72,6 @@ data class NavCategory(
 val NAV_CATEGORIES = listOf(
     NavCategory("all", "🔥 TẤT CẢ", ""),
     NavCategory("tv-live", "⚽ BÓNG ĐÁ & TV", "tv-live"),
-    NavCategory("goc-be-an", "🧒 GÓC BÉ AN", "hoat-hinh"),
     NavCategory("co-trang", "🏯 CỔ TRANG & TVB", "the-loai/co-trang"),
     NavCategory("phim-chieu-rap", "🎟️ PHIM CHIẾU RẠP", "phim-chieu-rap"),
     NavCategory("torrent-4k", "💎 4K CINEMA TORRENT", "torrent-4k"),
@@ -346,7 +345,8 @@ fun HomeScreen(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val isCompactScreen = screenWidthDp < 960
     val horizontalPad = if (screenWidthDp < 600) 14.dp else if (screenWidthDp < 900) 20.dp else 48.dp
-    val verticalPad = if (screenWidthDp < 600) 10.dp else 20.dp
+    val isTvDeviceCheck = remember(context) { com.duytv.app.util.HardwareOptimizer.isTvDevice(context) }
+    val verticalPad = if (isTvDeviceCheck) 20.dp else if (screenWidthDp < 600) 10.dp else 14.dp
 
     Box(
         modifier = modifier
@@ -539,9 +539,9 @@ fun HomeScreen(
                             ) {
                                 Text(
                                     text = if (hasNewUpdate) {
-                                        if (isCompactScreen) "🚀 BẢN MỚI v${remoteUpdateInfo!!.versionName}" else "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName}"
+                                        "🚀 BẢN MỚI v${remoteUpdateInfo!!.versionName}"
                                     } else {
-                                        if (isCompactScreen) "🔄 v$currentVersionName" else "🔄 CẬP NHẬT APP (v$currentVersionName)"
+                                        "🔄 v$currentVersionName"
                                     },
                                     color = if (hasNewUpdate && !updateFoc) Color.Black else Color.White,
                                     fontSize = 11.sp,
@@ -550,7 +550,8 @@ fun HomeScreen(
                             }
                         }
 
-                        if (!isCompactScreen) {
+                        val isTv = remember(context) { com.duytv.app.util.HardwareOptimizer.isTvDevice(context) }
+                        if (isTv && screenWidthDp >= 960) {
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = currentTime,

@@ -212,4 +212,21 @@ object HardwareOptimizer {
             }
         }
     }
+
+    /**
+     * Nhận diện chuẩn xác thiết bị Android TV / TV Box qua Leanback & UiModeManager.
+     * Trả về true nếu là TV (không có thanh trạng thái), false nếu là Phone, Fold hoặc Tablet.
+     */
+    fun isTvDevice(context: Context): Boolean {
+        return try {
+            val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager
+            if (uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
+                true
+            } else {
+                context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
