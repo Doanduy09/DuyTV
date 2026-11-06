@@ -35,7 +35,15 @@ fun TvChannelCard(
 ) {
     val inter = remember { MutableInteractionSource() }
     val isFoc by inter.collectIsFocusedAsState()
-    val totalSources = channel.allStreamUrls().size
+    val totalSources = remember(channel) { channel.allStreamUrls().size }
+    var logoFailed by remember(channel.logoUrl) { mutableStateOf(false) }
+    val callSign = remember(channel.name) {
+        channel.name.substringBefore(" - ")
+            .replace(" HD", "", ignoreCase = true)
+            .replace(" SD", "", ignoreCase = true)
+            .trim()
+            .take(12)
+    }
 
     val bgBrush = if (isFoc) {
         Brush.verticalGradient(
@@ -91,10 +99,11 @@ fun TvChannelCard(
             Spacer(modifier = Modifier.height(2.dp))
 
             // Channel Logo centered large & crisp like TV Dock
-            if (!channel.logoUrl.isNullOrBlank()) {
+            if (!channel.logoUrl.isNullOrBlank() && !logoFailed) {
                 AsyncImage(
                     model = channel.logoUrl,
                     contentDescription = channel.name,
+                    onError = { logoFailed = true },
                     modifier = Modifier
                         .height(54.dp)
                         .fillMaxWidth(0.88f),
@@ -103,12 +112,25 @@ fun TvChannelCard(
             } else {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2D3748)),
+                        .height(50.dp)
+                        .fillMaxWidth(0.9f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFF232B3E), Color(0xFF1A202E))
+                            )
+                        )
+                        .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("📺", fontSize = 22.sp)
+                    Text(
+                        text = callSign,
+                        color = Color.White,
+                        fontSize = if (callSign.length <= 6) 20.sp else 14.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 

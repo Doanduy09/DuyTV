@@ -1,13 +1,14 @@
 package com.duytv.app
 
 import android.app.Application
-import android.graphics.Bitmap
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.duytv.app.data.AppCacheManager
 import com.duytv.app.data.MovieRepository
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class DuyTvApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
@@ -16,7 +17,19 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
     }
 
     override fun newImageLoader(): ImageLoader {
+        val imageHttpClient = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")
+                    .build()
+                chain.proceed(req)
+            }
+            .build()
+
         return ImageLoader.Builder(this)
+            .okHttpClient(imageHttpClient)
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.15) // Giới hạn 15% heap cho TV 1.5GB RAM (chống OOM)
@@ -28,9 +41,9 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
                     .maxSizeBytes(50L * 1024 * 1024) // 50MB disk cache lưu poster offline
                     .build()
             }
-            .bitmapConfig(Bitmap.Config.RGB_565) // Tiết kiệm 50% RAM cho ảnh (2 bytes/px thay vì 4 bytes/px)
+            .allowRgb565(true) // Dùng RGB_565 cho ảnh JPEG poster (tiết kiệm 50% RAM) nhưng giữ kênh trong suốt Alpha cho logo PNG truyền hình
             .crossfade(true)
-            .respectCacheHeaders(false) // Cache triệt để poster phim để lướt siêu mượt 60fps
+            .respectCacheHeaders(false) // Cache triệt để poster phim & logo kênh để lướt siêu mượt 60fps
             .build()
     }
 }

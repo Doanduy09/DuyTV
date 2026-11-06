@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
                 BackHandler(enabled = currentScreen !is AppScreen.Home) {
                     when (val screen = currentScreen) {
                         is AppScreen.Player -> {
-                            currentScreen = AppScreen.Detail(screen.slug)
+                            currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
                         }
                         is AppScreen.Detail -> {
                             currentScreen = AppScreen.Home

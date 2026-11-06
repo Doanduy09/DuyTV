@@ -114,10 +114,10 @@ fun HomeScreen(
     var selectedMatchForStreams by remember { mutableStateOf<FootballMatchGroup?>(null) }
     var tvSubFilter by remember { mutableStateOf("all") }
 
-    // 1 duy nhất Heartbeat Clock coroutine cho toàn bộ đếm ngược trận đấu & đồng hồ TV
+    // 1 duy nhất Heartbeat Clock coroutine (cập nhật mỗi 30 giây để tránh recompose toàn màn hình mỗi giây trên chip TV)
     LaunchedEffect(Unit) {
         while (true) {
-            delay(1000)
+            delay(30_000)
             currentHeartbeatMillis = System.currentTimeMillis()
         }
     }
@@ -128,9 +128,9 @@ fun HomeScreen(
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
     var showSourceSettingsDialog by remember { mutableStateOf(false) }
 
-    val currentTime = remember {
+    val currentTime = remember(currentHeartbeatMillis / 60_000L) {
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-        sdf.format(Date())
+        sdf.format(Date(currentHeartbeatMillis))
     }
 
     fun reloadAllMovies(silent: Boolean = false) {
@@ -707,78 +707,74 @@ fun HomeScreen(
                     // 1. Tiêu đề mục & Bộ lọc nhánh (TẤT CẢ / ĐANG LIVE / SẮP ĐÁ / KÊNH TV)
                     item {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "⚽ TRỰC TIẾP BÓNG ĐÁ & KÊNH TRUYỀN HÌNH HD",
-                                        color = TextWhite,
-                                        fontSize = 20.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                    Text(
-                                        text = "Gộp kênh trùng & tự nhảy link dự phòng • Đã lọc trận kết thúc • ${sports.channels.size} kênh truyền hình",
-                                        color = TextDim,
-                                        fontSize = 12.sp
-                                    )
-                                }
+                            Text(
+                                text = "⚽ TRỰC TIẾP BÓNG ĐÁ & KÊNH TRUYỀN HÌNH HD",
+                                color = TextWhite,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Gộp kênh trùng & tự nhảy link dự phòng • Đã lọc trận kết thúc • ${sports.channels.size} kênh truyền hình",
+                                color = TextDim,
+                                fontSize = 12.sp
+                            )
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    val thvlCount = sports.channels.count {
-                                        it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
-                                    }
-                                    val vtvCount = sports.channels.count {
-                                        it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
-                                    }
-                                    val htvCount = sports.channels.count {
-                                        it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
-                                    }
-                                    val tinhCount = sports.channels.count {
-                                        it.groupTitle == "Đài Tỉnh Thành"
-                                    }
-                                    val filters = listOf(
-                                        "all" to "TẤT CẢ",
-                                        "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
-                                        "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
-                                        "htv" to "📺 HTV TP.HCM ($htvCount)",
-                                        "tinh" to "🏛️ ĐÀI TỈNH THÀNH ($tinhCount)",
-                                        "live" to "🔴 ĐANG LIVE",
-                                        "upcoming" to "⏳ SẮP ĐÁ"
-                                    )
-                                    for ((key, label) in filters) {
-                                        val isFiltSel = (tvSubFilter == key)
-                                        val fInter = remember { MutableInteractionSource() }
-                                        val fFoc by fInter.collectIsFocusedAsState()
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(
-                                                    if (fFoc) AccentRed
-                                                    else if (isFiltSel) Color(0xFF2B354F)
-                                                    else CardBg
-                                                )
-                                                .border(
-                                                    width = if (fFoc) 1.5.dp else if (isFiltSel) 1.dp else 0.dp,
-                                                    color = if (fFoc) Color.White else if (isFiltSel) AccentRed else Color.Transparent,
-                                                    shape = RoundedCornerShape(16.dp)
-                                                )
-                                                .focusable(interactionSource = fInter)
-                                                .clickable(interactionSource = fInter, indication = null) {
-                                                    tvSubFilter = key
-                                                }
-                                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text(
-                                                text = label,
-                                                color = if (fFoc || isFiltSel) Color.White else TextDim,
-                                                fontSize = 11.sp,
-                                                fontWeight = if (isFiltSel || fFoc) FontWeight.Bold else FontWeight.Medium
+                            val thvlCount = sports.channels.count {
+                                it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
+                            }
+                            val vtvCount = sports.channels.count {
+                                it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
+                            }
+                            val htvCount = sports.channels.count {
+                                it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+                            }
+                            val tinhCount = sports.channels.count {
+                                it.groupTitle == "Đài Tỉnh Thành"
+                            }
+                            val filters = listOf(
+                                "all" to "TẤT CẢ",
+                                "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
+                                "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
+                                "htv" to "📺 HTV TP.HCM ($htvCount)",
+                                "tinh" to "🏛️ ĐÀI TỈNH THÀNH ($tinhCount)",
+                                "live" to "🔴 ĐANG LIVE",
+                                "upcoming" to "⏳ SẮP ĐÁ"
+                            )
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(filters, key = { it.first }) { (key, label) ->
+                                    val isFiltSel = (tvSubFilter == key)
+                                    val fInter = remember { MutableInteractionSource() }
+                                    val fFoc by fInter.collectIsFocusedAsState()
+
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(
+                                                if (fFoc) AccentRed
+                                                else if (isFiltSel) Color(0xFF2B354F)
+                                                else CardBg
                                             )
-                                        }
+                                            .border(
+                                                width = if (fFoc) 1.5.dp else if (isFiltSel) 1.dp else 0.dp,
+                                                color = if (fFoc) Color.White else if (isFiltSel) AccentRed else Color.Transparent,
+                                                shape = RoundedCornerShape(16.dp)
+                                            )
+                                            .focusable(interactionSource = fInter)
+                                            .clickable(interactionSource = fInter, indication = null) {
+                                                tvSubFilter = key
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = if (fFoc || isFiltSel) Color.White else TextDim,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isFiltSel || fFoc) FontWeight.Bold else FontWeight.Medium,
+                                            maxLines = 1
+                                        )
                                     }
                                 }
                             }

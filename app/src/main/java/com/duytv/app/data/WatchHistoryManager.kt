@@ -20,6 +20,8 @@ object WatchHistoryManager {
     private const val PREFS_NAME = "duytv_watch_history"
     private const val KEY_HISTORY = "history_items"
     private val gson = Gson()
+    @Volatile
+    private var memoryCache: List<WatchHistoryItem>? = null
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -52,16 +54,20 @@ object WatchHistoryManager {
             )
         )
         // Keep max 15 recent items
-        val trimmed = if (list.size > 15) list.subList(0, 15) else list
+        val trimmed = if (list.size > 15) list.subList(0, 15).toList() else list.toList()
+        memoryCache = trimmed
         val json = gson.toJson(trimmed)
         getPrefs(context).edit().putString(KEY_HISTORY, json).apply()
     }
 
     fun getHistory(context: Context): List<WatchHistoryItem> {
+        memoryCache?.let { return it }
         val json = getPrefs(context).getString(KEY_HISTORY, null) ?: return emptyList()
         return try {
             val type = object : TypeToken<List<WatchHistoryItem>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            val parsed: List<WatchHistoryItem> = gson.fromJson(json, type) ?: emptyList()
+            memoryCache = parsed
+            parsed
         } catch (_: Exception) {
             emptyList()
         }

@@ -18,7 +18,9 @@ class MovieRepository {
 
     private val gson = Gson()
 
+    @Volatile
     private var cachedTvSports: TvSportsData? = null
+    @Volatile
     private var lastTvSportsFetchTime: Long = 0L
 
     suspend fun getTvAndSportsData(forceRefresh: Boolean = false): TvSportsData = withContext(Dispatchers.IO) {
@@ -86,17 +88,25 @@ class MovieRepository {
     }
 
     companion object {
+        private val REGEX_DIACRITICS = Regex("\\p{InCombiningDiacriticalMarks}+")
+        private val REGEX_BRACKETS = Regex("\\[.*?]")
+        private val REGEX_PARENS = Regex("\\(.*?\\)")
+        private val REGEX_NON_ALNUM_PLUS = Regex("[^a-z0-9+]")
+        private val REGEX_QUALITY_TOKENS = Regex("\\b(fhd|uhd|4k|1080p|720p|hd|sd|hevc|h265|vip|backup|du phong|tv|kenh|dai|truyen hinh)\\b")
+        private val REGEX_NON_ALNUM = Regex("[^a-z0-9]")
+
         fun normalizeChannelKey(rawName: String): String {
             val noAccent = java.text.Normalizer.normalize(rawName, java.text.Normalizer.Form.NFD)
-                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .replace(REGEX_DIACRITICS, "")
                 .replace('đ', 'd').replace('Đ', 'D')
                 .lowercase()
             val cleaned = noAccent
-                .replace(Regex("\\[.*?]"), " ")
-                .replace(Regex("\\(.*?\\)"), " ")
+                .replace(REGEX_BRACKETS, " ")
+                .replace(REGEX_PARENS, " ")
                 .substringBefore(" - ")
+                .replace(REGEX_QUALITY_TOKENS, " ")
                 .trim()
-            val compact = cleaned.replace(Regex("[^a-z0-9+]"), "")
+            val compact = cleaned.replace(REGEX_NON_ALNUM_PLUS, "")
 
             return when {
                 compact.contains("thvl1") || compact.contains("vinhlong1") -> "thvl1"
@@ -104,6 +114,7 @@ class MovieRepository {
                 compact.contains("thvl3") || compact.contains("vinhlong3") -> "thvl3"
                 compact.contains("thvl4") || compact.contains("vinhlong4") -> "thvl4"
                 compact.contains("thvl5") || compact.contains("vinhlong5") -> "thvl5"
+                compact.startsWith("vtvcab") -> compact
                 compact.contains("vtv5tnb") || compact.contains("vtv5taynambo") -> "vtv5tnb"
                 compact.contains("vtv5tn") || compact.contains("vtv5taynguyen") -> "vtv5tn"
                 compact.contains("vtv10") -> "vtv10"
@@ -123,19 +134,19 @@ class MovieRepository {
                 compact.contains("htvcphunu") -> "htvcphunu"
                 compact.contains("htvcthuanviet") -> "htvcthuanviet"
                 compact.contains("htvc+") || compact.contains("htvcplus") -> "htvcplus"
-                compact.contains("htv1") -> "htv1"
-                compact.contains("htv2") || compact.contains("viechannel") -> "htv2"
-                compact.contains("htv3") -> "htv3"
-                compact.contains("htv4") -> "htv4"
-                compact.contains("htv5") -> "htv5"
-                compact.contains("htv7") -> "htv7"
-                compact.contains("htv9") -> "htv9"
+                compact == "htv1" || compact.startsWith("htv1") -> "htv1"
+                compact == "htv2" || compact.startsWith("htv2") || compact.contains("viechannel") -> "htv2"
+                compact == "htv3" || compact.startsWith("htv3") -> "htv3"
+                compact == "htv4" || compact.startsWith("htv4") -> "htv4"
+                compact == "htv5" || compact.startsWith("htv5") -> "htv5"
+                compact == "htv7" || compact.startsWith("htv7") -> "htv7"
+                compact == "htv9" || compact.startsWith("htv9") -> "htv9"
                 compact.contains("antv") || compact.contains("anninhtv") -> "antv"
                 compact.contains("qpvn") || compact.contains("quocphong") || compact.contains("qptv") -> "qpvn"
                 compact.contains("hanoi1") || compact.contains("hntv1") -> "hanoi1"
                 compact.contains("hanoi2") || compact.contains("hntv2") -> "hanoi2"
-                compact.contains("quangninh1") || compact.contains("qtv1") -> "quangninh1"
-                compact.contains("quangninh3") || compact.contains("qtv3") -> "quangninh3"
+                compact.contains("quangninh1") || compact == "qtv1" || compact.startsWith("qtv1") -> "quangninh1"
+                compact.contains("quangninh3") || compact == "qtv3" || compact.startsWith("qtv3") -> "quangninh3"
                 compact.contains("dongnai1") || compact.contains("dnrtv1") -> "dongnai1"
                 compact.contains("dongnai2") || compact.contains("dnrtv2") -> "dongnai2"
                 compact.contains("dongthap2") || compact.contains("thdt2") -> "dongthap2"
@@ -143,19 +154,17 @@ class MovieRepository {
                 compact.contains("cantho2") -> "cantho2"
                 compact.contains("cantho3") -> "cantho3"
                 compact.contains("cantho") || compact.contains("thtpct") -> "cantho1"
-                compact.contains("angiang2") -> "angiang2"
-                compact.contains("angiang3") -> "angiang3"
-                compact.contains("angiang") || compact.contains("atv") -> "angiang1"
+                compact.contains("angiang2") || compact == "atv2" -> "angiang2"
+                compact.contains("angiang3") || compact == "atv3" -> "angiang3"
+                compact.contains("angiang") || compact == "atv" || compact == "atv1" -> "angiang1"
                 compact.contains("danang2") || compact.contains("drt2") -> "danang2"
                 compact.contains("danang") || compact.contains("drt1") -> "danang1"
-                compact.contains("haiphong3") || compact.contains("thp3") -> "haiphong3"
-                compact.contains("haiphong") || compact.contains("thp") -> "haiphong1"
-                compact.contains("khanhhoa") || compact.contains("ktv") -> "khanhhoa1"
-                compact.contains("hue") || compact.contains("trt") -> "hue"
+                compact.contains("haiphong3") || compact == "thp3" -> "haiphong3"
+                compact.contains("haiphong") || compact == "thp" || compact == "thp1" -> "haiphong1"
+                compact.contains("khanhhoa") || compact == "ktv" || compact == "ktv1" -> "khanhhoa1"
+                compact.contains("hue") || compact == "trt" || compact == "trt1" -> "hue"
                 else -> {
-                    cleaned.replace(Regex("\\b(fhd|uhd|4k|1080p|720p|hd|sd|hevc|tv|kenh|dai|truyen hinh)\\b"), "")
-                        .replace(Regex("[^a-z0-9]"), "")
-                        .ifBlank { compact }
+                    cleaned.replace(REGEX_NON_ALNUM, "").ifBlank { compact }
                 }
             }
         }
@@ -177,10 +186,11 @@ class MovieRepository {
                     val combinedUrls = (existing.allStreamUrls() + ch.allStreamUrls()).distinct()
                     val bestLogo = if (!existing.logoUrl.isNullOrBlank() &&
                         !existing.logoUrl.contains("vZYlGIW") &&
-                        !existing.logoUrl.contains("qWWpYRR")
+                        !existing.logoUrl.contains("qWWpYRR") &&
+                        !existing.logoUrl.contains("wikimedia.org")
                     ) {
                         existing.logoUrl
-                    } else if (!ch.logoUrl.isNullOrBlank()) {
+                    } else if (!ch.logoUrl.isNullOrBlank() && !ch.logoUrl.contains("wikimedia.org")) {
                         ch.logoUrl
                     } else {
                         existing.logoUrl
@@ -316,56 +326,56 @@ class MovieRepository {
             TvChannel(
                 id = "htv1_hd_fpt",
                 name = "HTV1 HD - Thông Tin Công Cộng",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/HTV1.png/960px-HTV1.png",
+                logoUrl = "https://i.imgur.com/KEMSBD3.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV1-HD-1080p/playlist.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv2_hd_fpt",
                 name = "HTV2 HD - Vie Channel",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/d/d2/HTV2_-_Vie_Channel.png",
+                logoUrl = "https://i.imgur.com/2npoF3Q.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV2-HD-1080p/playlist.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv3_sd_fpt",
                 name = "HTV3 - Thiếu Nhi & Gia Đình",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/6/65/HTV3-2018.png",
+                logoUrl = "https://i.imgur.com/TCoIsVF.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV3-SD-720p/playlist.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv7_hd_fpt",
                 name = "HTV7 HD - Giải Trí Đặc Sắc",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/c/c0/HTV7_logo.webp",
+                logoUrl = "https://i.imgur.com/n2PEK28.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV7-HD-1080p/chunks.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv9_hd_fpt",
                 name = "HTV9 HD - Tin Tức & Thời Sự",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/b/bf/HTV9_logo.webp",
+                logoUrl = "https://i.imgur.com/6GSN524.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV9-HD-1080p/chunks.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htvc_thethao_fpt",
                 name = "HTVC Thể Thao HD",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/vi/3/3f/HTV_THETHAO_2014.png",
+                logoUrl = "https://i.imgur.com/ikaiET3.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV-THETHAO-HD-1080p/chunks.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htvc_phim_fpt",
                 name = "HTVC Phim HD",
-                logoUrl = "https://raw.githubusercontent.com/HaNoiIPTV/HaNoiIPTV.m3u/refs/heads/master/HTVC%20Phim%20HD.png",
+                logoUrl = "https://i.imgur.com/P0wqvmu.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-PHIM-HD-1080p/chunks.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htvc_thuanviet_fpt",
                 name = "HTVC Thuần Việt HD",
-                logoUrl = "https://upload.wikimedia.org/wikipedia/commons/c/c0/HTV7_logo.webp",
+                logoUrl = "https://i.imgur.com/KtMeo6q.png",
                 streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-THUANVIET-HD-1080p/chunks.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
@@ -381,14 +391,14 @@ class MovieRepository {
             TvChannel(
                 id = "hanoi1_hd_prime",
                 name = "Hà Nội 1 HD",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                logoUrl = "https://i.postimg.cc/hvL15x02/Hanoi-TV1.png",
                 streamUrl = "https://liveh34.vtvprime.vn/hls/HANOI1TV/index.m3u8",
                 groupTitle = "Đài Tỉnh Thành"
             ),
             TvChannel(
                 id = "hanoi2_hd_prime",
                 name = "Hà Nội 2 HD",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
+                logoUrl = "https://i.postimg.cc/Nft4rJgS/Hanoi-TV2.png",
                 streamUrl = "https://liveh34.vtvprime.vn/hls/HANOI2/index.m3u8",
                 groupTitle = "Đài Tỉnh Thành"
             ),
@@ -557,8 +567,8 @@ class MovieRepository {
                     val timeMatch = timeRegex.find(rawTitle)
 
                     if (vsMatch != null && timeMatch != null) {
-                        val home = vsMatch.groupValues[1].replace(Regex("""\[.*?\]"""), "").trim()
-                        val away = vsMatch.groupValues[2].replace(Regex("""\[.*?\]"""), "").trim()
+                        val home = vsMatch.groupValues[1].replace(REGEX_BRACKETS, "").trim()
+                        val away = vsMatch.groupValues[2].replace(REGEX_BRACKETS, "").trim()
                         val time = timeMatch.groupValues[1].trim()
                         val blv = blvRegex.find(rawTitle)?.groupValues?.get(1)?.trim() ?: "Bình Luận Tiếng Việt"
                         val tournament = group.replace("Kho Ga TV - ", "").trim()
@@ -579,8 +589,8 @@ class MovieRepository {
                             )
                         )
                     } else {
-                        var cleanName = rawTitle.replace(Regex("""\[.*?\]"""), "")
-                            .replace(Regex("""\(.*?\)"""), "")
+                        var cleanName = rawTitle.replace(REGEX_BRACKETS, "")
+                            .replace(REGEX_PARENS, "")
                             .replace("|", "-")
                             .trim()
 

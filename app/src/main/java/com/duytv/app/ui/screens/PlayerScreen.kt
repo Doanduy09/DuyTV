@@ -125,18 +125,18 @@ fun PlayerScreen(
     var currentPosterUrl by remember(posterUrl) { mutableStateOf(posterUrl) }
     var currentGroupName by remember { mutableStateOf("") }
 
-    // Danh sách kênh & index hiện tại khi xem truyền hình
+    // Danh sách kênh & index hiện tại khi xem truyền hình (-1 nếu là luồng trận bóng đá trực tiếp)
     val availableChannels = remember { AppCacheManager.activeChannels }
     val initialChIndex = remember(availableChannels, streamUrl, movieTitle) {
-        val idx = availableChannels.indexOfFirst {
+        availableChannels.indexOfFirst {
             it.streamUrl == streamUrl ||
             it.backupUrls.contains(streamUrl) ||
             it.name.equals(movieTitle, ignoreCase = true)
         }
-        if (idx >= 0) idx else 0
     }
     var currentChannelIndex by remember { mutableIntStateOf(initialChIndex) }
     var currentBackupIndex by remember { mutableIntStateOf(0) }
+    var errorRetryJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(currentChannelIndex, availableChannels) {
         if (isLive && availableChannels.isNotEmpty() && currentChannelIndex in availableChannels.indices) {
@@ -390,21 +390,23 @@ fun PlayerScreen(
 
     if (exoPlayer == null) return
 
-    // Track playback position & Save history (bỏ qua nếu đang xem luồng trực tiếp / TV)
+    // Track playback position & Save history mỗi 10s (bỏ qua nếu đang xem luồng trực tiếp / TV)
     LaunchedEffect(exoPlayer) {
+        var tickCount = 0
         while (true) {
             delay(1000)
             if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
                 currentPosMs = exoPlayer.currentPosition
                 totalDurationMs = maxOf(1L, exoPlayer.duration)
-                if (!isLive) {
+                tickCount++
+                if (!isLive && tickCount % 10 == 0) {
                     WatchHistoryManager.saveProgress(
                         context = context,
                         slug = slug,
-                        movieTitle = movieTitle,
-                        episodeName = episodeName,
-                        streamUrl = streamUrl,
-                        posterUrl = posterUrl,
+                        movieTitle = currentTitle,
+                        episodeName = currentEpisodeName,
+                        streamUrl = currentStreamUrl,
+                        posterUrl = currentPosterUrl,
                         positionMs = currentPosMs,
                         durationMs = totalDurationMs
                     )
@@ -444,6 +446,7 @@ fun PlayerScreen(
     fun showChannelOsd(channel: TvChannel, index: Int, total: Int, sourceIdx: Int = 0) {
         val totalSources = channel.allStreamUrls().size
         val sourceLabel = if (totalSources > 1) " • Nguồn ${sourceIdx + 1}/$totalSources" else ""
+        showControls = false
         channelOsdName = channel.name
         channelOsdSub = "${channel.groupTitle} • Kênh ${index + 1}/$total$sourceLabel"
         channelOsdLogo = channel.logoUrl
@@ -484,7 +487,9 @@ fun PlayerScreen(
                     .build()
             )
             val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+            errorRetryJob?.cancel()
             player.stop()
+            player.clearMediaItems()
             player.setMediaSource(newMediaSource)
             player.prepare()
             player.play()
@@ -496,6 +501,7 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_READY) {
+                    errorRetryJob?.cancel()
                     errorMessage = null
                     totalDurationMs = maxOf(1L, exoPlayer.duration)
                 }
@@ -540,7 +546,17 @@ fun PlayerScreen(
                     }
                 } else {
                     errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
-                    exoPlayer.prepare()
+                    errorRetryJob?.cancel()
+                    errorRetryJob = scope.launch {
+                        delay(2500)
+                        if (currentChannel != null && allUrls.isNotEmpty()) {
+                            currentBackupIndex = 0
+                            loadLiveStreamUrl(allUrls.first())
+                        } else {
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        }
+                    }
                 }
             }
         }
@@ -683,11 +699,13 @@ fun PlayerScreen(
     }
 
     fun nextChannel() {
-        switchToChannel(currentChannelIndex + 1)
+        val nextIdx = if (currentChannelIndex < 0) 0 else currentChannelIndex + 1
+        switchToChannel(nextIdx)
     }
 
     fun previousChannel() {
-        switchToChannel(currentChannelIndex - 1)
+        val prevIdx = if (currentChannelIndex < 0) availableChannels.size - 1 else currentChannelIndex - 1
+        switchToChannel(prevIdx)
     }
 
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
@@ -993,7 +1011,7 @@ fun PlayerScreen(
 
         // 📺 OSD BANNER KHI BẤM PHÍM LÊN / XUỐNG ĐỂ CHUYỂN KÊNH TRUYỀN HÌNH
         AnimatedVisibility(
-            visible = channelOsdVisible,
+            visible = channelOsdVisible && !showControls,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier

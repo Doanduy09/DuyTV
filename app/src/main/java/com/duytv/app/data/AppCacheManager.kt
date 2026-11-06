@@ -2,6 +2,10 @@ package com.duytv.app.data
 
 import android.content.Context
 import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 data class HomeCacheData(
@@ -16,7 +20,10 @@ data class HomeCacheData(
 
 object AppCacheManager {
     private val gson = Gson()
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var appContext: Context? = null
+    @Volatile
+    private var isInitialized = false
 
     // L1 RAM Cache (Singleton in-memory)
     @Volatile
@@ -36,6 +43,8 @@ object AppCacheManager {
 
     fun init(context: Context, defaultOfficialChannels: List<TvChannel> = emptyList()) {
         appContext = context.applicationContext
+        if (isInitialized && activeChannels.isNotEmpty()) return
+        isInitialized = true
         if (activeChannels.isEmpty() && defaultOfficialChannels.isNotEmpty()) {
             activeChannels = defaultOfficialChannels
         }
@@ -67,7 +76,9 @@ object AppCacheManager {
     fun saveHomeData(data: HomeCacheData, ctx: Context? = null) {
         cachedHomeData = data
         val targetContext = ctx?.applicationContext ?: appContext ?: return
-        writeDiskCache(targetContext, HOME_CACHE_FILE, data)
+        ioScope.launch {
+            writeDiskCache(targetContext, HOME_CACHE_FILE, data)
+        }
     }
 
     fun saveTvSports(data: TvSportsData, ctx: Context? = null) {
@@ -76,7 +87,9 @@ object AppCacheManager {
             activeChannels = data.channels
         }
         val targetContext = ctx?.applicationContext ?: appContext ?: return
-        writeDiskCache(targetContext, TV_SPORTS_CACHE_FILE, data)
+        ioScope.launch {
+            writeDiskCache(targetContext, TV_SPORTS_CACHE_FILE, data)
+        }
     }
 
     private fun <T> readDiskCache(context: Context, fileName: String, clazz: Class<T>): T? {
