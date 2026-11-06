@@ -38,15 +38,55 @@ object AppCacheManager {
     @Volatile
     var activeChannels: List<TvChannel> = emptyList()
 
+    @Volatile
+    var favoriteChannelNames: Set<String> = emptySet()
+        private set
+
     private const val HOME_CACHE_FILE = "duytv_home_cache.json"
     private const val TV_SPORTS_CACHE_FILE = "duytv_tvsports_cache.json"
+    private const val FAV_PREFS = "duytv_fav_channels"
+    private const val KEY_FAV_NAMES = "fav_names"
+
+    fun isFavoriteChannel(channelName: String): Boolean {
+        return favoriteChannelNames.contains(channelName.trim().uppercase())
+    }
+
+    fun toggleFavoriteChannel(context: Context, channelName: String): Boolean {
+        val key = channelName.trim().uppercase()
+        val updated = favoriteChannelNames.toMutableSet()
+        val isNowFav = if (updated.contains(key)) {
+            updated.remove(key)
+            false
+        } else {
+            updated.add(key)
+            true
+        }
+        favoriteChannelNames = updated
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_FAV_NAMES, updated)
+            .apply()
+        if (activeChannels.isNotEmpty()) {
+            activeChannels = sortChannelsWithFavoritesFirst(activeChannels)
+        }
+        return isNowFav
+    }
+
+    fun sortChannelsWithFavoritesFirst(channels: List<TvChannel>): List<TvChannel> {
+        if (favoriteChannelNames.isEmpty()) return channels
+        val (favs, others) = channels.partition { isFavoriteChannel(it.name) }
+        return favs + others
+    }
 
     fun init(context: Context, defaultOfficialChannels: List<TvChannel> = emptyList()) {
         appContext = context.applicationContext
+        val savedFavs = appContext!!.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_FAV_NAMES, emptySet()) ?: emptySet()
+        favoriteChannelNames = savedFavs
         if (isInitialized && activeChannels.isNotEmpty()) return
         isInitialized = true
         if (activeChannels.isEmpty() && defaultOfficialChannels.isNotEmpty()) {
-            activeChannels = defaultOfficialChannels
+            activeChannels = sortChannelsWithFavoritesFirst(defaultOfficialChannels)
         }
 
         // 1. Nạp L2 Disk Cache vào L1 RAM nếu RAM chưa có (tốn < 15ms)
@@ -82,13 +122,15 @@ object AppCacheManager {
     }
 
     fun saveTvSports(data: TvSportsData, ctx: Context? = null) {
-        cachedTvSports = data
-        if (data.channels.isNotEmpty()) {
-            activeChannels = data.channels
+        val sortedChannels = sortChannelsWithFavoritesFirst(data.channels)
+        val sortedData = data.copy(channels = sortedChannels)
+        cachedTvSports = sortedData
+        if (sortedChannels.isNotEmpty()) {
+            activeChannels = sortedChannels
         }
         val targetContext = ctx?.applicationContext ?: appContext ?: return
         ioScope.launch {
-            writeDiskCache(targetContext, TV_SPORTS_CACHE_FILE, data)
+            writeDiskCache(targetContext, TV_SPORTS_CACHE_FILE, sortedData)
         }
     }
 

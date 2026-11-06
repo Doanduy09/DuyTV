@@ -19,6 +19,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import android.media.audiofx.LoudnessEnhancer
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -213,10 +217,60 @@ fun PlayerScreen(
     var channelOsdLogo by remember { mutableStateOf<String?>(null) }
     var channelOsdJob by remember { mutableStateOf<Job?>(null) }
 
+    // 7 Tiện Ích Thông Minh v1.5.0:
+    // 1. Thanh chọn kênh ngang nhanh (showChannelRibbon)
+    // 2. Khóa cảm ứng trẻ em cho máy tính bảng bé An (isTouchLocked)
+    // 3. Hẹn giờ tự động tắt (sleepTimerMinutes: 0, 15, 30, 60, 90)
+    // 4. Khuếch đại âm lượng phần cứng LoudnessEnhancer (audioBoostPercent: 100, 150, 200)
+    // 5. Nhập phím số 0-9 nhảy kênh trên Remote TV (numberInputBuffer)
+    // 6. Ghim kênh yêu thích (isCurrentChannelFav)
+    var showChannelRibbon by remember { mutableStateOf(false) }
+    var isTouchLocked by remember { mutableStateOf(false) }
+    var showUnlockPill by remember { mutableStateOf(false) }
+    var sleepTimerMinutes by remember { mutableIntStateOf(0) }
+    var audioBoostPercent by remember { mutableIntStateOf(100) }
+    var loudnessEnhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
+    var numberInputBuffer by remember { mutableStateOf("") }
+    var numberInputJob by remember { mutableStateOf<Job?>(null) }
+    var isCurrentChannelFav by remember(currentTitle) {
+        mutableStateOf(AppCacheManager.isFavoriteChannel(currentTitle))
+    }
+
+    LaunchedEffect(currentTitle) {
+        isCurrentChannelFav = AppCacheManager.isFavoriteChannel(currentTitle)
+    }
+
+    // Bộ đếm ngược Hẹn Giờ Tự Động Tắt (Sleep Timer)
+    LaunchedEffect(sleepTimerMinutes) {
+        if (sleepTimerMinutes > 0) {
+            delay(60_000L)
+            val nextMin = sleepTimerMinutes - 1
+            sleepTimerMinutes = nextMin
+            if (nextMin == 0) {
+                onClose()
+            }
+        }
+    }
+
     // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
     var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
     var aspectBadgeText by remember { mutableStateOf<String?>(null) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+
+    fun cycleSleepTimer() {
+        sleepTimerMinutes = when (sleepTimerMinutes) {
+            0 -> 15
+            15 -> 30
+            30 -> 60
+            60 -> 90
+            else -> 0
+        }
+        aspectBadgeText = if (sleepTimerMinutes > 0) "⏲️ HẸN GIỜ TẮT: $sleepTimerMinutes PHÚT" else "⏲️ HẸN GIỜ TẮT: ĐÃ TẮT"
+        scope.launch {
+            delay(2200)
+            aspectBadgeText = null
+        }
+    }
 
     fun cycleAspectMode() {
         val modes = VideoAspectMode.values()
@@ -710,9 +764,52 @@ fun PlayerScreen(
                     context, slug, currentTitle, currentEpisodeName, currentStreamUrl, currentPosterUrl, pos, dur, forceSave = true
                 )
             }
+            try {
+                loudnessEnhancer?.release()
+            } catch (_: Exception) {}
             exoPlayer.removeListener(listener)
             exoPlayer.stop()
             exoPlayer.release()
+        }
+    }
+
+    fun cycleAudioBoost() {
+        val nextBoost = when (audioBoostPercent) {
+            100 -> 150
+            150 -> 200
+            else -> 100
+        }
+        audioBoostPercent = nextBoost
+        try {
+            val sessionId = exoPlayer.audioSessionId
+            if (sessionId != C.AUDIO_SESSION_ID_UNSET && sessionId != 0) {
+                if (loudnessEnhancer == null) {
+                    loudnessEnhancer = LoudnessEnhancer(sessionId)
+                }
+                val gainmB = when (nextBoost) {
+                    150 -> 600  // +6 dB
+                    200 -> 1200 // +12 dB
+                    else -> 0
+                }
+                loudnessEnhancer?.setTargetGain(gainmB)
+                loudnessEnhancer?.enabled = (gainmB > 0)
+            }
+        } catch (_: Exception) {}
+        aspectBadgeText = "🔊 KHUẾCH ĐẠI ÂM LƯỢNG: $nextBoost%"
+        scope.launch {
+            delay(2000)
+            aspectBadgeText = null
+        }
+    }
+
+    fun toggleCurrentChannelFavorite() {
+        if (!isLive) return
+        val nowFav = AppCacheManager.toggleFavoriteChannel(context, currentTitle)
+        isCurrentChannelFav = nowFav
+        aspectBadgeText = if (nowFav) "⭐ ĐÃ GHIM '$currentTitle' VÀO YÊU THÍCH" else "Đã bỏ ghim '$currentTitle'"
+        scope.launch {
+            delay(2200)
+            aspectBadgeText = null
         }
     }
 
@@ -859,6 +956,29 @@ fun PlayerScreen(
         switchToChannel(prevIdx)
     }
 
+    fun handleNumberKeyInput(digit: Int) {
+        if (!isLive || availableChannels.isEmpty()) return
+        val nextBuf = if (numberInputBuffer.length >= 3) "$digit" else "$numberInputBuffer$digit"
+        numberInputBuffer = nextBuf
+        val chNum = nextBuf.toIntOrNull() ?: return
+        val previewCh = availableChannels.getOrNull(chNum - 1)
+        channelOsdName = "🔢 KÊNH SỐ: $nextBuf"
+        channelOsdSub = if (previewCh != null) "Sắp chuyển tới: ${previewCh.name}" else "Tối đa ${availableChannels.size} kênh"
+        channelOsdLogo = previewCh?.logoUrl
+        channelOsdVisible = true
+        numberInputJob?.cancel()
+        numberInputJob = scope.launch {
+            delay(1300)
+            val targetNum = numberInputBuffer.toIntOrNull()
+            numberInputBuffer = ""
+            if (targetNum != null && targetNum in 1..availableChannels.size) {
+                switchToChannel(targetNum - 1)
+            } else {
+                channelOsdVisible = false
+            }
+        }
+    }
+
     fun switchBackupSource() {
         if (!isLive) return
         val allUrls = getActiveLiveUrls()
@@ -885,26 +1005,49 @@ fun PlayerScreen(
     }
 
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
+    val currentShowChannelRibbon by rememberUpdatedState(showChannelRibbon)
+    val currentIsTouchLocked by rememberUpdatedState(isTouchLocked)
     val currentPendingSeekPosMs by rememberUpdatedState(pendingSeekPosMs)
     val currentIsPlaying by rememberUpdatedState(isPlaying)
 
     // Bắt toàn diện 100% phím bấm phần cứng từ Remote Sharp TV ở cấp độ Activity
     DisposableEffect(exoPlayer) {
-        MainActivity.onKeyEventListener = { event ->
+        MainActivity.onKeyEventListener = listener@{ event ->
             val keyCode = event.keyCode
             val action = event.action
+
+            if (currentIsTouchLocked) {
+                if (action == KeyEvent.ACTION_DOWN && (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BACK)) {
+                    isTouchLocked = false
+                    showControls = true
+                }
+                return@listener true
+            }
+
+            val digitPressed = when (keyCode) {
+                in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> keyCode - KeyEvent.KEYCODE_0
+                in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> keyCode - KeyEvent.KEYCODE_NUMPAD_0
+                else -> -1
+            }
+
+            if (isLive && digitPressed in 0..9) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    handleNumberKeyInput(digitPressed)
+                }
+                return@listener true
+            }
 
             val isChannelUpKey = when (keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_UP -> true
                 KeyEvent.KEYCODE_PAGE_UP -> isLive
-                KeyEvent.KEYCODE_DPAD_UP -> isLive && !currentShowQualityMenu
+                KeyEvent.KEYCODE_DPAD_UP -> isLive && !currentShowQualityMenu && !currentShowChannelRibbon
                 else -> false
             }
 
             val isChannelDownKey = when (keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_DOWN -> true
                 KeyEvent.KEYCODE_PAGE_DOWN -> isLive
-                KeyEvent.KEYCODE_DPAD_DOWN -> isLive && !currentShowQualityMenu
+                KeyEvent.KEYCODE_DPAD_DOWN -> isLive && !currentShowQualityMenu && !currentShowChannelRibbon
                 else -> false
             }
 
@@ -1054,13 +1197,27 @@ fun PlayerScreen(
             .background(Color.Black)
             .focusRequester(focusRequester)
             .focusable()
-            .pointerInput(Unit) {
+            .pointerInput(isTouchLocked, isLive) {
                 detectTapGestures(
-                    onDoubleTap = {
-                        cycleAspectMode()
+                    onDoubleTap = { offset ->
+                        if (isTouchLocked) {
+                            showUnlockPill = true
+                            return@detectTapGestures
+                        }
+                        val widthPx = size.width.toFloat().coerceAtLeast(1f)
+                        val ratioX = offset.x / widthPx
+                        when {
+                            !isLive && ratioX < 0.32f -> triggerSeek(-10)
+                            !isLive && ratioX > 0.68f -> triggerSeek(10)
+                            else -> cycleAspectMode()
+                        }
                     },
                     onTap = {
-                        showControls = !showControls
+                        if (isTouchLocked) {
+                            showUnlockPill = !showUnlockPill
+                        } else {
+                            showControls = !showControls
+                        }
                     }
                 )
             }
@@ -1412,8 +1569,39 @@ fun PlayerScreen(
         val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
         val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
 
+        // 🔓 Nút Mở Khóa Màn Hình Cảm Ứng (Chế độ Khóa Trẻ Em trên Tablet / Điện thoại)
         AnimatedVisibility(
-            visible = showControls && !showQualityMenu,
+            visible = isTouchLocked && showUnlockPill,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 36.dp, start = 36.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xE6101622))
+                    .border(2.dp, Color(0xFFFFD600), RoundedCornerShape(24.dp))
+                    .clickable {
+                        isTouchLocked = false
+                        showUnlockPill = false
+                        showControls = true
+                    }
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "🔓 BẤM VÀO ĐÂY ĐỂ MỞ KHÓA MÀN HÌNH",
+                    color = Color(0xFFFFD600),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showControls && !showQualityMenu && !isTouchLocked,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -1508,6 +1696,118 @@ fun PlayerScreen(
                                     fontWeight = FontWeight.Black
                                 )
                             }
+                        }
+
+                        // ⭐ Ghim Kênh Yêu Thích (Khi đang xem Truyền hình / Bóng đá)
+                        if (isLive) {
+                            val favInter = remember { MutableInteractionSource() }
+                            val isFavFoc by favInter.collectIsFocusedAsState()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isFavFoc) AccentRed else if (isCurrentChannelFav) Color(0xFF3E2723) else Color(0xFF222938))
+                                    .border(
+                                        width = if (isFavFoc || isCurrentChannelFav) 1.5.dp else 0.dp,
+                                        color = if (isFavFoc) Color.White else if (isCurrentChannelFav) Color(0xFFFFD600) else Color.Transparent,
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .focusable(interactionSource = favInter)
+                                    .clickable(interactionSource = favInter, indication = null) {
+                                        toggleCurrentChannelFavorite()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = if (isCurrentChannelFav) "★ ĐÃ GHIM YÊU THÍCH" else "☆ GHIM KÊNH",
+                                    color = if (isCurrentChannelFav) Color(0xFFFFD600) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // 🔊 Nút Khuếch Đại Âm Thanh (100% / 150% / 200%)
+                        val boostInter = remember { MutableInteractionSource() }
+                        val isBoostFoc by boostInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isBoostFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isBoostFoc || audioBoostPercent > 100) 1.5.dp else 0.dp,
+                                    color = if (isBoostFoc) Color.White else if (audioBoostPercent > 100) Color(0xFF00E676) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = boostInter)
+                                .clickable(interactionSource = boostInter, indication = null) {
+                                    cycleAudioBoost()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "🔊 ÂM LƯỢNG: ${audioBoostPercent}%",
+                                color = if (audioBoostPercent > 100) Color(0xFF00E676) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // ⏲️ Nút Hẹn Giờ Ngủ Thông Minh
+                        val sleepInter = remember { MutableInteractionSource() }
+                        val isSleepFoc by sleepInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isSleepFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isSleepFoc || sleepTimerMinutes > 0) 1.5.dp else 0.dp,
+                                    color = if (isSleepFoc) Color.White else if (sleepTimerMinutes > 0) Color(0xFFFFD600) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = sleepInter)
+                                .clickable(interactionSource = sleepInter, indication = null) {
+                                    cycleSleepTimer()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = if (sleepTimerMinutes > 0) "⏲️ HẸN GIỜ: ${sleepTimerMinutes}P" else "⏲️ HẸN GIỜ: TẮT",
+                                color = if (sleepTimerMinutes > 0) Color(0xFFFFD600) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 🔒 Nút Khóa Cảm Ứng Trẻ Em (Bé An cầm máy không bị bấm nhầm)
+                        val lockInter = remember { MutableInteractionSource() }
+                        val isLockFoc by lockInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isLockFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isLockFoc) 1.5.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = lockInter)
+                                .clickable(interactionSource = lockInter, indication = null) {
+                                    isTouchLocked = true
+                                    showControls = false
+                                    showUnlockPill = true
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "🔒 KHÓA TRẺ EM",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
 
                         // Nút Tỷ Lệ Màn Hình / Full Màn Hình (Chạm hoặc D-Pad trên TV)
@@ -1665,6 +1965,56 @@ fun PlayerScreen(
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad)
                 ) {
+                    // 📋 Thanh Ruy-Băng Chọn Kênh Nhanh (Quick-Zapping Channel Ribbon ngay trong màn phát)
+                    if (isLive && showChannelRibbon && availableChannels.isNotEmpty()) {
+                        val ribbonState = rememberLazyListState(
+                            initialFirstVisibleItemIndex = currentChannelIndex.coerceAtLeast(0)
+                        )
+                        LazyRow(
+                            state = ribbonState,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
+                            itemsIndexed(availableChannels) { idx, ch ->
+                                val isCurrentCh = idx == currentChannelIndex
+                                val chInter = remember { MutableInteractionSource() }
+                                val isChFoc by chInter.collectIsFocusedAsState()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            when {
+                                                isChFoc -> AccentRed
+                                                isCurrentCh -> Color(0xFF00C853)
+                                                else -> Color(0xE6161C28)
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isChFoc || isCurrentCh) 2.dp else 1.dp,
+                                            color = if (isChFoc || isCurrentCh) Color.White else Color(0x33FFFFFF),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .focusable(interactionSource = chInter)
+                                        .clickable(interactionSource = chInter, indication = null) {
+                                            switchToChannel(idx)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${idx + 1}. ${ch.name}",
+                                        color = if (isCurrentCh && !isChFoc) Color.Black else Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Quick Fast-Forward / Rewind Chips, Live Channel Switcher & Playback Speed
                     Row(
                         modifier = Modifier
@@ -1675,6 +2025,12 @@ fun PlayerScreen(
                     ) {
                         if (isLive) {
                             if (availableChannels.isNotEmpty()) {
+                                QuickSeekPill(
+                                    text = if (showChannelRibbon) "🔽 ẨN DANH SÁCH KÊNH" else "📋 DANH SÁCH KÊNH (${availableChannels.size})",
+                                    highlight = showChannelRibbon,
+                                    onClick = { showChannelRibbon = !showChannelRibbon }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 QuickSeekPill(text = "⏮ KÊNH TRƯỚC", onClick = { previousChannel() })
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
@@ -1714,6 +2070,14 @@ fun PlayerScreen(
                                     text = "⏮ TẬP TRƯỚC",
                                     highlight = true,
                                     onClick = { playVodEpisodeAt(currentEpisodeIndex - 1, isAutoAdvance = false) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            if (currentPosMs < 180_000L && totalDurationMs > 600_000L) {
+                                QuickSeekPill(
+                                    text = "⏩ BỎ QUA MỞ ĐẦU (+90s)",
+                                    highlight = true,
+                                    onClick = { triggerSeek(90) }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }

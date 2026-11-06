@@ -70,6 +70,7 @@ data class NavCategory(
 val NAV_CATEGORIES = listOf(
     NavCategory("all", "🔥 TẤT CẢ", ""),
     NavCategory("tv-live", "⚽ BÓNG ĐÁ & TV", "tv-live"),
+    NavCategory("goc-be-an", "🧒 GÓC BÉ AN", "hoat-hinh"),
     NavCategory("co-trang", "🏯 CỔ TRANG & TVB", "the-loai/co-trang"),
     NavCategory("phim-chieu-rap", "🎟️ PHIM CHIẾU RẠP", "phim-chieu-rap"),
     NavCategory("torrent-4k", "💎 4K CINEMA TORRENT", "torrent-4k"),
@@ -864,6 +865,9 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
+                            val favChannels = sports.channels.filter {
+                                AppCacheManager.isFavoriteChannel(it.name)
+                            }
                             val thvlCount = sports.channels.count {
                                 it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
                             }
@@ -878,6 +882,7 @@ fun HomeScreen(
                             }
                             val filters = listOf(
                                 "all" to "TẤT CẢ",
+                                "fav" to "⭐ YÊU THÍCH (${favChannels.size})",
                                 "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
                                 "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
                                 "htv" to "📺 HTV TP.HCM ($htvCount)",
@@ -937,11 +942,12 @@ fun HomeScreen(
                     val filteredMatches = when (tvSubFilter) {
                         "live" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.LIVE }
                         "upcoming" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.UPCOMING }
-                        "tv", "thvl", "vtv", "htv", "tinh" -> emptyList()
+                        "tv", "fav", "thvl", "vtv", "htv", "tinh" -> emptyList()
                         else -> allMatchesSorted
                     }
 
-                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "tinh")
+                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "fav" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "tinh")
+                    val favChannelList = sports.channels.filter { AppCacheManager.isFavoriteChannel(it.name) }
                     val vtvChannels = sports.channels.filter {
                         it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
                     }
@@ -988,11 +994,13 @@ fun HomeScreen(
 
                     if (showChannels && sports.channels.isNotEmpty()) {
                         val channelGroupsToDisplay = when (tvSubFilter) {
+                            "fav" -> listOf("⭐ KÊNH TRUYỀN HÌNH YÊU THÍCH ĐÃ GHIM" to favChannelList)
                             "vtv" -> listOf("🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV)" to vtvChannels)
                             "thvl" -> listOf("⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels)
                             "htv" -> listOf("📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels)
                             "tinh" -> listOf("🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH & TỔNG HỢP" to tinhChannels)
                             else -> listOf(
+                                "⭐ KÊNH YÊU THÍCH ĐÃ GHIM (${favChannelList.size} KÊNH)" to favChannelList,
                                 "🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV1 - VTV9, ANTV, QPVN)" to vtvChannels,
                                 "⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels,
                                 "📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels,
