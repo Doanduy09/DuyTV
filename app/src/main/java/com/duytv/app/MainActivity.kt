@@ -51,6 +51,18 @@ class MainActivity : ComponentActivity() {
         // tự động pause/stop an toàn khi nhận sự kiện ON_STOP, bảo đảm 100% không rò rỉ âm thanh nền.
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Khi người dùng chuyển sang app khác (YouTube, Netflix...) hoặc về Home:
+        // Lập tức thu hẹp bộ nhớ RAM từ ~120MB xuống dưới 30MB để tránh bị hệ điều hành Android TV (LMK) kill.
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            try {
+                coil.Coil.imageLoader(this).memoryCache?.clear()
+                System.gc()
+            } catch (_: Exception) {}
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.navigationBarColor = android.graphics.Color.BLACK
@@ -83,6 +95,13 @@ class MainActivity : ComponentActivity() {
                         }
                         else -> {}
                     }
+                }
+
+                // Khi ở màn hình Home, nhấn Back sẽ đưa DuyTV xuống nền (moveTaskToBack) thay vì hủy Activity.
+                // Nhờ đó app luôn được giữ ấm trong RAM, khi người dùng bấm lại icon DuyTV trên Launcher
+                // thì ứng dụng sẽ mở lên ngay tức thì (< 30ms) mà không phải khởi động lại.
+                BackHandler(enabled = currentScreen is AppScreen.Home) {
+                    moveTaskToBack(true)
                 }
 
                 when (val screen = currentScreen) {

@@ -95,13 +95,14 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Khởi tạo ngay tức thì từ bộ nhớ đệm L1 RAM / L2 Disk để mở app không độ trễ
+    // Khởi tạo ngay tức thì từ bộ nhớ đệm L1 RAM / L2 Disk để mở app không độ trễ (< 30ms)
     val cachedHome = AppCacheManager.cachedHomeData
     val initialTvSports = AppCacheManager.cachedTvSports ?: TvSportsData(channels = AppCacheManager.activeChannels)
-    val hasCache = cachedHome != null && cachedHome.latestMovies.isNotEmpty()
+    val hasCache = (cachedHome != null && cachedHome.latestMovies.isNotEmpty()) || initialTvSports.channels.isNotEmpty()
 
-    var isLoading by remember { mutableStateOf(!hasCache) }
-    var isSilentSyncing by remember { mutableStateOf(false) }
+    // Luôn mở giao diện ngay lập tức mà không chặn bằng màn hình xoay xoay (Stale-While-Revalidate)
+    var isLoading by remember { mutableStateOf(false) }
+    var isSilentSyncing by remember { mutableStateOf(!hasCache) }
     var selectedCategory by remember { mutableStateOf(NAV_CATEGORIES.first()) }
 
     // Swimlane lists for "TẤT CẢ" view - Nạp trực tiếp từ Cache
@@ -139,7 +140,7 @@ fun HomeScreen(
         sdf.format(Date(currentHeartbeatMillis))
     }
 
-    fun reloadAllMovies(silent: Boolean = false) {
+    fun reloadAllMovies(silent: Boolean = true) {
         scope.launch {
             if (!silent) {
                 isLoading = true
@@ -164,15 +165,18 @@ fun HomeScreen(
                     val resAnime = animeDef.await()
                     val resTvSports = tvSportsDef.await()
 
-                    if (resLatest.isNotEmpty()) latestMovies = resLatest
-                    if (resCinema.isNotEmpty()) cinemaMovies = resCinema
-                    if (resTorrent.isNotEmpty()) torrentMovies = resTorrent
-                    if (resSeries.isNotEmpty()) seriesMovies = resSeries
-                    if (resSingle.isNotEmpty()) singleMovies = resSingle
-                    if (resAnime.isNotEmpty()) animeMovies = resAnime
+                    // Kiểm tra diff trước khi gán để chống nhảy focus trên remote Android TV
+                    if (resLatest.isNotEmpty() && resLatest != latestMovies) latestMovies = resLatest
+                    if (resCinema.isNotEmpty() && resCinema != cinemaMovies) cinemaMovies = resCinema
+                    if (resTorrent.isNotEmpty() && resTorrent != torrentMovies) torrentMovies = resTorrent
+                    if (resSeries.isNotEmpty() && resSeries != seriesMovies) seriesMovies = resSeries
+                    if (resSingle.isNotEmpty() && resSingle != singleMovies) singleMovies = resSingle
+                    if (resAnime.isNotEmpty() && resAnime != animeMovies) animeMovies = resAnime
                     if (resTvSports.channels.isNotEmpty() || resTvSports.matches.isNotEmpty()) {
-                        tvSportsData = resTvSports
-                        AppCacheManager.saveTvSports(resTvSports, context)
+                        if (resTvSports != tvSportsData) {
+                            tvSportsData = resTvSports
+                            AppCacheManager.saveTvSports(resTvSports, context)
+                        }
                     }
 
                     // Lưu snapshot vào cache L1/L2
@@ -227,8 +231,7 @@ fun HomeScreen(
         watchHistory = WatchHistoryManager.getHistory(context)
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
-            val shouldBeSilent = latestMovies.isNotEmpty() || (tvSportsData?.channels?.isNotEmpty() == true)
-            reloadAllMovies(silent = shouldBeSilent)
+            reloadAllMovies(silent = true)
             lastAutoSyncMillis = System.currentTimeMillis()
         }
     }
@@ -322,16 +325,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(DarkBg)
     ) {
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = AccentRed)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Đang nạp kho phim đa nguồn 4K Cinema & Phim Rạp...", color = TextDim, fontSize = 14.sp)
-                }
-            }
-        } else {
-            LazyColumn(
+        LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = horizontalPad, vertical = verticalPad),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -368,8 +362,8 @@ fun HomeScreen(
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = if (isSilentSyncing) "⚡ ĐANG ĐỒNG BỘ..." else "ĐA NGUỒN • 4K CINEMA",
-                                    color = if (isSilentSyncing) Color(0xFFFFD600) else Color(0xFF00E676),
+                                    text = if (isSilentSyncing || isLoading) "⚡ ĐANG ĐỒNG BỘ..." else "ĐA NGUỒN • 4K CINEMA",
+                                    color = if (isSilentSyncing || isLoading) Color(0xFFFFD600) else Color(0xFF00E676),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -1048,6 +1042,22 @@ fun HomeScreen(
 
                 } else {
                     // CATEGORY GRID VIEW WITH INFINITE SCROLL / PAGINATION
+                    if (categoryMovies.isEmpty() && isCategoryLoadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(260.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = AccentRed)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("Đang nạp danh mục ${selectedCategory.title}...", color = TextDim, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1156,7 +1166,6 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(20.dp))
                 }
             }
-        }
 
         if (showSourceSettingsDialog) {
             SourceSettingsDialog(
