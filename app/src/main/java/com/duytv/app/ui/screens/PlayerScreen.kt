@@ -281,29 +281,9 @@ fun PlayerScreen(
         if (isMagnet) {
             null
         } else {
-            // Optimized Low-Memory LoadControl for MediaTek MT5891 & Live Stream Stutter Prevention
-            val allocator = DefaultAllocator(true, 32 * 1024)
-            val loadControl = if (isLive) {
-                // Tối ưu hóa cho truyền hình trực tiếp Live HLS: Buffer sâu hơn để triệt tiêu 100% hiện tượng dập dập, giật lag
-                DefaultLoadControl.Builder()
-                    .setAllocator(allocator)
-                    .setBufferDurationsMs(10_000, 30_000, 2_000, 4_000)
-                    .setTargetBufferBytes(32 * 1024 * 1024)
-                    .setPrioritizeTimeOverSizeThresholds(true)
-                    .build()
-            } else {
-                DefaultLoadControl.Builder()
-                    .setAllocator(allocator)
-                    .setBufferDurationsMs(5_000, 15_000, 1_500, 2_500)
-                    .setTargetBufferBytes(16 * 1024 * 1024)
-                    .setPrioritizeTimeOverSizeThresholds(true)
-                    .build()
-            }
-
-            val renderersFactory = DefaultRenderersFactory(context).apply {
-                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-                setEnableDecoderFallback(true)
-            }
+            // Universal Multi-SoC Hardware Engine (Qualcomm, Amlogic, Rockchip, Realtek, Exynos, MediaTek, x86_64)
+            val loadControl = com.duytv.app.util.HardwareOptimizer.buildLoadControl(context, isLive)
+            val renderersFactory = com.duytv.app.util.HardwareOptimizer.buildRenderersFactory(context)
 
             val userAgent = if (streamUrl.contains("hainghia.net")) {
                 "TiviMate/4.7.0"

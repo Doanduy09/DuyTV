@@ -60,8 +60,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appContext = applicationContext
             LaunchedEffect(Unit) {
+                val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(appContext)
                 val imageLoader = coil.ImageLoader.Builder(appContext)
-                    .allowHardware(false)
+                    .allowHardware(hwProfile.allowHardwareBitmaps)
                     .crossfade(false)
                     .build()
                 coil.Coil.setImageLoader(imageLoader)
