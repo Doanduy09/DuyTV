@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -37,7 +38,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -214,6 +219,8 @@ fun HomeScreen(
         }
     }
 
+    var lastAutoSyncMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
     LaunchedEffect(Unit) {
         AppCacheManager.init(context, MovieRepository.getVerifiedOfficialChannels())
         RemoteConfigManager.loadLocalCustomSources(context)
@@ -222,6 +229,43 @@ fun HomeScreen(
             RemoteConfigManager.fetchRemoteConfig()
             val shouldBeSilent = latestMovies.isNotEmpty() || (tvSportsData?.channels?.isNotEmpty() == true)
             reloadAllMovies(silent = shouldBeSilent)
+            lastAutoSyncMillis = System.currentTimeMillis()
+        }
+    }
+
+    // Tự động đồng bộ ngầm định kỳ (Auto-Sync Daemon):
+    // - Mỗi 3 phút cập nhật lịch & luồng bóng đá trực tiếp (loại bỏ trận đã kết thúc, thêm trận mới)
+    // - Mỗi 9 phút cập nhật phim mới từ tất cả các trang web
+    LaunchedEffect(Unit) {
+        var cycle = 0
+        while (true) {
+            delay(180_000L) // 3 phút
+            cycle++
+            lastAutoSyncMillis = System.currentTimeMillis()
+            if (cycle % 3 == 0) {
+                reloadAllMovies(silent = true)
+            } else {
+                reloadSportsOnly()
+            }
+        }
+    }
+
+    // Tự động đồng bộ thông minh khi quay lại ứng dụng (ON_RESUME) trên Tivi / Box / Điện thoại / Máy tính
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                watchHistory = WatchHistoryManager.getHistory(context)
+                val now = System.currentTimeMillis()
+                if (now - lastAutoSyncMillis > 120_000L) {
+                    lastAutoSyncMillis = now
+                    reloadAllMovies(silent = true)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -269,6 +313,10 @@ fun HomeScreen(
         }
     }
 
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+    val verticalPad = if (screenWidthDp < 600) 14.dp else 24.dp
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -285,7 +333,7 @@ fun HomeScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
+                contentPadding = PaddingValues(horizontal = horizontalPad, vertical = verticalPad),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // 1. Top TV Header (Brand, Status, Search, Clock)
@@ -295,7 +343,12 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .horizontalScroll(rememberScrollState())
+                        ) {
                             Text(
                                 text = "DUY",
                                 color = AccentRed,
@@ -1135,9 +1188,10 @@ fun HomeScreen(
                         shape = RoundedCornerShape(16.dp),
                         border = BorderStroke(1.5.dp, AccentRed),
                         modifier = Modifier
-                            .width(500.dp)
+                            .widthIn(max = 520.dp)
+                            .fillMaxWidth(0.94f)
                             .wrapContentHeight()
-                            .padding(24.dp)
+                            .padding(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
@@ -1380,7 +1434,8 @@ fun SourceSettingsDialog(
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.5.dp, Color(0xFF333A4D)),
                 modifier = Modifier
-                    .width(720.dp)
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth(0.94f)
                     .wrapContentHeight()
                     .padding(16.dp)
             ) {
@@ -1680,7 +1735,8 @@ fun SportsSourceSettingsDialog(
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(1.5.dp, Color(0xFF00E676)),
                 modifier = Modifier
-                    .width(740.dp)
+                    .widthIn(max = 740.dp)
+                    .fillMaxWidth(0.94f)
                     .wrapContentHeight()
                     .padding(16.dp)
             ) {

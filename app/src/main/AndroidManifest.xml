@@ -27,9 +27,9 @@
         android:name="android.hardware.bluetooth"
         android:required="false" />
 
-    <!-- Universal Screen Compatibility (Full HD, 2K, 4K UHD, 8K Ultra HD) -->
+    <!-- Universal Screen Compatibility (Phone, Tablet, TV Box, Google TV, Full HD, 2K, 4K, 8K, 12K Ultra HD) -->
     <supports-screens
-        android:smallScreens="false"
+        android:smallScreens="true"
         android:normalScreens="true"
         android:largeScreens="true"
         android:xlargeScreens="true"
@@ -52,7 +52,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="unspecified"
             android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

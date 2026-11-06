@@ -15,15 +15,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -515,7 +519,9 @@ fun PlayerScreen(
                 val width = videoSize.width
                 val height = videoSize.height
                 videoResolution = when {
+                    width >= 11520 || height >= 6480 -> "12K Ultra HD"
                     width >= 7680 || height >= 4320 -> "8K Ultra HD"
+                    width >= 5120 || height >= 2880 -> "5K / 6K Ultra HD"
                     width >= 3840 || height >= 2160 -> "4K Ultra HD"
                     width >= 2560 || height >= 1440 -> "2K QHD"
                     width >= 1920 || height >= 1080 -> "1080p FHD"
@@ -579,6 +585,15 @@ fun PlayerScreen(
     fun applyQualitySetting(mode: String) {
         selectedQualityMode = mode
         exoPlayer.trackSelectionParameters = when (mode) {
+            "12K" -> exoPlayer.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .setMinVideoSize(7680, 4320)
+                .build()
+            "8K" -> exoPlayer.trackSelectionParameters.buildUpon()
+                .setMaxVideoSize(7680, 4320)
+                .setMinVideoSize(3840, 2160)
+                .build()
             "4K" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(3840, 2160)
                 .setMinVideoSize(2560, 1440)
@@ -596,6 +611,8 @@ fun PlayerScreen(
                 .build()
             else -> exoPlayer.trackSelectionParameters.buildUpon()
                 .clearVideoSizeConstraints()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
                 .build()
         }
         showQualityMenu = false
@@ -706,6 +723,18 @@ fun PlayerScreen(
     fun previousChannel() {
         val prevIdx = if (currentChannelIndex < 0) availableChannels.size - 1 else currentChannelIndex - 1
         switchToChannel(prevIdx)
+    }
+
+    fun switchBackupSource() {
+        if (!isLive || currentChannelIndex !in availableChannels.indices) return
+        val ch = availableChannels[currentChannelIndex]
+        val allUrls = ch.allStreamUrls()
+        if (allUrls.size <= 1) return
+        val nextIdx = (currentBackupIndex + 1) % allUrls.size
+        currentBackupIndex = nextIdx
+        errorMessage = null
+        loadLiveStreamUrl(allUrls[nextIdx])
+        showChannelOsd(ch, currentChannelIndex, availableChannels.size, sourceIdx = nextIdx)
     }
 
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
@@ -1166,14 +1195,15 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(20.dp))
 
                     val qualityOptions = listOf(
-                        Triple("AUTO", "⚡ TỰ ĐỘNG (Thích ứng mạng)", "Tự động đẩy lên 4K/2K nếu mạng tốt"),
-                        Triple("4K", "💎 4K Ultra HD (2160p)", "Ưu tiên độ nét tối đa (yêu cầu mạng > 30Mbps)"),
+                        Triple("AUTO", "⚡ TỰ ĐỘNG (Thích ứng tới 12K)", "Tự động đẩy lên 4K / 8K / 12K tối đa theo mạng"),
+                        Triple("12K", "👑 12K / 8K Ultra HD (Không giới hạn)", "Mở khóa 100% băng thông & độ phân giải tối đa"),
+                        Triple("4K", "💎 4K Ultra HD (2160p)", "Ưu tiên độ nét 4K Cinema (yêu cầu mạng > 25Mbps)"),
                         Triple("2K", "🌟 2K QHD (1440p)", "Cân bằng siêu nét cho màn hình lớn"),
                         Triple("1080P", "📺 Full HD (1080p)", "Chuẩn nét ổn định & mượt mà"),
                         Triple("720P", "⚡ HD (720p)", "Tiết kiệm băng thông tối đa")
                     )
 
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         for ((key, title, desc) in qualityOptions) {
                             val isSelected = (selectedQualityMode == key)
                             val qInter = remember { MutableInteractionSource() }
@@ -1181,7 +1211,8 @@ fun PlayerScreen(
 
                             Row(
                                 modifier = Modifier
-                                    .width(540.dp)
+                                    .widthIn(max = 540.dp)
+                                    .fillMaxWidth(0.92f)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isQFoc) AccentRed else if (isSelected) Color(0xFF252B3B) else Color(0xFF1F2430))
                                     .border(
@@ -1229,6 +1260,13 @@ fun PlayerScreen(
         }
 
         // HUD Overlay Controls
+        val screenWidthDp = LocalConfiguration.current.screenWidthDp
+        val hudHorizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+        val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
+        val activeChannelTotalSources = if (isLive && currentChannelIndex in availableChannels.indices) {
+            availableChannels[currentChannelIndex].allStreamUrls().size
+        } else 1
+
         AnimatedVisibility(
             visible = showControls && !showQualityMenu,
             enter = fadeIn(),
@@ -1248,28 +1286,69 @@ fun PlayerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 48.dp, vertical = 32.dp),
+                        .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = currentTitle,
-                            color = Color.White,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $episodeName • Độ phân giải: $videoResolution • Chế độ: $selectedQualityMode",
-                            color = Color(0xFFA0AAB8),
-                            fontSize = 14.sp
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        val exitInter = remember { MutableInteractionSource() }
+                        val isExitFoc by exitInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isExitFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isExitFoc) 1.5.dp else 1.dp,
+                                    color = if (isExitFoc) Color.White else Color(0x44FFFFFF),
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .focusable(interactionSource = exitInter)
+                                .clickable(interactionSource = exitInter, indication = null, onClick = onClose)
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Thoát",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "THOÁT",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Text(
+                                text = currentTitle,
+                                color = Color.White,
+                                fontSize = if (screenWidthDp < 600) 16.sp else 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $episodeName • Độ phân giải: $videoResolution • Chế độ: $selectedQualityMode",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = if (screenWidthDp < 600) 11.sp else 14.sp,
+                                maxLines = 1
+                            )
+                        }
                     }
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
                         if (!subtitleUrl.isNullOrBlank()) {
                             Box(
@@ -1439,49 +1518,88 @@ fun PlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .padding(horizontal = 48.dp, vertical = 24.dp)
+                        .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad)
                 ) {
-                    // Quick Fast-Forward / Rewind Chips & Playback Speed
+                    // Quick Fast-Forward / Rewind Chips, Live Channel Switcher & Playback Speed
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        QuickSeekPill(text = "⏪ -5p", onClick = { triggerSeek(-300) })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(text = "⏪ -1p", onClick = { triggerSeek(-60) })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(text = "⏪ -10s", onClick = { triggerSeek(-10) })
-                        Spacer(modifier = Modifier.width(16.dp))
-                        QuickSeekPill(
-                            text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
-                            highlight = true,
-                            onClick = {
-                                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                showControls = true
+                        if (isLive) {
+                            if (availableChannels.isNotEmpty()) {
+                                QuickSeekPill(text = "⏮ KÊNH TRƯỚC", onClick = { previousChannel() })
+                                Spacer(modifier = Modifier.width(8.dp))
                             }
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        QuickSeekPill(text = "⏩ +10s", onClick = { triggerSeek(10) })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(text = "⏩ +1p", onClick = { triggerSeek(60) })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(text = "⏩ +5p", onClick = { triggerSeek(300) })
-                        Spacer(modifier = Modifier.width(16.dp))
-                        QuickSeekPill(
-                            text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
-                            onClick = { cyclePlaybackSpeed() }
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        QuickSeekPill(
-                            text = when (currentAspectMode) {
-                                VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
-                                VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
-                                VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
-                            },
-                            highlight = (currentAspectMode == VideoAspectMode.ZOOM),
-                            onClick = { cycleAspectMode() }
-                        )
+                            QuickSeekPill(
+                                text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
+                                highlight = true,
+                                onClick = {
+                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    showControls = true
+                                }
+                            )
+                            if (availableChannels.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                QuickSeekPill(text = "⏭ KÊNH TIẾP", onClick = { nextChannel() })
+                            }
+                            if (activeChannelTotalSources > 1) {
+                                Spacer(modifier = Modifier.width(12.dp))
+                                QuickSeekPill(
+                                    text = "🔄 ĐỔI NGUỒN (${currentBackupIndex + 1}/$activeChannelTotalSources)",
+                                    highlight = true,
+                                    onClick = { switchBackupSource() }
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            QuickSeekPill(
+                                text = when (currentAspectMode) {
+                                    VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
+                                    VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
+                                    VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
+                                },
+                                highlight = (currentAspectMode == VideoAspectMode.ZOOM),
+                                onClick = { cycleAspectMode() }
+                            )
+                        } else {
+                            QuickSeekPill(text = "⏪ -5p", onClick = { triggerSeek(-300) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏪ -1p", onClick = { triggerSeek(-60) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏪ -10s", onClick = { triggerSeek(-10) })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(
+                                text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
+                                highlight = true,
+                                onClick = {
+                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    showControls = true
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(text = "⏩ +10s", onClick = { triggerSeek(10) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏩ +1p", onClick = { triggerSeek(60) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏩ +5p", onClick = { triggerSeek(300) })
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(
+                                text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
+                                onClick = { cyclePlaybackSpeed() }
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(
+                                text = when (currentAspectMode) {
+                                    VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
+                                    VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
+                                    VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
+                                },
+                                highlight = (currentAspectMode == VideoAspectMode.ZOOM),
+                                onClick = { cycleAspectMode() }
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

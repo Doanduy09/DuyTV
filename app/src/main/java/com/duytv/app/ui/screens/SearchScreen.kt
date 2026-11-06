@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -98,11 +99,14 @@ fun SearchScreen(
         }
     }
 
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBg)
-            .padding(horizontal = 48.dp, vertical = 24.dp)
+            .padding(horizontal = horizontalPad, vertical = 20.dp)
     ) {
         // Top Bar: Back & Search Field
         Row(

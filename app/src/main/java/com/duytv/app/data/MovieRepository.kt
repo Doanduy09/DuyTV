@@ -720,8 +720,15 @@ class MovieRepository {
 
     suspend fun getNewUpdatedMovies(page: Int = 1): List<MovieItemDto> = withContext(Dispatchers.IO) {
         val base = RemoteConfigManager.getBaseUrl()
-        val url = "$base/danh-sach/phim-moi-cap-nhat?page=$page"
-        executeListRequest(url, defaultBadge = "MỚI")
+        val v3Def = async { executeListRequest("$base/danh-sach/phim-moi-cap-nhat-v3?page=$page", defaultBadge = "🔥 MỚI") }
+        val v1Def = async { executeListRequest("$base/danh-sach/phim-moi-cap-nhat?page=$page", defaultBadge = "MỚI") }
+        val cobeDef = async { getCoBeCategoryMovies("co-trang", page) }
+
+        val v3List = try { v3Def.await() } catch (_: Exception) { emptyList() }
+        val v1List = try { v1Def.await() } catch (_: Exception) { emptyList() }
+        val cobeList = try { cobeDef.await() } catch (_: Exception) { emptyList() }
+
+        (v3List + v1List + cobeList).distinctBy { it.slug }
     }
 
     suspend fun getMoviesByCategory(type: String, page: Int = 1): List<MovieItemDto> = withContext(Dispatchers.IO) {

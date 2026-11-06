@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,10 +110,13 @@ fun MovieDetailScreen(
                     )
             )
 
+            val screenWidthDp = LocalConfiguration.current.screenWidthDp
+            val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                // Android TV Standard 5% Safe Area Margin (Overscan Protection for FHD, 4K & 8K screens)
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
+                // Android TV Standard 5% Safe Area Margin & Responsive Mobile/Tablet/PC Padding
+                contentPadding = PaddingValues(horizontal = horizontalPad, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Back Button
@@ -144,7 +148,7 @@ fun MovieDetailScreen(
 
                 // Title & Metadata
                 item {
-                    Column(modifier = Modifier.width(700.dp)) {
+                    Column(modifier = Modifier.widthIn(max = 700.dp).fillMaxWidth()) {
                         Text(
                             text = movie.name,
                             color = TextWhite,
