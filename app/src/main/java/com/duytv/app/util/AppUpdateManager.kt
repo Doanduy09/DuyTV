@@ -19,7 +19,7 @@ data class AppVersionInfo(
     val versionCode: Int = 0,
     val versionName: String = "",
     val apkUrlLan: String = "http://192.168.1.189:8888/DuyTV-latest.apk",
-    val apkUrlCloud: String = "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
+    val apkUrlCloud: String = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
     val releaseNotes: String = ""
 )
 

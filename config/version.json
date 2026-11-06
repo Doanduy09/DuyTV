@@ -2,6 +2,6 @@
   "versionCode": 20,
   "versionName": "1.6.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-v1.6.0.apk",
-  "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
-  "releaseNotes": "• Tự động Cập Nhật Trực Tiếp Ngay Trong App (OTA 1-Chạm, không cần gỡ cài lại, không cần mở trình duyệt)\n• Tự tải ngầm danh sách tập khi bấm từ kệ Tiếp Tục Xem (hết tập tự nhảy tập mới 100%)\n• Tủ Phim Yêu Thích Đã Lưu + Chia chặng tập thông minh (Tập 1–50, 51–100...)\n• Chế độ Cửa Sổ Nổi (PiP), Lọc ánh sáng xanh Dịu Mắt, Tắt màn hình chỉ nghe tiếng & Nút Đảo nhanh Kênh Vừa Nãy"
+  "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
+  "releaseNotes": "• Tự động Thông Báo & Tự Tải Về Cập Nhật khi có bản mới trên GitHub\n• Tự tải ngầm danh sách tập khi bấm từ kệ Tiếp Tục Xem (hết tập tự nhảy tập mới 100%)\n• Tủ Phim Yêu Thích Đã Lưu + Chia chặng tập thông minh (Tập 1–50, 51–100...)\n• Chế độ Cửa Sổ Nổi (PiP), Lọc ánh sáng xanh Dịu Mắt, Tắt màn hình chỉ nghe tiếng & Nút Đảo nhanh Kênh Vừa Nãy"
 }

@@ -232,18 +232,27 @@ fun HomeScreen(
     }
 
     var lastAutoSyncMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var lastAutoPromptedVersionCode by remember { mutableIntStateOf(currentVersionCode) }
+
+    fun checkAndPromptGitHubUpdate() {
+        scope.launch {
+            val latestVer = AppUpdateManager.checkForUpdate()
+            if (latestVer != null) {
+                remoteUpdateInfo = latestVer
+                if (latestVer.versionCode > currentVersionCode && latestVer.versionCode > lastAutoPromptedVersionCode) {
+                    lastAutoPromptedVersionCode = latestVer.versionCode
+                    showAppUpdateDialog = true
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         AppCacheManager.init(context, MovieRepository.getVerifiedOfficialChannels())
         RemoteConfigManager.loadLocalCustomSources(context)
         watchHistory = WatchHistoryManager.getHistory(context)
         favoriteMoviesList = AppCacheManager.favoriteMovies
-        scope.launch {
-            val latestVer = AppUpdateManager.checkForUpdate()
-            if (latestVer != null) {
-                remoteUpdateInfo = latestVer
-            }
-        }
+        checkAndPromptGitHubUpdate()
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
             reloadAllMovies(silent = true)
@@ -252,7 +261,7 @@ fun HomeScreen(
     }
 
     // Tự động đồng bộ ngầm định kỳ (Auto-Sync Daemon):
-    // - Mỗi 3 phút cập nhật lịch & luồng bóng đá trực tiếp (loại bỏ trận đã kết thúc, thêm trận mới)
+    // - Mỗi 3 phút kiểm tra bản cập nhật mới trên GitHub + cập nhật lịch & luồng bóng đá trực tiếp
     // - Mỗi 9 phút cập nhật phim mới từ tất cả các trang web
     LaunchedEffect(Unit) {
         var cycle = 0
@@ -260,6 +269,7 @@ fun HomeScreen(
             delay(180_000L) // 3 phút
             cycle++
             lastAutoSyncMillis = System.currentTimeMillis()
+            checkAndPromptGitHubUpdate()
             if (cycle % 3 == 0) {
                 reloadAllMovies(silent = true)
             } else {
@@ -275,6 +285,7 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 watchHistory = WatchHistoryManager.getHistory(context)
                 favoriteMoviesList = AppCacheManager.favoriteMovies
+                checkAndPromptGitHubUpdate()
                 val now = System.currentTimeMillis()
                 if (now - lastAutoSyncMillis > 120_000L) {
                     lastAutoSyncMillis = now
@@ -1486,6 +1497,25 @@ fun AppUpdateDialog(
         releaseNotes = "Tự động cập nhật trực tiếp ngay trong App, Góc Bé An, Tự nhảy tập mới, Khóa Trẻ Em, Khuếch đại âm thanh 200%, Đảo nhanh 2 kênh TV..."
     )
     val hasNewerVersion = targetInfo.versionCode > currentVersionCode
+
+    // Tự động tải về và kích hoạt cập nhật ngay khi phát hiện bản mới trên GitHub / LAN
+    LaunchedEffect(hasNewerVersion, targetInfo.versionCode) {
+        if (hasNewerVersion && !isDownloading) {
+            isDownloading = true
+            downloadProgress = 1
+            statusMessage = "🔔 Phát hiện bản mới v${targetInfo.versionName}! Đang tự động tải về để cập nhật..."
+            AppUpdateManager.downloadAndInstallApk(
+                context = context,
+                versionInfo = targetInfo,
+                onProgress = { pct -> downloadProgress = pct },
+                onError = { err ->
+                    isDownloading = false
+                    statusMessage = err
+                }
+            )
+            isDownloading = false
+        }
+    }
 
     Dialog(
         onDismissRequest = { if (!isDownloading) onDismiss() },
