@@ -385,7 +385,7 @@ fun HomeScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
 
                             // Search Button
                             val searchInter = remember { MutableInteractionSource() }
@@ -403,24 +403,24 @@ fun HomeScreen(
                                     )
                                     .focusable(interactionSource = searchInter)
                                     .clickable(interactionSource = searchInter, indication = null, onClick = onOpenSearch)
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "Tìm kiếm",
                                     tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
                                 Text(
-                                    text = "TÌM KIẾM TẤT CẢ NGUỒN",
+                                    text = "TÌM KIẾM",
                                     color = Color.White,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // Source Settings Button
                             val sourceInter = remember { MutableInteractionSource() }
@@ -440,24 +440,24 @@ fun HomeScreen(
                                     .clickable(interactionSource = sourceInter, indication = null) {
                                         showSourceSettingsDialog = true
                                     }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = "Cài đặt nguồn",
                                     tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = "NGUỒN PHIM",
                                     color = Color.White,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // Sports Source Settings Button
                             val sportsSourceInter = remember { MutableInteractionSource() }
@@ -477,24 +477,24 @@ fun HomeScreen(
                                     .clickable(interactionSource = sportsSourceInter, indication = null) {
                                         showSportsSourceDialog = true
                                     }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Thêm nguồn bóng đá",
                                     tint = Color(0xFF00E676),
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
                                 Text(
                                     text = "NGUỒN BÓNG ĐÁ",
                                     color = Color.White,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // 🚀 In-App OTA Self-Update Button (Cập nhật trực tiếp ngay trên App)
                             val updateInter = remember { MutableInteractionSource() }
@@ -509,28 +509,30 @@ fun HomeScreen(
                                         when {
                                             updateFoc -> AccentRed
                                             hasNewUpdate -> Color(0xFF00C853)
-                                            else -> CardBg
+                                            else -> Color(0xFF1E293B)
                                         }
                                     )
                                     .border(
-                                        width = if (updateFoc || hasNewUpdate) 1.5.dp else 0.dp,
-                                        color = Color.White,
+                                        width = 1.dp,
+                                        color = if (updateFoc) Color.White else if (hasNewUpdate) Color(0xFF00E676) else Color(0xFF38BDF8),
                                         shape = RoundedCornerShape(6.dp)
                                     )
                                     .focusable(interactionSource = updateInter)
                                     .clickable(interactionSource = updateInter, indication = null) {
                                         showAppUpdateDialog = true
                                     }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = if (hasNewUpdate) "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName} (BẤM CẬP NHẬT)" else "🔄 CẬP NHẬT APP (v$currentVersionName)",
+                                    text = if (hasNewUpdate) "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName}" else "🔄 CẬP NHẬT APP (v$currentVersionName)",
                                     color = if (hasNewUpdate && !updateFoc) Color.Black else Color.White,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.width(10.dp))
 
                         Text(
                             text = currentTime,
