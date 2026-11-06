@@ -11,9 +11,9 @@
       "enabled": true
     },
     "ophim": {
-      "name": "OPhim (Dự phòng)",
-      "api_base": "https://ophim1.com",
-      "enabled": false
+      "name": "OPhim",
+      "api_base": "https://ophim.cc",
+      "enabled": true
     },
     "nguonc": {
       "name": "NguonC",
