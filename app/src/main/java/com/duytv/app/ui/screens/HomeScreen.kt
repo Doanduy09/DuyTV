@@ -127,6 +127,7 @@ fun HomeScreen(
     var categoryPage by remember { mutableIntStateOf(1) }
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
     var showSourceSettingsDialog by remember { mutableStateOf(false) }
+    var showSportsSourceDialog by remember { mutableStateOf(false) }
 
     val currentTime = remember(currentHeartbeatMillis / 60_000L) {
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -193,6 +194,21 @@ fun HomeScreen(
                 }
             } finally {
                 isLoading = false
+                isSilentSyncing = false
+            }
+        }
+    }
+
+    fun reloadSportsOnly() {
+        scope.launch {
+            isSilentSyncing = true
+            try {
+                val res = try { repository.getTvAndSportsData(forceRefresh = true) } catch (_: Exception) { TvSportsData() }
+                if (res.channels.isNotEmpty() || res.matches.isNotEmpty()) {
+                    tvSportsData = res
+                    AppCacheManager.saveTvSports(res, context)
+                }
+            } finally {
                 isSilentSyncing = false
             }
         }
@@ -372,6 +388,43 @@ fun HomeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "NGUỒN PHIM",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            // Sports Source Settings Button
+                            val sportsSourceInter = remember { MutableInteractionSource() }
+                            val sportsSourceFoc by sportsSourceInter.collectIsFocusedAsState()
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (sportsSourceFoc) AccentRed else CardBg)
+                                    .border(
+                                        width = if (sportsSourceFoc) 1.5.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = sportsSourceInter)
+                                    .clickable(interactionSource = sportsSourceInter, indication = null) {
+                                        showSportsSourceDialog = true
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Thêm nguồn bóng đá",
+                                    tint = Color(0xFF00E676),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "NGUỒN BÓNG ĐÁ",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
@@ -707,18 +760,59 @@ fun HomeScreen(
                     // 1. Tiêu đề mục & Bộ lọc nhánh (TẤT CẢ / ĐANG LIVE / SẮP ĐÁ / KÊNH TV)
                     item {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "⚽ TRỰC TIẾP BÓNG ĐÁ & KÊNH TRUYỀN HÌNH HD",
-                                color = TextWhite,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Gộp kênh trùng & tự nhảy link dự phòng • Đã lọc trận kết thúc • ${sports.channels.size} kênh truyền hình",
-                                color = TextDim,
-                                fontSize = 12.sp
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "⚽ TRỰC TIẾP BÓNG ĐÁ & KÊNH TRUYỀN HÌNH HD",
+                                        color = TextWhite,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Gộp kênh trùng & tự nhảy link dự phòng • Đã lọc trận kết thúc • ${sports.channels.size} kênh truyền hình",
+                                        color = TextDim,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                val addSportsInter = remember { MutableInteractionSource() }
+                                val addSportsFoc by addSportsInter.collectIsFocusedAsState()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (addSportsFoc) AccentRed else Color(0xFF1E293B))
+                                        .border(
+                                            width = if (addSportsFoc) 2.dp else 1.dp,
+                                            color = if (addSportsFoc) Color.White else Color(0xFF00E676),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .focusable(interactionSource = addSportsInter)
+                                        .clickable(interactionSource = addSportsInter, indication = null) {
+                                            showSportsSourceDialog = true
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = if (addSportsFoc) Color.White else Color(0xFF00E676),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "THÊM NGUỒN BÓNG ĐÁ / TV",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1014,6 +1108,13 @@ fun HomeScreen(
             SourceSettingsDialog(
                 onDismiss = { showSourceSettingsDialog = false },
                 onSaveSuccess = { reloadAllMovies() }
+            )
+        }
+
+        if (showSportsSourceDialog) {
+            SportsSourceSettingsDialog(
+                onDismiss = { showSportsSourceDialog = false },
+                onSaveSuccess = { reloadSportsOnly() }
             )
         }
 
@@ -1549,5 +1650,307 @@ private fun SourceItemRow(name: String, url: String) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+fun SportsSourceSettingsDialog(
+    onDismiss: () -> Unit,
+    onSaveSuccess: () -> Unit
+) {
+    val context = LocalContext.current
+    var inputUrl by remember { mutableStateOf("") }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val currentSportsSources = remember(refreshKey) {
+        RemoteConfigManager.getSavedSportsSourcesDisplay(context)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xD9000000)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141721)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, Color(0xFF00E676)),
+                modifier = Modifier
+                    .width(740.dp)
+                    .wrapContentHeight()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = Color(0xFF00E676),
+                                modifier = Modifier.size(26.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "QUẢN LÝ & THÊM NGUỒN BÓNG ĐÁ / TV (DUYTV)",
+                                color = TextWhite,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        val closeInter = remember { MutableInteractionSource() }
+                        val closeFoc by closeInter.collectIsFocusedAsState()
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (closeFoc) AccentRed else Color(0xFF252A38))
+                                .border(
+                                    width = if (closeFoc) 1.5.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .focusable(interactionSource = closeInter)
+                                .clickable(interactionSource = closeInter, indication = null) { onDismiss() }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("✕ ĐÓNG", color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Nhập link danh sách M3U / IPTV bóng đá, link trực tiếp (.m3u8) hoặc cú pháp 'Tên trận | Link .m3u8'. App sẽ tự động gộp trận/kênh trùng lặp và đưa link phụ vào nguồn dự phòng!",
+                        color = TextDim,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Input box
+                    Text(
+                        text = "ĐƯỜNG LINK NGUỒN BÓNG ĐÁ / M3U / LUỒNG .M3U8 MỚI:",
+                        color = Color(0xFF00E676),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = inputUrl,
+                        onValueChange = { inputUrl = it },
+                        placeholder = {
+                            Text(
+                                "VD: https://paste.c-net.org/... hoặc Việt Nam vs Thái Lan | https://.../live.m3u8",
+                                color = Color(0xFF6E7687),
+                                fontSize = 13.sp
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF0F1118),
+                            unfocusedContainerColor = Color(0xFF0F1118),
+                            focusedIndicatorColor = Color(0xFF00E676),
+                            unfocusedIndicatorColor = Color(0xFF333A4D)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Quick presets
+                    Text(
+                        text = "CHỌN NHANH NGUỒN BÓNG ĐÁ & IPTV SẴN CÓ:",
+                        color = TextWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val sportsPresets = listOf(
+                        "Kho Gà Bóng Đá" to "https://paste.c-net.org/PostersMistrust",
+                        "All-In-One IPTV" to "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u",
+                        "IPTV Sport VN" to "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/vn.m3u"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        sportsPresets.forEach { (name, url) ->
+                            val pInter = remember { MutableInteractionSource() }
+                            val pFoc by pInter.collectIsFocusedAsState()
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (pFoc) AccentRed else Color(0xFF1E2330))
+                                    .border(
+                                        width = if (pFoc) 1.5.dp else 1.dp,
+                                        color = if (pFoc) Color.White else Color(0xFF333A4D),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = pInter)
+                                    .clickable(interactionSource = pInter, indication = null) {
+                                        inputUrl = url
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = name,
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Action buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // SAVE & UPDATE BUTTON
+                        val saveInter = remember { MutableInteractionSource() }
+                        val isSaveFoc by saveInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1.5f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSaveFoc) Color(0xFF00C853) else Color(0xFF009624))
+                                .border(
+                                    width = if (isSaveFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .focusable(interactionSource = saveInter)
+                                .clickable(interactionSource = saveInter, indication = null) {
+                                    if (inputUrl.isNotBlank()) {
+                                        val saved = RemoteConfigManager.saveCustomSportsSource(context, inputUrl)
+                                        refreshKey++
+                                        Toast.makeText(context, "✅ Đã thêm nguồn bóng đá: $saved", Toast.LENGTH_SHORT).show()
+                                        onSaveSuccess()
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "Vui lòng nhập hoặc chọn đường link nguồn bóng đá!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "💾 THÊM & CẬP NHẬT BÓNG ĐÁ NGAY",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // RESET BUTTON
+                        val resetInter = remember { MutableInteractionSource() }
+                        val isResetFoc by resetInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isResetFoc) Color(0xFF4A5568) else Color(0xFF2D3748))
+                                .border(
+                                    width = if (isResetFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .focusable(interactionSource = resetInter)
+                                .clickable(interactionSource = resetInter, indication = null) {
+                                    RemoteConfigManager.resetSportsSourcesToDefaults(context)
+                                    refreshKey++
+                                    Toast.makeText(context, "🔄 Đã đặt lại nguồn bóng đá & TV mặc định!", Toast.LENGTH_SHORT).show()
+                                    onSaveSuccess()
+                                    onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🔄 ĐẶT LẠI GỐC",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Current Active Sports Sources List
+                    Text(
+                        text = "DANH SÁCH NGUỒN BÓNG ĐÁ & TV ĐANG HOẠT ĐỘNG:",
+                        color = Color(0xFFA0AEC0),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0F1118))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        currentSportsSources.forEachIndexed { index, (name, url) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    SourceItemRow(name = name, url = url)
+                                }
+                                if (index >= 2) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    val delInter = remember { MutableInteractionSource() }
+                                    val delFoc by delInter.collectIsFocusedAsState()
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (delFoc) AccentRed else Color(0xFF2D3748))
+                                            .focusable(interactionSource = delInter)
+                                            .clickable(interactionSource = delInter, indication = null) {
+                                                RemoteConfigManager.removeCustomSportsSource(context, url)
+                                                refreshKey++
+                                                onSaveSuccess()
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text("✕ XÓA", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

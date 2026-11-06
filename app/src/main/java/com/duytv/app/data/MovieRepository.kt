@@ -29,8 +29,9 @@ class MovieRepository {
             return@withContext cachedTvSports!!
         }
 
-        val sportsUrl = "https://paste.c-net.org/PostersMistrust"
-        val tvUrl = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
+        val sportsUrl = RemoteConfigManager.DEFAULT_SPORTS_M3U
+        val tvUrl = RemoteConfigManager.DEFAULT_TV_M3U
+        val customEntries = RemoteConfigManager.getCustomSportsSources()
 
         val sportsDef = async {
             try {
@@ -58,20 +59,77 @@ class MovieRepository {
             }
         }
 
+        val customDefs = customEntries.mapIndexed { idx, rawEntry ->
+            async {
+                try {
+                    if (rawEntry.contains("|")) {
+                        val titlePart = rawEntry.substringBefore("|").trim()
+                        val urlPart = rawEntry.substringAfter("|").trim()
+                        val teams = titlePart.split(Regex("\\s+vs\\s+|\\s+-\\s+", RegexOption.IGNORE_CASE))
+                        val home = teams.getOrNull(0)?.trim()?.ifBlank { titlePart } ?: titlePart
+                        val away = teams.getOrNull(1)?.trim()?.ifBlank { "Trực Tiếp" } ?: "Trực Tiếp"
+                        val currentClock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(now))
+                        TvSportsData(
+                            matches = listOf(
+                                FootballMatchGroup(
+                                    id = "custom_match_${idx}_${home}_${away}",
+                                    homeTeam = home,
+                                    awayTeam = away,
+                                    kickoffTime = currentClock,
+                                    tournament = "🔥 NGUỒN BÓNG ĐÁ TỰ THÊM",
+                                    logo = null,
+                                    streams = listOf(MatchStreamItem(titlePart, "Nguồn Tự Thêm", urlPart))
+                                )
+                            )
+                        )
+                    } else if (rawEntry.substringBefore("?").endsWith(".m3u8", ignoreCase = true) ||
+                        rawEntry.substringBefore("?").endsWith(".ts", ignoreCase = true)
+                    ) {
+                        val currentClock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(now))
+                        TvSportsData(
+                            matches = listOf(
+                                FootballMatchGroup(
+                                    id = "custom_stream_$idx",
+                                    homeTeam = "Trận Cầu Trực Tiếp",
+                                    awayTeam = "Nguồn #${idx + 1}",
+                                    kickoffTime = currentClock,
+                                    tournament = "🔥 LUỒNG BÓNG ĐÁ TỰ THÊM",
+                                    logo = null,
+                                    streams = listOf(MatchStreamItem("Luồng Trực Tiếp #${idx + 1}", "Server VIP", rawEntry))
+                                )
+                            )
+                        )
+                    } else {
+                        val req = Request.Builder()
+                            .url(rawEntry)
+                            .header("User-Agent", "TiviMate/4.7.0")
+                            .build()
+                        val res = client.newCall(req).execute()
+                        val body = if (res.isSuccessful) res.body?.string() else null
+                        if (!body.isNullOrBlank()) parseM3uData(body, "Bóng Đá") else TvSportsData()
+                    }
+                } catch (_: Exception) {
+                    TvSportsData()
+                }
+            }
+        }
+
         val sportsBody = sportsDef.await()
         val tvBody = tvDef.await()
+        val customResults = customDefs.map { it.await() }
 
         val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
         val parsedTv = if (!tvBody.isNullOrBlank()) parseM3uData(tvBody, "Truyền Hình") else TvSportsData()
 
-        // 1. Gộp tất cả kênh truyền hình (Chính thống + M3U Truyền hình + M3U Thể thao)
-        // Các kênh trùng tên sẽ tự động gộp làm 1 và đưa các đường link khác vào backupUrls
+        // 1. Gộp tất cả kênh truyền hình (Chính thống + M3U Tự thêm + M3U Truyền hình + M3U Thể thao)
         val officialChannels = getVerifiedOfficialChannels()
-        val rawAllChannels = officialChannels + parsedTv.channels + parsedSports.channels
+        val customChannels = customResults.flatMap { it.channels }
+        val rawAllChannels = officialChannels + customChannels + parsedTv.channels + parsedSports.channels
         val mergedChannels = mergeAndDeduplicateChannels(rawAllChannels)
 
-        // 2. Lọc bỏ các trận bóng đã kết thúc (FINISHED) ngay khi cập nhật dữ liệu mới
-        val rawMatches = parsedSports.matches.ifEmpty { parsedTv.matches }
+        // 2. Gộp các trận bóng từ tất cả nguồn (Nguồn tự thêm + Kho Gà + IPTV) & lọc bỏ trận đã kết thúc (FINISHED)
+        val customMatches = customResults.flatMap { it.matches }
+        val rawMatches = mergeAndDeduplicateMatches(customMatches + parsedSports.matches + parsedTv.matches)
         val activeMatches = rawMatches.filter { m ->
             MatchStateHelper.calculateMatchState(m.kickoffTime, now).status != MatchStatus.FINISHED
         }
@@ -203,6 +261,24 @@ class MovieRepository {
                 }
             }
             return mergedMap.values.toList()
+        }
+
+        fun mergeAndDeduplicateMatches(allGroups: List<FootballMatchGroup>): List<FootballMatchGroup> {
+            val merged = LinkedHashMap<String, FootballMatchGroup>()
+            for (g in allGroups) {
+                val key = "${g.homeTeam.trim().lowercase()}_vs_${g.awayTeam.trim().lowercase()}_${g.kickoffTime.trim()}"
+                val existing = merged[key]
+                if (existing == null) {
+                    merged[key] = g.copy(streams = g.streams.distinctBy { it.streamUrl })
+                } else {
+                    val combinedStreams = (existing.streams + g.streams).distinctBy { it.streamUrl }
+                    merged[key] = existing.copy(
+                        logo = existing.logo ?: g.logo,
+                        streams = combinedStreams
+                    )
+                }
+            }
+            return merged.values.toList()
         }
 
         fun getVerifiedOfficialChannels(): List<TvChannel> {

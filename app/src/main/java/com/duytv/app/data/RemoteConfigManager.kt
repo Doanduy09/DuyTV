@@ -21,6 +21,13 @@ object RemoteConfigManager {
     @Volatile
     private var currentConfig = RemoteConfig()
 
+    const val DEFAULT_SPORTS_M3U = "https://paste.c-net.org/PostersMistrust"
+    const val DEFAULT_TV_M3U = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
+    private const val KEY_CUSTOM_SPORTS_LIST = "custom_sports_sources_v1"
+
+    @Volatile
+    private var customSportsSources: List<String> = emptyList()
+
     suspend fun fetchRemoteConfig(): RemoteConfig = withContext(Dispatchers.IO) {
         // 1. Thử nạp cấu hình JSON đầy đủ
         try {
@@ -135,6 +142,15 @@ object RemoteConfigManager {
         val customKkphim = prefs.getString("kkphim_url", null)
         val customNguonC = prefs.getString("nguonc_url", null)
         val customCoBe = prefs.getString("cobe_url", null)
+        val savedSportsJson = prefs.getString(KEY_CUSTOM_SPORTS_LIST, null)
+        if (!savedSportsJson.isNullOrBlank()) {
+            try {
+                val arr = gson.fromJson(savedSportsJson, Array<String>::class.java)
+                if (arr != null) {
+                    customSportsSources = arr.filter { it.isNotBlank() }.distinct()
+                }
+            } catch (_: Exception) {}
+        }
 
         var updatedSources = currentConfig.sources
         if (!customOphim.isNullOrBlank() && !customOphim.contains("rapphim") && !customOphim.contains("mephim")) {
@@ -198,8 +214,88 @@ object RemoteConfigManager {
     }
 
     fun resetToDefaults(context: android.content.Context) {
-        context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE).edit().clear().apply()
+        val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove("ophim_url")
+            .remove("kkphim_url")
+            .remove("nguonc_url")
+            .remove("cobe_url")
+            .apply()
         currentConfig = RemoteConfig()
+    }
+
+    fun getCustomSportsSources(context: android.content.Context? = null): List<String> {
+        if (customSportsSources.isEmpty() && context != null) {
+            val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
+            val savedJson = prefs.getString(KEY_CUSTOM_SPORTS_LIST, null)
+            if (!savedJson.isNullOrBlank()) {
+                try {
+                    val arr = gson.fromJson(savedJson, Array<String>::class.java)
+                    if (arr != null) {
+                        customSportsSources = arr.filter { it.isNotBlank() }.distinct()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        return customSportsSources
+    }
+
+    fun getSavedSportsSourcesDisplay(context: android.content.Context): List<Pair<String, String>> {
+        val baseList = mutableListOf(
+            "⚽ Kho Gà TV (Bóng Đá Chính)" to DEFAULT_SPORTS_M3U,
+            "📺 All-In-One IPTV (Truyền Hình & Thể Thao)" to DEFAULT_TV_M3U
+        )
+        val customs = getCustomSportsSources(context)
+        customs.forEachIndexed { idx, raw ->
+            val label = if (raw.contains("|")) {
+                "🔥 Trận Tự Thêm #${idx + 1} (${raw.substringBefore("|").trim()})"
+            } else if (raw.endsWith(".m3u8", ignoreCase = true) || raw.endsWith(".ts", ignoreCase = true)) {
+                "🔥 Luồng Trực Tiếp #${idx + 1}"
+            } else {
+                "⚽ Nguồn Bóng Đá Tự Thêm #${idx + 1}"
+            }
+            baseList.add(label to raw)
+        }
+        return baseList
+    }
+
+    fun saveCustomSportsSource(context: android.content.Context, rawInput: String): String {
+        val trimmed = rawInput.trim()
+        if (trimmed.isBlank()) return ""
+
+        val normalized = if (trimmed.contains("|")) {
+            val titlePart = trimmed.substringBefore("|").trim()
+            var urlPart = trimmed.substringAfter("|").trim()
+            if (!urlPart.startsWith("http://") && !urlPart.startsWith("https://")) {
+                urlPart = "https://$urlPart"
+            }
+            "$titlePart | $urlPart"
+        } else {
+            var cleanUrl = trimmed
+            if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+                cleanUrl = "https://$cleanUrl"
+            }
+            cleanUrl
+        }
+
+        val updated = (getCustomSportsSources(context) + normalized).distinct()
+        customSportsSources = updated
+        val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_CUSTOM_SPORTS_LIST, gson.toJson(updated)).apply()
+        return normalized
+    }
+
+    fun removeCustomSportsSource(context: android.content.Context, targetSource: String) {
+        val updated = getCustomSportsSources(context).filterNot { it == targetSource }
+        customSportsSources = updated
+        val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_CUSTOM_SPORTS_LIST, gson.toJson(updated)).apply()
+    }
+
+    fun resetSportsSourcesToDefaults(context: android.content.Context) {
+        customSportsSources = emptyList()
+        val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_CUSTOM_SPORTS_LIST).apply()
     }
 
     fun resolveImageUrl(path: String?): String {
