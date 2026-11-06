@@ -27,6 +27,18 @@ jobs:
       - name: Tải mã nguồn repository
         uses: actions/checkout@v4
 
+      - name: Đọc thông tin phiên bản từ config/version.json
+        id: version_info
+        run: |
+          node -e "
+            const v = require('./config/version.json');
+            const fs = require('fs');
+            const envFile = process.env.GITHUB_ENV;
+            fs.appendFileSync(envFile, 'APP_VERSION=' + v.versionName + '\n');
+            fs.appendFileSync(envFile, 'APP_BUILD=' + v.versionCode + '\n');
+            fs.appendFileSync(envFile, 'APP_NOTES<<EOF\n' + (v.releaseNotes || 'Bản cập nhật mới nhất') + '\nEOF\n');
+          "
+
       - name: Cài đặt Node.js để xử lý cấu hình
         uses: actions/setup-node@v4
         with:
@@ -72,13 +84,15 @@ jobs:
       - name: Tự động phát hành bản Release công khai
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v1.2.5-build-${{ github.run_number }}"
-          name: "DuyTV Full Edition v1.2.5 (Build #${{ github.run_number }})"
+          tag_name: "v${{ env.APP_VERSION }}-build-${{ env.APP_BUILD }}"
+          name: "DuyTV Full Edition v${{ env.APP_VERSION }} (Build #${{ env.APP_BUILD }})"
           body: |
-            ### 🚀 Bản phát hành DuyTV Full Edition v1.2.5
-            - **Cơ chế**: Tự động biên dịch khi file `.config` hoặc nguồn phim thay đổi
-            - **Tính năng mới**: Tải phim song song siêu tốc (<1s), cơ chế tự phục hồi đa tầng (tự động chuyển API chuẩn nếu link web nhập vào không trả JSON), Remote Fast Seek 3s/15s cho TV Sharp Aquos & Tablet
-            - **Thiết bị hỗ trợ**: TV Sharp Aquos, Tablet Android, Android Box, Smartphone Android.
+            ### 🚀 Bản phát hành DuyTV Full Edition v${{ env.APP_VERSION }} (Build #${{ env.APP_BUILD }})
+            ${{ env.APP_NOTES }}
+
+            ---
+            - **Cơ chế**: Tự động cập nhật 1 chạm (In-App OTA), Tự động đồng bộ nguồn phim & kênh TV
+            - **Thiết bị hỗ trợ**: Tivi Sharp Aquos, Sony, Xiaomi, TCL, Samsung Galaxy Z Fold, Máy tính bảng Android, TV Box.
           files: release_apk/DuyTV-Full-Latest.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
