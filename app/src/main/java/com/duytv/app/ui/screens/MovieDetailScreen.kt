@@ -61,6 +61,7 @@ fun MovieDetailScreen(
     var selectedServerIndex by remember { mutableStateOf(0) }
     var vietnameseSubtitleUrl by remember { mutableStateOf<String?>(null) }
     val savedHistory = remember(slug) { WatchHistoryManager.getHistoryForMovie(context, slug) }
+    var isFavMovie by remember(slug) { mutableStateOf(AppCacheManager.isFavoriteMovie(slug)) }
 
     LaunchedEffect(slug) {
         scope.launch {
@@ -133,30 +134,78 @@ fun MovieDetailScreen(
                 contentPadding = PaddingValues(horizontal = horizontalPad, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Back Button
+                // Back Button & Favorite Watchlist Button
                 item {
                     val backInteraction = remember { MutableInteractionSource() }
                     val backFocused by backInteraction.collectIsFocusedAsState()
+                    val favInteraction = remember { MutableInteractionSource() }
+                    val favFocused by favInteraction.collectIsFocusedAsState()
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (backFocused) AccentRed else CardBg)
-                            .focusable(interactionSource = backInteraction)
-                            .clickable(interactionSource = backInteraction, indication = null) {
-                                onBack()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("QUAY LẠI", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (backFocused) AccentRed else CardBg)
+                                .focusable(interactionSource = backInteraction)
+                                .clickable(interactionSource = backInteraction, indication = null) {
+                                    onBack()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Quay lại",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("QUAY LẠI", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(
+                                    when {
+                                        favFocused -> AccentRed
+                                        isFavMovie -> Color(0xFF3E2723)
+                                        else -> CardBg
+                                    }
+                                )
+                                .border(
+                                    width = if (favFocused || isFavMovie) 1.5.dp else 0.dp,
+                                    color = if (favFocused) Color.White else if (isFavMovie) Color(0xFFFFD600) else Color.Transparent,
+                                    shape = RoundedCornerShape(6.dp)
+                                )
+                                .focusable(interactionSource = favInteraction)
+                                .clickable(interactionSource = favInteraction, indication = null) {
+                                    val dto = MovieItemDto(
+                                        id = movie.id ?: slug,
+                                        name = movie.name,
+                                        slug = slug,
+                                        originName = movie.originName ?: "",
+                                        posterUrl = backdropUrl,
+                                        thumbUrl = backdropUrl,
+                                        year = movie.year ?: 2026,
+                                        qualityTag = movie.quality,
+                                        badge = movie.episodeCurrent
+                                    )
+                                    isFavMovie = AppCacheManager.toggleFavoriteMovie(context, dto)
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = if (isFavMovie) "❤️ ĐÃ LƯU TỦ PHIM YÊU THÍCH" else "🤍 LƯU PHIM YÊU THÍCH",
+                                color = if (isFavMovie && !favFocused) Color(0xFFFFD600) else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -364,12 +413,76 @@ fun MovieDetailScreen(
                             modifier = Modifier.padding(bottom = 12.dp)
                         )
 
+                        val chunkSize = 50
+                        val totalChunks = if (episodes.size > chunkSize) (episodes.size + chunkSize - 1) / chunkSize else 1
+                        val initialChunkIdx = remember(episodes, savedHistory?.episodeName) {
+                            val watchedName = savedHistory?.episodeName
+                            val watchedIdx = if (!watchedName.isNullOrBlank()) {
+                                episodes.indexOfFirst { it.name.equals(watchedName, ignoreCase = true) }
+                            } else -1
+                            if (watchedIdx >= 0) watchedIdx / chunkSize else 0
+                        }
+                        var selectedChunkIdx by remember(initialChunkIdx, selectedServerIndex) {
+                            mutableIntStateOf(initialChunkIdx)
+                        }
+
+                        if (totalChunks > 1 && !isTorrentServer) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            ) {
+                                items((0 until totalChunks).toList()) { cIdx ->
+                                    val startEp = cIdx * chunkSize + 1
+                                    val endEp = minOf((cIdx + 1) * chunkSize, episodes.size)
+                                    val isChunkSel = (cIdx == selectedChunkIdx)
+                                    val cInter = remember { MutableInteractionSource() }
+                                    val isCFoc by cInter.collectIsFocusedAsState()
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                when {
+                                                    isCFoc -> AccentRed
+                                                    isChunkSel -> Color(0xFF00C853)
+                                                    else -> CardBg
+                                                }
+                                            )
+                                            .border(
+                                                width = if (isCFoc || isChunkSel) 1.5.dp else 1.dp,
+                                                color = if (isCFoc || isChunkSel) Color.White else Color(0x33FFFFFF),
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .focusable(interactionSource = cInter)
+                                            .clickable(interactionSource = cInter, indication = null) {
+                                                selectedChunkIdx = cIdx
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Tập $startEp – $endEp",
+                                            color = if (isChunkSel && !isCFoc) Color.Black else Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        val visibleEpisodes = if (totalChunks > 1 && !isTorrentServer) {
+                            val from = (selectedChunkIdx * chunkSize).coerceIn(0, episodes.size)
+                            val to = minOf(from + chunkSize, episodes.size)
+                            episodes.subList(from, to)
+                        } else {
+                            episodes
+                        }
+
                         LazyRow(
                             state = episodeRowState,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(end = 40.dp)
                         ) {
-                            items(episodes) { ep ->
+                            items(visibleEpisodes) { ep ->
                                 val isCurrentWatched = savedHistory?.episodeName?.equals(ep.name, ignoreCase = true) == true
                                 EpisodeButton(
                                     name = ep.name,

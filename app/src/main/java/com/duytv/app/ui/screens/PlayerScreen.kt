@@ -232,12 +232,18 @@ fun PlayerScreen(
     var loudnessEnhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
     var numberInputBuffer by remember { mutableStateOf("") }
     var numberInputJob by remember { mutableStateOf<Job?>(null) }
+    var previousVisitedChannelIndex by remember { mutableIntStateOf(-1) }
+    var isScreenOffAudioMode by remember { mutableStateOf(false) }
+    var isNightWarmMode by remember { mutableStateOf(false) }
     var isCurrentChannelFav by remember(currentTitle) {
         mutableStateOf(AppCacheManager.isFavoriteChannel(currentTitle))
     }
 
     LaunchedEffect(currentTitle) {
         isCurrentChannelFav = AppCacheManager.isFavoriteChannel(currentTitle)
+        if (isLive) {
+            AppCacheManager.saveLastWatchedChannel(context, currentTitle)
+        }
     }
 
     // Bộ đếm ngược Hẹn Giờ Tự Động Tắt (Sleep Timer)
@@ -934,6 +940,9 @@ fun PlayerScreen(
         val channels = availableChannels
         if (channels.isEmpty()) return
         val safeIndex = (targetIndex % channels.size + channels.size) % channels.size
+        if (currentChannelIndex >= 0 && currentChannelIndex != safeIndex) {
+            previousVisitedChannelIndex = currentChannelIndex
+        }
         currentChannelIndex = safeIndex
         currentBackupIndex = 0
         errorMessage = null
@@ -1569,6 +1578,69 @@ fun PlayerScreen(
         val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
         val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
 
+        // 🌆 Lớp Lọc Ánh Sáng Xanh Ban Đêm (Night Warm Eye-Care Filter)
+        if (isNightWarmMode && !isScreenOffAudioMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x28FF8F00))
+            )
+        }
+
+        // ⏭️ Thẻ nổi "Sắp Qua Tập Tiếp Theo" ở 20 giây cuối của tập phim
+        val hasNextEpisode = !isLive && availableEpisodes.size > 1 && currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < availableEpisodes.size
+        val isFinal20Seconds = hasNextEpisode && totalDurationMs > 120_000L && (totalDurationMs - currentPosMs) in 1000L..20_000L
+        AnimatedVisibility(
+            visible = isFinal20Seconds && !showControls && !isScreenOffAudioMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 44.dp, end = 48.dp)
+        ) {
+            val nextEpTitle = availableEpisodes.getOrNull(currentEpisodeIndex + 1)?.name ?: ""
+            val remainSec = ((totalDurationMs - currentPosMs) / 1000L).coerceAtLeast(1L)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xF00A0E17))
+                    .border(2.dp, Color(0xFF00E676), RoundedCornerShape(12.dp))
+                    .clickable {
+                        playVodEpisodeAt(currentEpisodeIndex + 1, isAutoAdvance = false)
+                    }
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "⏭ QUA TẬP TIẾP ($nextEpTitle) SAU ${remainSec}S — BẤM ĐỂ PHÁT NGAY",
+                    color = Color(0xFF00E676),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+
+        // 🌙 Chế độ Tắt Màn Hình Chỉ Nghe Tiếng (Tiết kiệm điện TV & chống chói mắt cho bé An)
+        if (isScreenOffAudioMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable {
+                        isScreenOffAudioMode = false
+                        showControls = true
+                    },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Text(
+                    text = "🌙 ĐANG TẮT MÀN HÌNH (CHỈ NGHE ÂM THANH) • Chạm hoặc bấm phím bất kỳ để bật lại",
+                    color = Color(0x55FFFFFF),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 24.dp)
+                )
+            }
+        }
+
         // 🔓 Nút Mở Khóa Màn Hình Cảm Ứng (Chế độ Khóa Trẻ Em trên Tablet / Điện thoại)
         AnimatedVisibility(
             visible = isTouchLocked && showUnlockPill,
@@ -1810,6 +1882,99 @@ fun PlayerScreen(
                             )
                         }
 
+                        // 🌆 Nút Lọc Ánh Sáng Xanh Ban Đêm (Bảo vệ mắt Bé An & Gia Đình)
+                        val nightInter = remember { MutableInteractionSource() }
+                        val isNightFoc by nightInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isNightFoc) AccentRed else if (isNightWarmMode) Color(0xFF3E2723) else Color(0xFF222938))
+                                .border(
+                                    width = if (isNightFoc || isNightWarmMode) 1.5.dp else 0.dp,
+                                    color = if (isNightFoc) Color.White else if (isNightWarmMode) Color(0xFFFFD600) else Color.Transparent,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = nightInter)
+                                .clickable(interactionSource = nightInter, indication = null) {
+                                    isNightWarmMode = !isNightWarmMode
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = if (isNightWarmMode) "🌆 DỊU MẮT: BẬT" else "🌆 DỊU MẮT",
+                                color = if (isNightWarmMode) Color(0xFFFFD600) else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 🌙 Nút Tắt Đèn Màn Hình Chỉ Nghe Tiếng
+                        val screenOffInter = remember { MutableInteractionSource() }
+                        val isScreenOffFoc by screenOffInter.collectIsFocusedAsState()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isScreenOffFoc) AccentRed else Color(0xFF222938))
+                                .border(
+                                    width = if (isScreenOffFoc) 1.5.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .focusable(interactionSource = screenOffInter)
+                                .clickable(interactionSource = screenOffInter, indication = null) {
+                                    isScreenOffAudioMode = true
+                                    showControls = false
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "🌙 TẮT MÀN HÌNH",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 🖼️ Nút Thu Nhỏ Cửa Sổ Nổi Hình-Trong-Hình (PiP trên Máy tính bảng & Điện thoại)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            val pipInter = remember { MutableInteractionSource() }
+                            val isPipFoc by pipInter.collectIsFocusedAsState()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isPipFoc) AccentRed else Color(0xFF222938))
+                                    .border(
+                                        width = if (isPipFoc) 1.5.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .focusable(interactionSource = pipInter)
+                                    .clickable(interactionSource = pipInter, indication = null) {
+                                        try {
+                                            val act = context as? Activity
+                                            if (act != null) {
+                                                showControls = false
+                                                val params = android.app.PictureInPictureParams.Builder()
+                                                    .setAspectRatio(android.util.Rational(16, 9))
+                                                    .build()
+                                                act.enterPictureInPictureMode(params)
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "🖼️ CỬA SỔ NỔI (PiP)",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         // Nút Tỷ Lệ Màn Hình / Full Màn Hình (Chạm hoặc D-Pad trên TV)
                         val aspectInter = remember { MutableInteractionSource() }
                         val isAspectFoc by aspectInter.collectIsFocusedAsState()
@@ -2031,6 +2196,14 @@ fun PlayerScreen(
                                     onClick = { showChannelRibbon = !showChannelRibbon }
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
+                                if (previousVisitedChannelIndex in availableChannels.indices && previousVisitedChannelIndex != currentChannelIndex) {
+                                    QuickSeekPill(
+                                        text = "🔁 KÊNH VỪA NÃY (${availableChannels[previousVisitedChannelIndex].name})",
+                                        highlight = true,
+                                        onClick = { switchToChannel(previousVisitedChannelIndex) }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
                                 QuickSeekPill(text = "⏮ KÊNH TRƯỚC", onClick = { previousChannel() })
                                 Spacer(modifier = Modifier.width(8.dp))
                             }

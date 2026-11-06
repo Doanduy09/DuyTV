@@ -66,6 +66,13 @@ object WatchHistoryManager {
         return getHistory(context).firstOrNull { it.slug == slug }
     }
 
+    fun removeHistoryItem(context: Context, slug: String) {
+        val list = getHistory(context).filterNot { it.slug == slug }
+        memoryCache = list
+        val json = gson.toJson(list)
+        getPrefs(context).edit().putString(KEY_HISTORY, json).apply()
+    }
+
     fun getHistory(context: Context): List<WatchHistoryItem> {
         memoryCache?.let { return it }
         val json = getPrefs(context).getString(KEY_HISTORY, null) ?: return emptyList()

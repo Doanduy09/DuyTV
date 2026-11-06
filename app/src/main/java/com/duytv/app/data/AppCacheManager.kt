@@ -42,10 +42,55 @@ object AppCacheManager {
     var favoriteChannelNames: Set<String> = emptySet()
         private set
 
+    @Volatile
+    var lastWatchedChannelName: String = ""
+        private set
+
+    @Volatile
+    var favoriteMovies: List<MovieItemDto> = emptyList()
+        private set
+
     private const val HOME_CACHE_FILE = "duytv_home_cache.json"
     private const val TV_SPORTS_CACHE_FILE = "duytv_tvsports_cache.json"
     private const val FAV_PREFS = "duytv_fav_channels"
     private const val KEY_FAV_NAMES = "fav_names"
+    private const val KEY_LAST_CHANNEL = "last_watched_channel"
+    private const val KEY_FAV_MOVIES = "fav_movies_json"
+
+    fun saveLastWatchedChannel(context: Context, channelName: String) {
+        val clean = channelName.trim()
+        if (clean.isBlank()) return
+        lastWatchedChannelName = clean
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_CHANNEL, clean)
+            .apply()
+    }
+
+    fun isFavoriteMovie(slug: String): Boolean {
+        return favoriteMovies.any { it.slug == slug }
+    }
+
+    fun toggleFavoriteMovie(context: Context, movie: MovieItemDto): Boolean {
+        val current = favoriteMovies.toMutableList()
+        val exists = current.any { it.slug == movie.slug }
+        val isNowFav = if (exists) {
+            current.removeAll { it.slug == movie.slug }
+            false
+        } else {
+            current.add(0, movie)
+            true
+        }
+        favoriteMovies = current.take(40)
+        try {
+            val json = gson.toJson(favoriteMovies)
+            context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_FAV_MOVIES, json)
+                .apply()
+        } catch (_: Exception) {}
+        return isNowFav
+    }
 
     fun isFavoriteChannel(channelName: String): Boolean {
         return favoriteChannelNames.contains(channelName.trim().uppercase())
@@ -80,9 +125,17 @@ object AppCacheManager {
 
     fun init(context: Context, defaultOfficialChannels: List<TvChannel> = emptyList()) {
         appContext = context.applicationContext
-        val savedFavs = appContext!!.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
-            .getStringSet(KEY_FAV_NAMES, emptySet()) ?: emptySet()
+        val prefs = appContext!!.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+        val savedFavs = prefs.getStringSet(KEY_FAV_NAMES, emptySet()) ?: emptySet()
         favoriteChannelNames = savedFavs
+        lastWatchedChannelName = prefs.getString(KEY_LAST_CHANNEL, "") ?: ""
+        try {
+            val favMoviesJson = prefs.getString(KEY_FAV_MOVIES, null)
+            if (!favMoviesJson.isNullOrBlank()) {
+                val type = object : com.google.gson.reflect.TypeToken<List<MovieItemDto>>() {}.type
+                favoriteMovies = gson.fromJson(favMoviesJson, type) ?: emptyList()
+            }
+        } catch (_: Exception) {}
         if (isInitialized && activeChannels.isNotEmpty()) return
         isInitialized = true
         if (activeChannels.isEmpty() && defaultOfficialChannels.isNotEmpty()) {

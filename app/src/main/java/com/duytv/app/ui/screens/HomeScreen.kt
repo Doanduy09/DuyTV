@@ -55,6 +55,8 @@ import com.duytv.app.ui.components.MovieCard
 import com.duytv.app.ui.components.TvBanner
 import com.duytv.app.ui.components.TvChannelCard
 import com.duytv.app.ui.theme.*
+import com.duytv.app.util.AppUpdateManager
+import com.duytv.app.util.AppVersionInfo
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -135,6 +137,11 @@ fun HomeScreen(
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
     var showSourceSettingsDialog by remember { mutableStateOf(false) }
     var showSportsSourceDialog by remember { mutableStateOf(false) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
+    var remoteUpdateInfo by remember { mutableStateOf<AppVersionInfo?>(null) }
+    var favoriteMoviesList by remember { mutableStateOf(AppCacheManager.favoriteMovies) }
+    val currentVersionCode = remember { AppUpdateManager.getCurrentVersionCode(context) }
+    val currentVersionName = remember { AppUpdateManager.getCurrentVersionName(context) }
 
     val currentTime = remember(currentHeartbeatMillis / 60_000L) {
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -230,6 +237,13 @@ fun HomeScreen(
         AppCacheManager.init(context, MovieRepository.getVerifiedOfficialChannels())
         RemoteConfigManager.loadLocalCustomSources(context)
         watchHistory = WatchHistoryManager.getHistory(context)
+        favoriteMoviesList = AppCacheManager.favoriteMovies
+        scope.launch {
+            val latestVer = AppUpdateManager.checkForUpdate()
+            if (latestVer != null) {
+                remoteUpdateInfo = latestVer
+            }
+        }
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
             reloadAllMovies(silent = true)
@@ -260,6 +274,7 @@ fun HomeScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 watchHistory = WatchHistoryManager.getHistory(context)
+                favoriteMoviesList = AppCacheManager.favoriteMovies
                 val now = System.currentTimeMillis()
                 if (now - lastAutoSyncMillis > 120_000L) {
                     lastAutoSyncMillis = now
@@ -478,6 +493,43 @@ fun HomeScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            // 🚀 In-App OTA Self-Update Button (Cập nhật trực tiếp ngay trên App)
+                            val updateInter = remember { MutableInteractionSource() }
+                            val updateFoc by updateInter.collectIsFocusedAsState()
+                            val hasNewUpdate = remoteUpdateInfo != null && remoteUpdateInfo!!.versionCode > currentVersionCode
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        when {
+                                            updateFoc -> AccentRed
+                                            hasNewUpdate -> Color(0xFF00C853)
+                                            else -> CardBg
+                                        }
+                                    )
+                                    .border(
+                                        width = if (updateFoc || hasNewUpdate) 1.5.dp else 0.dp,
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = updateInter)
+                                    .clickable(interactionSource = updateInter, indication = null) {
+                                        showAppUpdateDialog = true
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (hasNewUpdate) "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName} (BẤM CẬP NHẬT)" else "🔄 CẬP NHẬT APP (v$currentVersionName)",
+                                    color = if (hasNewUpdate && !updateFoc) Color.Black else Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
 
                         Text(
@@ -547,7 +599,7 @@ fun HomeScreen(
                         item {
                             Column {
                                 Text(
-                                    text = "⏱️ TIẾP TỤC XEM",
+                                    text = "⏱️ TIẾP TỤC XEM (TỰ NHỚ TẬP & PHÚT ĐANG COI)",
                                     color = TextWhite,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
@@ -557,11 +609,16 @@ fun HomeScreen(
                                     items(watchHistory, key = { it.slug + it.episodeName }) { item ->
                                         val itemInter = remember { MutableInteractionSource() }
                                         val isFoc by itemInter.collectIsFocusedAsState()
+                                        val totalSec = (item.positionMs / 1000L).coerceAtLeast(0L)
+                                        val minStr = String.format(Locale.US, "%02d:%02d", totalSec / 60L, totalSec % 60L)
+                                        val progressFraction = if (item.durationMs > 0L) {
+                                            (item.positionMs.toFloat() / item.durationMs.toFloat()).coerceIn(0.06f, 1f)
+                                        } else 0.15f
 
                                         Box(
                                             modifier = Modifier
-                                                .width(210.dp)
-                                                .height(130.dp)
+                                                .width(225.dp)
+                                                .height(136.dp)
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(CardBg)
                                                 .border(
@@ -583,31 +640,87 @@ fun HomeScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .background(Color(0x990A0E17))
+                                                    .background(Color(0xA60A0E17))
                                             )
+
+                                            // Nút ✕ xóa nhanh khỏi danh sách đang xem
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xCC1F2430))
+                                                    .clickable {
+                                                        WatchHistoryManager.removeHistoryItem(context, item.slug)
+                                                        watchHistory = WatchHistoryManager.getHistory(context)
+                                                    }
+                                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                                            ) {
+                                                Text(
+                                                    text = "✕",
+                                                    color = Color(0xFFA0AAB8),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
                                             Column(
                                                 modifier = Modifier
                                                     .align(Alignment.BottomStart)
-                                                    .padding(10.dp)
+                                                    .fillMaxWidth()
                                             ) {
-                                                Text(
-                                                    text = item.movieTitle,
-                                                    color = TextWhite,
-                                                    fontSize = 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    text = "Xem tiếp: Tập ${item.episodeName}",
-                                                    color = Color(0xFF00E676),
-                                                    fontSize = 11.sp
-                                                )
+                                                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                                    Text(
+                                                        text = item.movieTitle,
+                                                        color = TextWhite,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "▶ Tập ${item.episodeName} • $minStr",
+                                                        color = Color(0xFF00E676),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                // Thanh tiến độ màu đỏ chuẩn Netflix dưới đáy thẻ
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(4.dp)
+                                                        .background(Color(0x55FFFFFF))
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth(progressFraction)
+                                                            .fillMaxHeight()
+                                                            .background(AccentRed)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // ❤️ TỦ PHIM YÊU THÍCH ĐÃ LƯU
+                    if (favoriteMoviesList.isNotEmpty()) {
+                        item {
+                            MovieSwimlaneWithMore(
+                                title = "❤️ TỦ PHIM YÊU THÍCH ĐÃ LƯU (${favoriteMoviesList.size})",
+                                movies = favoriteMoviesList,
+                                onMovieClick = onMovieSelected,
+                                onSeeAllClick = {
+                                    if (favoriteMoviesList.isNotEmpty()) {
+                                        onMovieSelected(favoriteMoviesList.first().slug)
+                                    }
+                                }
+                            )
                         }
                     }
 
@@ -1189,6 +1302,16 @@ fun HomeScreen(
             )
         }
 
+        if (showAppUpdateDialog) {
+            AppUpdateDialog(
+                currentVersionCode = currentVersionCode,
+                currentVersionName = currentVersionName,
+                initialUpdateInfo = remoteUpdateInfo,
+                onUpdateInfoFetched = { remoteUpdateInfo = it },
+                onDismiss = { showAppUpdateDialog = false }
+            )
+        }
+
         if (selectedMatchForStreams != null) {
             val match = selectedMatchForStreams!!
             Dialog(
@@ -1321,6 +1444,243 @@ fun HomeScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AppUpdateDialog(
+    currentVersionCode: Int,
+    currentVersionName: String,
+    initialUpdateInfo: AppVersionInfo?,
+    onUpdateInfoFetched: (AppVersionInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isChecking by remember { mutableStateOf(initialUpdateInfo == null) }
+    var updateInfo by remember { mutableStateOf(initialUpdateInfo) }
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableIntStateOf(0) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        isChecking = true
+        val fetched = AppUpdateManager.checkForUpdate()
+        if (fetched != null) {
+            updateInfo = fetched
+            onUpdateInfoFetched(fetched)
+        }
+        isChecking = false
+    }
+
+    val targetInfo = updateInfo ?: AppVersionInfo(
+        versionCode = currentVersionCode,
+        versionName = currentVersionName,
+        releaseNotes = "Tự động cập nhật trực tiếp ngay trong App, Góc Bé An, Tự nhảy tập mới, Khóa Trẻ Em, Khuếch đại âm thanh 200%, Đảo nhanh 2 kênh TV..."
+    )
+    val hasNewerVersion = targetInfo.versionCode > currentVersionCode
+
+    Dialog(
+        onDismissRequest = { if (!isDownloading) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xD9000000)),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141721)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(2.dp, if (hasNewerVersion) Color(0xFF00E676) else AccentRed),
+                modifier = Modifier
+                    .widthIn(max = 580.dp)
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (hasNewerVersion) "🚀 ĐÃ CÓ BẢN CẬP NHẬT MỚI: v${targetInfo.versionName}" else "🔄 CẬP NHẬT TRỰC TIẾP TRÊN APP (OTA)",
+                        color = if (hasNewerVersion) Color(0xFF00E676) else Color.White,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Phiên bản đang cài trên máy: v$currentVersionName (Build #$currentVersionCode)\nPhiên bản mới nhất trên máy chủ: v${targetInfo.versionName} (Build #${targetInfo.versionCode})",
+                        color = Color(0xFFA0AAB8),
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    if (isChecking) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(color = Color(0xFF00E676), modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Đang kiểm tra máy chủ LAN & GitHub Cloud...", color = Color(0xFF00E676), fontSize = 12.sp)
+                        }
+                    }
+
+                    if (targetInfo.releaseNotes.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF0E121A))
+                                .border(1.dp, Color(0xFF283042), RoundedCornerShape(10.dp))
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "✨ TÍNH NĂNG MỚI TRONG BẢN CẬP NHẬT:",
+                                    color = Color(0xFFFFD600),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = targetInfo.releaseNotes,
+                                    color = Color(0xFFD0D7DE),
+                                    fontSize = 13.sp,
+                                    lineHeight = 19.sp
+                                )
+                            }
+                        }
+                    }
+
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Text(
+                            text = "⬇️ Đang tải gói cập nhật trực tiếp... $downloadProgress%",
+                            color = Color(0xFF00E676),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(10.dp)
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(Color(0xFF252B3B))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth((downloadProgress / 100f).coerceIn(0.03f, 1f))
+                                    .fillMaxHeight()
+                                    .background(Color(0xFF00E676))
+                            )
+                        }
+                    }
+
+                    if (!statusMessage.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = statusMessage!!,
+                            color = Color(0xFFFFD600),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        val installInter = remember { MutableInteractionSource() }
+                        val isInstallFoc by installInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1.6f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isDownloading) Color(0xFF2D3748)
+                                    else if (isInstallFoc) AccentRed
+                                    else Color(0xFF00C853)
+                                )
+                                .border(
+                                    width = if (isInstallFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .focusable(interactionSource = installInter)
+                                .clickable(interactionSource = installInter, indication = null) {
+                                    if (!isDownloading) {
+                                        isDownloading = true
+                                        downloadProgress = 1
+                                        statusMessage = "Đang tải từ máy chủ tốc độ cao..."
+                                        scope.launch {
+                                            AppUpdateManager.downloadAndInstallApk(
+                                                context = context,
+                                                versionInfo = targetInfo,
+                                                onProgress = { pct -> downloadProgress = pct },
+                                                onError = { err ->
+                                                    isDownloading = false
+                                                    statusMessage = err
+                                                }
+                                            )
+                                            isDownloading = false
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isDownloading) "⏳ ĐANG TẢI ($downloadProgress%)..."
+                                else if (hasNewerVersion) "⬇️ CẬP NHẬT NGAY LÊN v${targetInfo.versionName}"
+                                else "⬇️ TẢI & CÀI ĐÈ BẢN MỚI NHẤT NGAY",
+                                color = if (!isDownloading && !isInstallFoc) Color.Black else Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+
+                        val closeInter = remember { MutableInteractionSource() }
+                        val isCloseFoc by closeInter.collectIsFocusedAsState()
+
+                        Box(
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isCloseFoc) AccentRed else Color(0xFF252A38))
+                                .border(
+                                    width = if (isCloseFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .focusable(interactionSource = closeInter)
+                                .clickable(interactionSource = closeInter, indication = null) {
+                                    if (!isDownloading) onDismiss()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "ĐÓNG",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
