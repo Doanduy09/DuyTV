@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.duytv.app.data.EpisodeItemDto
 import com.duytv.app.data.MovieRepository
 import com.duytv.app.ui.screens.HomeScreen
 import com.duytv.app.ui.screens.MovieDetailScreen
@@ -26,7 +27,8 @@ sealed class AppScreen {
         val posterUrl: String? = null,
         val subtitleUrl: String? = null,
         val initialPositionMs: Long = 0L,
-        val backupUrls: List<String> = emptyList()
+        val backupUrls: List<String> = emptyList(),
+        val episodes: List<EpisodeItemDto> = emptyList()
     ) : AppScreen()
 }
 
@@ -155,14 +157,16 @@ class MainActivity : ComponentActivity() {
                             slug = screen.slug,
                             repository = repository,
                             onBack = { currentScreen = AppScreen.Home },
-                            onPlayEpisode = { slug, movieTitle, episodeName, streamUrl, posterUrl, subtitleUrl ->
+                            onPlayEpisode = { slug, movieTitle, episodeName, streamUrl, posterUrl, subtitleUrl, initialPosMs, episodes ->
                                 currentScreen = AppScreen.Player(
                                     slug = slug,
                                     movieTitle = movieTitle,
                                     episodeName = episodeName,
                                     streamUrl = streamUrl,
                                     posterUrl = posterUrl,
-                                    subtitleUrl = subtitleUrl
+                                    subtitleUrl = subtitleUrl,
+                                    initialPositionMs = initialPosMs,
+                                    episodes = episodes
                                 )
                             },
                             modifier = Modifier.fillMaxSize()
@@ -178,6 +182,8 @@ class MainActivity : ComponentActivity() {
                             subtitleUrl = screen.subtitleUrl,
                             initialPositionMs = screen.initialPositionMs,
                             backupUrls = screen.backupUrls,
+                            episodes = screen.episodes,
+                            repository = repository,
                             onClose = {
                                 currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
                             },

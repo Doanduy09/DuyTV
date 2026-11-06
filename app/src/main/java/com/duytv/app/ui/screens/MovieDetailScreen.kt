@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,20 +35,32 @@ import coil.compose.AsyncImage
 import com.duytv.app.data.*
 import com.duytv.app.ui.theme.*
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 @Composable
 fun MovieDetailScreen(
     slug: String,
     repository: MovieRepository,
     onBack: () -> Unit,
-    onPlayEpisode: (slug: String, movieTitle: String, episodeName: String, streamUrl: String, posterUrl: String?, subtitleUrl: String?) -> Unit,
+    onPlayEpisode: (
+        slug: String,
+        movieTitle: String,
+        episodeName: String,
+        streamUrl: String,
+        posterUrl: String?,
+        subtitleUrl: String?,
+        initialPositionMs: Long,
+        episodes: List<EpisodeItemDto>
+    ) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(true) }
     var detailResponse by remember { mutableStateOf<MovieDetailResponse?>(null) }
     var selectedServerIndex by remember { mutableStateOf(0) }
     var vietnameseSubtitleUrl by remember { mutableStateOf<String?>(null) }
+    val savedHistory = remember(slug) { WatchHistoryManager.getHistoryForMovie(context, slug) }
 
     LaunchedEffect(slug) {
         scope.launch {
@@ -265,8 +279,83 @@ fun MovieDetailScreen(
                 item {
                     val episodes = currentServer?.serverData ?: emptyList()
                     val isTorrentServer = currentServer?.serverName?.contains("Torrent") == true
+                    val episodeRowState = rememberLazyListState()
+
+                    LaunchedEffect(episodes, savedHistory?.episodeName) {
+                        val watchedName = savedHistory?.episodeName
+                        if (!watchedName.isNullOrBlank() && episodes.isNotEmpty()) {
+                            val idx = episodes.indexOfFirst { it.name.equals(watchedName, ignoreCase = true) }
+                            if (idx > 0) {
+                                episodeRowState.scrollToItem(maxOf(0, idx - 1))
+                            }
+                        }
+                    }
 
                     Column {
+                        if (savedHistory != null && !isTorrentServer) {
+                            val resumeInter = remember { MutableInteractionSource() }
+                            val isResumeFoc by resumeInter.collectIsFocusedAsState()
+                            val resumePosLabel = formatDetailTime(savedHistory.positionMs)
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(bottom = 16.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isResumeFoc) AccentRed else Color(0xFF00C853))
+                                    .border(
+                                        width = if (isResumeFoc) 2.5.dp else 1.5.dp,
+                                        color = Color.White,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .focusable(interactionSource = resumeInter)
+                                    .clickable(interactionSource = resumeInter, indication = null) {
+                                        val matchedEp = episodes.firstOrNull {
+                                            it.name.equals(savedHistory.episodeName, ignoreCase = true)
+                                        }
+                                        scope.launch {
+                                            var streamUrl = matchedEp?.linkM3u8 ?: savedHistory.streamUrl
+                                            if (streamUrl.isBlank() && matchedEp != null && matchedEp.slug.startsWith("cobe_ep_")) {
+                                                val epId = matchedEp.slug.split("_").getOrNull(2)?.toLongOrNull()
+                                                if (epId != null) {
+                                                    streamUrl = repository.resolveCoBeEpisode(epId) ?: ""
+                                                }
+                                            }
+                                            if (streamUrl.isBlank()) {
+                                                streamUrl = matchedEp?.linkEmbed ?: savedHistory.streamUrl
+                                            }
+                                            if (streamUrl.isNotBlank()) {
+                                                onPlayEpisode(
+                                                    slug,
+                                                    movie.name,
+                                                    savedHistory.episodeName,
+                                                    streamUrl,
+                                                    backdropUrl,
+                                                    vietnameseSubtitleUrl,
+                                                    savedHistory.positionMs,
+                                                    episodes
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = if (isResumeFoc) Color.White else Color.Black,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "TIẾP TỤC XEM: ${savedHistory.episodeName.uppercase()} (TỪ $resumePosLabel)",
+                                    color = if (isResumeFoc) Color.White else Color.Black,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
                         Text(
                             text = if (isTorrentServer) "CHỌN CHẤT LƯỢNG STREAM 4K / BLURAY:" else "DANH SÁCH TẬP (${episodes.size} tập):",
                             color = TextWhite,
@@ -276,13 +365,16 @@ fun MovieDetailScreen(
                         )
 
                         LazyRow(
+                            state = episodeRowState,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             contentPadding = PaddingValues(end = 40.dp)
                         ) {
                             items(episodes) { ep ->
+                                val isCurrentWatched = savedHistory?.episodeName?.equals(ep.name, ignoreCase = true) == true
                                 EpisodeButton(
                                     name = ep.name,
                                     isQualityBadge = isTorrentServer,
+                                    isCurrentlyWatched = isCurrentWatched,
                                     onClick = {
                                         scope.launch {
                                             var streamUrl = ep.linkM3u8 ?: ""
@@ -296,13 +388,22 @@ fun MovieDetailScreen(
                                                 streamUrl = ep.linkEmbed ?: ""
                                             }
                                             if (streamUrl.isNotBlank()) {
+                                                val resumePos = if (isCurrentWatched && savedHistory != null &&
+                                                    (savedHistory.durationMs <= 0L || savedHistory.positionMs < savedHistory.durationMs - 15_000L)
+                                                ) {
+                                                    savedHistory.positionMs
+                                                } else {
+                                                    0L
+                                                }
                                                 onPlayEpisode(
                                                     slug,
                                                     movie.name,
                                                     ep.name,
                                                     streamUrl,
                                                     backdropUrl,
-                                                    vietnameseSubtitleUrl
+                                                    vietnameseSubtitleUrl,
+                                                    resumePos,
+                                                    episodes
                                                 )
                                             }
                                         }
@@ -318,6 +419,19 @@ fun MovieDetailScreen(
                 }
             }
         }
+    }
+}
+
+private fun formatDetailTime(ms: Long): String {
+    if (ms <= 0) return "00:00"
+    val totalSec = ms / 1000
+    val s = totalSec % 60
+    val m = (totalSec / 60) % 60
+    val h = totalSec / 3600
+    return if (h > 0) {
+        String.format(Locale.getDefault(), "%d:%02d:%02d", h, m, s)
+    } else {
+        String.format(Locale.getDefault(), "%02d:%02d", m, s)
     }
 }
 
@@ -340,6 +454,7 @@ fun Badge(text: String, isHighlight: Boolean = false) {
 fun EpisodeButton(
     name: String,
     isQualityBadge: Boolean = false,
+    isCurrentlyWatched: Boolean = false,
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -351,10 +466,20 @@ fun EpisodeButton(
             .defaultMinSize(minWidth = if (isQualityBadge) 160.dp else 80.dp)
             .height(48.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isFocused) AccentGlow else CardBg)
+            .background(
+                when {
+                    isFocused -> AccentGlow
+                    isCurrentlyWatched -> Color(0xFF1A3828)
+                    else -> CardBg
+                }
+            )
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) Color.White else Color(0xFF30363D),
+                width = if (isFocused) 2.dp else if (isCurrentlyWatched) 1.5.dp else 1.dp,
+                color = when {
+                    isFocused -> Color.White
+                    isCurrentlyWatched -> Color(0xFF00E676)
+                    else -> Color(0xFF30363D)
+                },
                 shape = RoundedCornerShape(6.dp)
             )
             .focusable(interactionSource = interaction)
@@ -365,13 +490,17 @@ fun EpisodeButton(
             Icon(
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = null,
-                tint = if (isFocused) Color.White else AccentRed,
+                tint = when {
+                    isFocused -> Color.White
+                    isCurrentlyWatched -> Color(0xFF00E676)
+                    else -> AccentRed
+                },
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = name,
-                color = Color.White,
+                text = if (isCurrentlyWatched) "$name • ĐANG COI" else name,
+                color = if (isCurrentlyWatched && !isFocused) Color(0xFF00E676) else Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )

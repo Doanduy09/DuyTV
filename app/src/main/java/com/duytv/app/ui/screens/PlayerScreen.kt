@@ -71,6 +71,8 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.duytv.app.MainActivity
 import com.duytv.app.data.AppCacheManager
+import com.duytv.app.data.EpisodeItemDto
+import com.duytv.app.data.MovieRepository
 import com.duytv.app.data.TvChannel
 import com.duytv.app.data.WatchHistoryManager
 import com.duytv.app.ui.theme.AccentRed
@@ -100,6 +102,8 @@ fun PlayerScreen(
     subtitleUrl: String? = null,
     initialPositionMs: Long = 0L,
     backupUrls: List<String> = emptyList(),
+    episodes: List<EpisodeItemDto> = emptyList(),
+    repository: MovieRepository? = null,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -129,6 +133,42 @@ fun PlayerScreen(
     var currentStreamUrl by remember(streamUrl) { mutableStateOf(streamUrl) }
     var currentPosterUrl by remember(posterUrl) { mutableStateOf(posterUrl) }
     var currentGroupName by remember { mutableStateOf("") }
+
+    // Danh sách tập phim để tự động nhảy tập tiếp theo khi hết tập (Auto-Next Episode)
+    var availableEpisodes by remember(episodes) { mutableStateOf(episodes) }
+    val currentEpisodeIndex = remember(availableEpisodes, currentEpisodeName, currentStreamUrl) {
+        availableEpisodes.indexOfFirst {
+            it.name.equals(currentEpisodeName, ignoreCase = true) ||
+                (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl)
+        }
+    }
+
+    // Nếu người dùng bấm "Tiếp tục xem" từ màn hình chính (chưa truyền sẵn danh sách tập),
+    // tự động tải ngầm danh sách tập để khi hết tập hiện tại sẽ tự nhảy qua tập tiếp theo!
+    LaunchedEffect(slug, isLive) {
+        if (!isLive && availableEpisodes.isEmpty() && repository != null) {
+            try {
+                val detail = repository.getMovieDetail(slug)
+                val serverEps = detail?.episodes?.firstOrNull()?.serverData ?: emptyList()
+                if (serverEps.isNotEmpty()) {
+                    availableEpisodes = serverEps
+                }
+            } catch (_: Exception) {}
+        }
+        if (!isLive) {
+            WatchHistoryManager.saveProgress(
+                context = context,
+                slug = slug,
+                movieTitle = currentTitle,
+                episodeName = currentEpisodeName,
+                streamUrl = currentStreamUrl,
+                posterUrl = currentPosterUrl,
+                positionMs = maxOf(1000L, initialPositionMs),
+                durationMs = totalDurationMs,
+                forceSave = true
+            )
+        }
+    }
 
     // Danh sách kênh & index hiện tại khi xem truyền hình (-1 nếu là luồng trận bóng đá trực tiếp)
     val availableChannels = remember { AppCacheManager.activeChannels }
@@ -430,7 +470,7 @@ fun PlayerScreen(
                     val dur = maxOf(1L, exoPlayer.duration)
                     if (!isLive) {
                         WatchHistoryManager.saveProgress(
-                            context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
+                            context, slug, currentTitle, currentEpisodeName, currentStreamUrl, currentPosterUrl, pos, dur, forceSave = true
                         )
                     }
                     exoPlayer.stop()
@@ -498,6 +538,90 @@ fun PlayerScreen(
         } catch (_: Exception) {}
     }
 
+    fun playVodEpisodeAt(targetIndex: Int, isAutoAdvance: Boolean = false) {
+        if (isLive || targetIndex !in availableEpisodes.indices) return
+        val ep = availableEpisodes[targetIndex]
+        val player = exoPlayer ?: return
+
+        scope.launch {
+            var nextUrl = ep.linkM3u8 ?: ""
+            if (nextUrl.isBlank() && ep.slug.startsWith("cobe_ep_") && repository != null) {
+                val epId = ep.slug.split("_").getOrNull(2)?.toLongOrNull()
+                if (epId != null) {
+                    nextUrl = try { repository.resolveCoBeEpisode(epId) ?: "" } catch (_: Exception) { "" }
+                }
+            }
+            if (nextUrl.isBlank()) {
+                nextUrl = ep.linkEmbed ?: ""
+            }
+            if (nextUrl.isBlank()) return@launch
+
+            currentEpisodeName = ep.name
+            currentStreamUrl = nextUrl
+            currentPosMs = 0L
+            pendingSeekPosMs = null
+            seekDeltaText = ""
+            errorMessage = null
+
+            // Lưu nhớ ngay lập tức tập mới đang coi vào WatchHistoryManager
+            WatchHistoryManager.saveProgress(
+                context = context,
+                slug = slug,
+                movieTitle = currentTitle,
+                episodeName = ep.name,
+                streamUrl = nextUrl,
+                posterUrl = currentPosterUrl,
+                positionMs = 1000L,
+                durationMs = 0L,
+                forceSave = true
+            )
+
+            try {
+                val dsFactory = DefaultHttpDataSource.Factory()
+                    .setUserAgent("Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0")
+                    .setConnectTimeoutMs(8000)
+                    .setReadTimeoutMs(20000)
+                    .setAllowCrossProtocolRedirects(true)
+                val msFactory = DefaultMediaSourceFactory(dsFactory)
+                val mediaItemB = MediaItem.Builder().setUri(nextUrl)
+                if (nextUrl.contains(".m3u8") || nextUrl.contains("/hls/")) {
+                    mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
+                }
+                if (!subtitleUrl.isNullOrBlank()) {
+                    val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+                        .setMimeType(if (subtitleUrl.endsWith(".vtt")) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP)
+                        .setLanguage("vi")
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                    mediaItemB.setSubtitleConfigurations(listOf(subConfig))
+                }
+                val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+                errorRetryJob?.cancel()
+                player.stop()
+                player.clearMediaItems()
+                player.setMediaSource(newMediaSource)
+                player.prepare()
+                player.seekTo(0L)
+                player.play()
+            } catch (_: Exception) {}
+
+            showControls = false
+            channelOsdName = "$currentTitle • ${ep.name}"
+            channelOsdSub = if (isAutoAdvance) {
+                "⏭️ Hết tập • Tự động chuyển sang ${ep.name} (${targetIndex + 1}/${availableEpisodes.size})"
+            } else {
+                "🎬 Đang phát: ${ep.name} (${targetIndex + 1}/${availableEpisodes.size})"
+            }
+            channelOsdLogo = currentPosterUrl
+            channelOsdVisible = true
+            channelOsdJob?.cancel()
+            channelOsdJob = scope.launch {
+                delay(4000)
+                channelOsdVisible = false
+            }
+        }
+    }
+
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -506,6 +630,18 @@ fun PlayerScreen(
                     errorRetryJob?.cancel()
                     errorMessage = null
                     totalDurationMs = maxOf(1L, exoPlayer.duration)
+                } else if (playbackState == Player.STATE_ENDED && !isLive) {
+                    val activeIdx = availableEpisodes.indexOfFirst {
+                        it.name.equals(currentEpisodeName, ignoreCase = true) ||
+                            (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl)
+                    }
+                    if (activeIdx >= 0 && activeIdx + 1 < availableEpisodes.size) {
+                        playVodEpisodeAt(activeIdx + 1, isAutoAdvance = true)
+                    } else {
+                        WatchHistoryManager.saveProgress(
+                            context, slug, currentTitle, currentEpisodeName, currentStreamUrl, currentPosterUrl, 1000L, totalDurationMs, forceSave = true
+                        )
+                    }
                 }
             }
 
@@ -571,7 +707,7 @@ fun PlayerScreen(
                 val pos = exoPlayer.currentPosition
                 val dur = maxOf(1L, exoPlayer.duration)
                 WatchHistoryManager.saveProgress(
-                    context, slug, movieTitle, episodeName, streamUrl, posterUrl, pos, dur
+                    context, slug, currentTitle, currentEpisodeName, currentStreamUrl, currentPosterUrl, pos, dur, forceSave = true
                 )
             }
             exoPlayer.removeListener(listener)
@@ -1102,7 +1238,7 @@ fun PlayerScreen(
                                 .background(AccentRed, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isLive) "LIVE" else "TẬP MỚI", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1346,7 +1482,7 @@ fun PlayerScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $episodeName • Độ phân giải: $videoResolution • Chế độ: $selectedQualityMode",
+                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $currentEpisodeName ${if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0) "(${currentEpisodeIndex + 1}/${availableEpisodes.size})" else ""} • $videoResolution • $selectedQualityMode",
                                 color = Color(0xFFA0AAB8),
                                 fontSize = if (screenWidthDp < 600) 11.sp else 14.sp,
                                 maxLines = 1
@@ -1573,12 +1709,20 @@ fun PlayerScreen(
                                 onClick = { cycleAspectMode() }
                             )
                         } else {
+                            if (availableEpisodes.size > 1 && currentEpisodeIndex > 0) {
+                                QuickSeekPill(
+                                    text = "⏮ TẬP TRƯỚC",
+                                    highlight = true,
+                                    onClick = { playVodEpisodeAt(currentEpisodeIndex - 1, isAutoAdvance = false) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
                             QuickSeekPill(text = "⏪ -5p", onClick = { triggerSeek(-300) })
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(text = "⏪ -1p", onClick = { triggerSeek(-60) })
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(text = "⏪ -10s", onClick = { triggerSeek(-10) })
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             QuickSeekPill(
                                 text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
                                 highlight = true,
@@ -1587,12 +1731,20 @@ fun PlayerScreen(
                                     showControls = true
                                 }
                             )
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
                             QuickSeekPill(text = "⏩ +10s", onClick = { triggerSeek(10) })
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(text = "⏩ +1p", onClick = { triggerSeek(60) })
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(text = "⏩ +5p", onClick = { triggerSeek(300) })
+                            if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < availableEpisodes.size) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                QuickSeekPill(
+                                    text = "⏭ TẬP TIẾP (${availableEpisodes[currentEpisodeIndex + 1].name})",
+                                    highlight = true,
+                                    onClick = { playVodEpisodeAt(currentEpisodeIndex + 1, isAutoAdvance = false) }
+                                )
+                            }
                             Spacer(modifier = Modifier.width(16.dp))
                             QuickSeekPill(
                                 text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",

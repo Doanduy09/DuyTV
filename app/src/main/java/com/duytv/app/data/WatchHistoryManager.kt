@@ -35,10 +35,12 @@ object WatchHistoryManager {
         streamUrl: String,
         posterUrl: String?,
         positionMs: Long,
-        durationMs: Long
+        durationMs: Long,
+        forceSave: Boolean = false
     ) {
-        if (positionMs < 5000) return // Don't save if watched less than 5s
+        if (!forceSave && positionMs < 3000) return // Don't save if watched less than 3s unless forced
 
+        val safePos = maxOf(1000L, positionMs)
         val list = getHistory(context).toMutableList()
         list.removeAll { it.slug == slug }
         list.add(
@@ -49,15 +51,19 @@ object WatchHistoryManager {
                 episodeName = episodeName,
                 streamUrl = streamUrl,
                 posterUrl = posterUrl,
-                positionMs = positionMs,
-                durationMs = durationMs
+                positionMs = safePos,
+                durationMs = maxOf(safePos, durationMs)
             )
         )
-        // Keep max 15 recent items
-        val trimmed = if (list.size > 15) list.subList(0, 15).toList() else list.toList()
+        // Keep max 20 recent items
+        val trimmed = if (list.size > 20) list.subList(0, 20).toList() else list.toList()
         memoryCache = trimmed
         val json = gson.toJson(trimmed)
         getPrefs(context).edit().putString(KEY_HISTORY, json).apply()
+    }
+
+    fun getHistoryForMovie(context: Context, slug: String): WatchHistoryItem? {
+        return getHistory(context).firstOrNull { it.slug == slug }
     }
 
     fun getHistory(context: Context): List<WatchHistoryItem> {
