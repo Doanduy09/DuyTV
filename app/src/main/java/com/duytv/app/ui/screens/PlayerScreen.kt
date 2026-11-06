@@ -99,6 +99,7 @@ fun PlayerScreen(
     posterUrl: String? = null,
     subtitleUrl: String? = null,
     initialPositionMs: Long = 0L,
+    backupUrls: List<String> = emptyList(),
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -141,6 +142,23 @@ fun PlayerScreen(
     var currentChannelIndex by remember { mutableIntStateOf(initialChIndex) }
     var currentBackupIndex by remember { mutableIntStateOf(0) }
     var errorRetryJob by remember { mutableStateOf<Job?>(null) }
+
+    fun getActiveLiveUrls(): List<String> {
+        if (!isLive) return listOf(currentStreamUrl)
+        val ch = availableChannels.getOrNull(currentChannelIndex)
+        return if (ch != null) {
+            (ch.allStreamUrls() + backupUrls).filter { it.isNotBlank() }.distinct()
+        } else {
+            (listOf(streamUrl) + backupUrls).filter { it.isNotBlank() }.distinct()
+        }
+    }
+
+    LaunchedEffect(showControls, isPlaying, showQualityMenu) {
+        if (showControls && isPlaying && !showQualityMenu) {
+            delay(5000)
+            showControls = false
+        }
+    }
 
     LaunchedEffect(currentChannelIndex, availableChannels) {
         if (isLive && availableChannels.isNotEmpty() && currentChannelIndex in availableChannels.indices) {
@@ -534,16 +552,16 @@ fun PlayerScreen(
                 val currentChannel = if (isLive && currentChannelIndex in availableChannels.indices) {
                     availableChannels[currentChannelIndex]
                 } else null
-                val allUrls = currentChannel?.allStreamUrls() ?: emptyList()
+                val allUrls = getActiveLiveUrls()
 
-                if (currentChannel != null && currentBackupIndex + 1 < allUrls.size) {
+                if (isLive && currentBackupIndex + 1 < allUrls.size) {
                     val nextBackupIdx = currentBackupIndex + 1
                     currentBackupIndex = nextBackupIdx
                     errorMessage = null
                     loadLiveStreamUrl(allUrls[nextBackupIdx])
-                    channelOsdName = currentChannel.name
+                    channelOsdName = currentChannel?.name ?: currentTitle
                     channelOsdSub = "⚡ Đường truyền lỗi • Tự chuyển Dự phòng ${nextBackupIdx + 1}/${allUrls.size}"
-                    channelOsdLogo = currentChannel.logoUrl
+                    channelOsdLogo = currentChannel?.logoUrl ?: currentPosterUrl
                     channelOsdVisible = true
                     channelOsdJob?.cancel()
                     channelOsdJob = scope.launch {
@@ -555,7 +573,7 @@ fun PlayerScreen(
                     errorRetryJob?.cancel()
                     errorRetryJob = scope.launch {
                         delay(2500)
-                        if (currentChannel != null && allUrls.isNotEmpty()) {
+                        if (isLive && allUrls.isNotEmpty()) {
                             currentBackupIndex = 0
                             loadLiveStreamUrl(allUrls.first())
                         } else {
@@ -726,15 +744,28 @@ fun PlayerScreen(
     }
 
     fun switchBackupSource() {
-        if (!isLive || currentChannelIndex !in availableChannels.indices) return
-        val ch = availableChannels[currentChannelIndex]
-        val allUrls = ch.allStreamUrls()
+        if (!isLive) return
+        val allUrls = getActiveLiveUrls()
         if (allUrls.size <= 1) return
         val nextIdx = (currentBackupIndex + 1) % allUrls.size
         currentBackupIndex = nextIdx
         errorMessage = null
         loadLiveStreamUrl(allUrls[nextIdx])
-        showChannelOsd(ch, currentChannelIndex, availableChannels.size, sourceIdx = nextIdx)
+        val ch = availableChannels.getOrNull(currentChannelIndex)
+        if (ch != null) {
+            showChannelOsd(ch, currentChannelIndex, availableChannels.size, sourceIdx = nextIdx)
+        } else {
+            showControls = false
+            channelOsdName = currentTitle
+            channelOsdSub = "⚡ Đã chuyển sang Đường truyền ${nextIdx + 1}/${allUrls.size}"
+            channelOsdLogo = currentPosterUrl
+            channelOsdVisible = true
+            channelOsdJob?.cancel()
+            channelOsdJob = scope.launch {
+                delay(3500)
+                channelOsdVisible = false
+            }
+        }
     }
 
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
@@ -1263,9 +1294,7 @@ fun PlayerScreen(
         val screenWidthDp = LocalConfiguration.current.screenWidthDp
         val hudHorizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
         val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
-        val activeChannelTotalSources = if (isLive && currentChannelIndex in availableChannels.indices) {
-            availableChannels[currentChannelIndex].allStreamUrls().size
-        } else 1
+        val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
 
         AnimatedVisibility(
             visible = showControls && !showQualityMenu,
@@ -1679,20 +1708,24 @@ fun PlayerScreen(
 
                     // D-Pad Remote Legend
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         GuideItem(key = "OK / PLAY", desc = "Tạm dừng / Phát")
-                        Spacer(modifier = Modifier.width(14.dp))
-                        GuideItem(key = "◄ / ►", desc = "Tua tăng tốc (10s - 1p - 5p)")
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        if (isLive) {
+                            GuideItem(key = "▲ / ▼", desc = "Chuyển kênh siêu tốc")
+                        } else {
+                            GuideItem(key = "◄ / ►", desc = "Tua tăng tốc (10s - 1p - 5p)")
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
                         GuideItem(key = "🌟 TỶ LỆ", desc = "Tràn viền (100%)")
-                        Spacer(modifier = Modifier.width(14.dp))
-                        GuideItem(key = "⚡ 1.0x - 2.0x", desc = "Tốc độ")
-                        Spacer(modifier = Modifier.width(14.dp))
-                        GuideItem(key = "MENU", desc = "Băng thông (4K/2K)")
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GuideItem(key = "MENU", desc = "Băng thông (4K/12K)")
+                        Spacer(modifier = Modifier.width(12.dp))
                         GuideItem(key = "BACK", desc = "Thoát")
                     }
                 }

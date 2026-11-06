@@ -89,7 +89,7 @@ fun HomeScreen(
     onMovieSelected: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onResumePlayback: (WatchHistoryItem) -> Unit,
-    onPlayLiveStream: (title: String, streamUrl: String, posterUrl: String?) -> Unit = { _, _, _ -> },
+    onPlayLiveStream: (title: String, streamUrl: String, posterUrl: String?, backupUrls: List<String>) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -687,7 +687,7 @@ fun HomeScreen(
                                                 TvChannelCard(
                                                     channel = channel,
                                                     onClick = {
-                                                        onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
+                                                        onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl, channel.backupUrls)
                                                     }
                                                 )
                                             }
@@ -713,7 +713,8 @@ fun HomeScreen(
                                                         onPlayLiveStream(
                                                             "${match.homeTeam} vs ${match.awayTeam}",
                                                             streamItem.streamUrl,
-                                                            match.logo
+                                                            match.logo,
+                                                            emptyList()
                                                         )
                                                     }
                                                 }
@@ -981,7 +982,7 @@ fun HomeScreen(
                                                 if (match.streams.size > 1) {
                                                     selectedMatchForStreams = match
                                                 } else {
-                                                    onPlayLiveStream("${match.homeTeam} vs ${match.awayTeam}", streamItem.streamUrl, match.logo)
+                                                    onPlayLiveStream("${match.homeTeam} vs ${match.awayTeam}", streamItem.streamUrl, match.logo, emptyList())
                                                 }
                                             }
                                         )
@@ -1033,7 +1034,7 @@ fun HomeScreen(
                                                     TvChannelCard(
                                                         channel = channel,
                                                         onClick = {
-                                                            onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl)
+                                                            onPlayLiveStream(channel.name, channel.streamUrl, channel.logoUrl, channel.backupUrls)
                                                         }
                                                     )
                                                 }
@@ -1239,10 +1240,12 @@ fun HomeScreen(
                                             .focusable(interactionSource = sInter)
                                             .clickable(interactionSource = sInter, indication = null) {
                                                 selectedMatchForStreams = null
+                                                val otherStreams = match.streams.map { it.streamUrl }.filter { it != stream.streamUrl }.distinct()
                                                 onPlayLiveStream(
                                                     "${match.homeTeam} vs ${match.awayTeam} (${stream.commentator})",
                                                     stream.streamUrl,
-                                                    match.logo
+                                                    match.logo,
+                                                    otherStreams
                                                 )
                                             }
                                             .padding(horizontal = 16.dp, vertical = 12.dp),

@@ -25,7 +25,8 @@ sealed class AppScreen {
         val streamUrl: String,
         val posterUrl: String? = null,
         val subtitleUrl: String? = null,
-        val initialPositionMs: Long = 0L
+        val initialPositionMs: Long = 0L,
+        val backupUrls: List<String> = emptyList()
     ) : AppScreen()
 }
 
@@ -57,6 +58,14 @@ class MainActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
+            val appContext = applicationContext
+            LaunchedEffect(Unit) {
+                val imageLoader = coil.ImageLoader.Builder(appContext)
+                    .allowHardware(false)
+                    .crossfade(false)
+                    .build()
+                coil.Coil.setImageLoader(imageLoader)
+            }
             DuyTvTheme {
                 var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
 
@@ -96,7 +105,7 @@ class MainActivity : ComponentActivity() {
                                     initialPositionMs = historyItem.positionMs
                                 )
                             },
-                            onPlayLiveStream = { title, streamUrl, posterUrl ->
+                            onPlayLiveStream = { title, streamUrl, posterUrl, backups ->
                                 currentScreen = AppScreen.Player(
                                     slug = "live_${System.currentTimeMillis()}",
                                     movieTitle = title,
@@ -104,7 +113,8 @@ class MainActivity : ComponentActivity() {
                                     streamUrl = streamUrl,
                                     posterUrl = posterUrl,
                                     subtitleUrl = null,
-                                    initialPositionMs = 0L
+                                    initialPositionMs = 0L,
+                                    backupUrls = backups
                                 )
                             },
                             modifier = Modifier.fillMaxSize()
@@ -147,6 +157,7 @@ class MainActivity : ComponentActivity() {
                             posterUrl = screen.posterUrl,
                             subtitleUrl = screen.subtitleUrl,
                             initialPositionMs = screen.initialPositionMs,
+                            backupUrls = screen.backupUrls,
                             onClose = {
                                 currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
                             },

@@ -25,6 +25,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.duytv.app.data.MovieItemDto
 import com.duytv.app.data.RemoteConfigManager
 import com.duytv.app.ui.theme.*
@@ -43,9 +45,16 @@ fun MovieCard(
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "scale"
     )
+    val context = LocalContext.current
     val posterUrl = remember(movie.posterUrl, movie.thumbUrl) {
         val path = if (!movie.posterUrl.isNullOrBlank()) movie.posterUrl else movie.thumbUrl
         RemoteConfigManager.resolveImageUrl(path)
+    }
+    val imageRequest = remember(posterUrl) {
+        ImageRequest.Builder(context)
+            .data(posterUrl)
+            .size(300, 450)
+            .build()
     }
 
     Box(
@@ -72,7 +81,7 @@ fun MovieCard(
     ) {
         // Poster Image
         AsyncImage(
-            model = posterUrl,
+            model = imageRequest,
             contentDescription = movie.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
