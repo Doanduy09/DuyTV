@@ -106,6 +106,8 @@ fun SearchScreen(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = horizontalPad, vertical = 20.dp)
     ) {
         // Top Bar: Back & Search Field

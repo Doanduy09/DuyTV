@@ -129,7 +129,10 @@ fun MovieDetailScreen(
             val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
 
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
                 // Android TV Standard 5% Safe Area Margin & Responsive Mobile/Tablet/PC Padding
                 contentPadding = PaddingValues(horizontal = horizontalPad, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)

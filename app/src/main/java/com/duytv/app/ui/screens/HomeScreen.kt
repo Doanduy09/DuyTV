@@ -344,13 +344,16 @@ fun HomeScreen(
     }
 
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
-    val verticalPad = if (screenWidthDp < 600) 14.dp else 24.dp
+    val isCompactScreen = screenWidthDp < 960
+    val horizontalPad = if (screenWidthDp < 600) 14.dp else if (screenWidthDp < 900) 20.dp else 48.dp
+    val verticalPad = if (screenWidthDp < 600) 10.dp else 20.dp
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBg)
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
         LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -535,7 +538,11 @@ fun HomeScreen(
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = if (hasNewUpdate) "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName}" else "🔄 CẬP NHẬT APP (v$currentVersionName)",
+                                    text = if (hasNewUpdate) {
+                                        if (isCompactScreen) "🚀 BẢN MỚI v${remoteUpdateInfo!!.versionName}" else "🚀 CÓ BẢN MỚI v${remoteUpdateInfo!!.versionName}"
+                                    } else {
+                                        if (isCompactScreen) "🔄 v$currentVersionName" else "🔄 CẬP NHẬT APP (v$currentVersionName)"
+                                    },
                                     color = if (hasNewUpdate && !updateFoc) Color.Black else Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
@@ -543,14 +550,15 @@ fun HomeScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Text(
-                            text = currentTime,
-                            color = TextWhite,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        if (!isCompactScreen) {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = currentTime,
+                                color = TextWhite,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
 
