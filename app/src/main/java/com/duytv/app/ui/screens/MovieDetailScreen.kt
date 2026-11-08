@@ -118,9 +118,19 @@ fun MovieDetailScreen(
                 RemoteConfigManager.resolveImageUrl(p)
             }
 
-            // Background backdrop with gradients
+            val backdropRequest = remember(backdropUrl, context) {
+                coil.request.ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .size(960, 540)
+                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                    .allowHardware(false)
+                    .crossfade(false)
+                    .build()
+            }
+
+            // Background backdrop with gradients (giới hạn 960x540 để khớp phần cứng giải mã JPEG MediaTek, 0 rớt khung hình)
             AsyncImage(
-                model = backdropUrl,
+                model = backdropRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

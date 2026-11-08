@@ -43,6 +43,16 @@ fun TvBanner(
         val path = if (!featuredMovie.thumbUrl.isNullOrBlank()) featuredMovie.thumbUrl else featuredMovie.posterUrl
         RemoteConfigManager.resolveImageUrl(path)
     }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bannerRequest = remember(backdropUrl, context) {
+        coil.request.ImageRequest.Builder(context)
+            .data(backdropUrl)
+            .size(960, 540)
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+            .allowHardware(false)
+            .crossfade(false)
+            .build()
+    }
 
     Box(
         modifier = modifier
@@ -51,9 +61,9 @@ fun TvBanner(
             .clip(RoundedCornerShape(12.dp))
             .background(CardBg)
     ) {
-        // Backdrop Image
+        // Backdrop Image (ép chuẩn kích thước phần cứng MediaTek mt5891)
         AsyncImage(
-            model = backdropUrl,
+            model = bannerRequest,
             contentDescription = featuredMovie.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()

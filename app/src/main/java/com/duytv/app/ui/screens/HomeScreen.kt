@@ -694,8 +694,17 @@ fun HomeScreen(
                                                     onResumePlayback(item)
                                                 }
                                         ) {
+                                            val historyImgRequest = remember(item.posterUrl, context) {
+                                                coil.request.ImageRequest.Builder(context)
+                                                    .data(item.posterUrl)
+                                                    .size(300, 450)
+                                                    .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                                                    .allowHardware(false)
+                                                    .crossfade(false)
+                                                    .build()
+                                            }
                                             AsyncImage(
-                                                model = item.posterUrl,
+                                                model = historyImgRequest,
                                                 contentDescription = item.movieTitle,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
