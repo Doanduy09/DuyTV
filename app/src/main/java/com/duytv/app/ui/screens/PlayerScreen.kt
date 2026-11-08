@@ -451,8 +451,13 @@ fun PlayerScreen(
 
             // Inject Vietnamese Subtitles if available
             if (!subtitleUrl.isNullOrBlank()) {
+                val subMime = when {
+                    subtitleUrl.startsWith("data:application/x-subrip") -> MimeTypes.APPLICATION_SUBRIP
+                    subtitleUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                    else -> MimeTypes.APPLICATION_SUBRIP
+                }
                 val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                    .setMimeType(if (subtitleUrl.endsWith(".vtt")) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP)
+                    .setMimeType(subMime)
                     .setLanguage("vi")
                     .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                     .build()
@@ -460,7 +465,8 @@ fun PlayerScreen(
             }
 
             val mediaItem = mediaItemBuilder.build()
-            val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+            val combinedDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, dataSourceFactory)
+            val mediaSourceFactory = DefaultMediaSourceFactory(combinedDataSourceFactory)
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
             ExoPlayer.Builder(context, renderersFactory)

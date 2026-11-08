@@ -28,6 +28,20 @@ class MainActivity : ComponentActivity() {
         )
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        try {
+            val imageLoader = coil.ImageLoader.Builder(applicationContext)
+                .allowHardware(false)
+                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                .crossfade(false)
+                .memoryCache {
+                    coil.memory.MemoryCache.Builder(applicationContext)
+                        .maxSizeBytes(8 * 1024 * 1024)
+                        .build()
+                }
+                .build()
+            coil.Coil.setImageLoader(imageLoader)
+        } catch (_: Exception) {}
+
         setContent {
             Surface(
                 modifier = Modifier.fillMaxSize(),

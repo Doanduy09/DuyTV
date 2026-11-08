@@ -104,20 +104,40 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = android.graphics.Color.BLACK
         window.statusBarColor = android.graphics.Color.BLACK
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Khởi tạo đồng bộ Coil với RGB_565 và tắt Hardware Bitmap để ngăn tràn bộ nhớ đồ họa
+        // GraphicBuffer (EGL_BAD_ALLOC 12291) trên GPU MediaTek mt5891 khi mở song song ExoPlayer
+        try {
+            val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(applicationContext)
+            val imageLoader = coil.ImageLoader.Builder(applicationContext)
+                .allowHardware(hwProfile.allowHardwareBitmaps)
+                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                .crossfade(false)
+                .memoryCache {
+                    coil.memory.MemoryCache.Builder(applicationContext)
+                        .maxSizeBytes(12 * 1024 * 1024)
+                        .build()
+                }
+                .build()
+            coil.Coil.setImageLoader(imageLoader)
+        } catch (_: Exception) {}
+
         handleLauncherIntent(intent)
 
         setContent {
             val appContext = applicationContext
-            LaunchedEffect(Unit) {
-                val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(appContext)
-                val imageLoader = coil.ImageLoader.Builder(appContext)
-                    .allowHardware(hwProfile.allowHardwareBitmaps)
-                    .crossfade(false)
-                    .build()
-                coil.Coil.setImageLoader(imageLoader)
-            }
             DuyTvTheme {
                 var currentScreen by remember { mutableStateOf<AppScreen>(pendingScreenFromIntent ?: AppScreen.Home) }
+
+                // Giải phóng tức thì bộ nhớ đệm ảnh poster khi bước vào trình phát PlayerScreen
+                // để nhường 100% tài nguyên VRAM / GraphicBuffer cho bộ giải mã phần cứng MediaCodec
+                LaunchedEffect(currentScreen is AppScreen.Player) {
+                    if (currentScreen is AppScreen.Player) {
+                        try {
+                            coil.Coil.imageLoader(appContext).memoryCache?.clear()
+                        } catch (_: Exception) {}
+                    }
+                }
 
                 LaunchedEffect(pendingScreenFromIntent) {
                     pendingScreenFromIntent?.let { target ->

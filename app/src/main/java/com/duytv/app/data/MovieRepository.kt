@@ -1889,6 +1889,69 @@ class MovieRepository {
         emptyList()
     }
 
+    private fun normalizeSubtitleTimestamp(rawTs: String): String {
+        val cleaned = rawTs.trim().replace('.', ',')
+        val parts = cleaned.split(',')
+        val hms = parts[0].split(':')
+        val ms = (parts.getOrNull(1) ?: "000").padEnd(3, '0').take(3)
+        return when (hms.size) {
+            3 -> "%02d:%02d:%02d,%s".format(
+                hms[0].toIntOrNull() ?: 0,
+                hms[1].toIntOrNull() ?: 0,
+                hms[2].toIntOrNull() ?: 0,
+                ms
+            )
+            2 -> "00:%02d:%02d,%s".format(
+                hms[0].toIntOrNull() ?: 0,
+                hms[1].toIntOrNull() ?: 0,
+                ms
+            )
+            else -> "00:00:00,000"
+        }
+    }
+
+    private fun sanitizeToCanonicalSrtDataUri(rawSub: String): String? {
+        val timingRegex = Regex("""(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3})""")
+        val lines = rawSub.removePrefix("\uFEFF").replace("\r\n", "\n").replace('\r', '\n').split('\n')
+        val out = StringBuilder()
+        var cueIndex = 1
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i].trim()
+            val match = timingRegex.find(line)
+            if (match != null) {
+                val startNorm = normalizeSubtitleTimestamp(match.groupValues[1])
+                val endNorm = normalizeSubtitleTimestamp(match.groupValues[2])
+                i++
+                val textLines = mutableListOf<String>()
+                while (i < lines.size) {
+                    val tLine = lines[i].trim()
+                    if (tLine.isEmpty()) break
+                    if (timingRegex.containsMatchIn(tLine)) break
+                    if (tLine.all { it.isDigit() } && i + 1 < lines.size && timingRegex.containsMatchIn(lines[i + 1].trim())) {
+                        break
+                    }
+                    textLines.add(tLine)
+                    i++
+                }
+                if (textLines.isNotEmpty()) {
+                    out.append(cueIndex++).append('\n')
+                    out.append(startNorm).append(" --> ").append(endNorm).append('\n')
+                    textLines.forEach { out.append(it).append('\n') }
+                    out.append('\n')
+                }
+            } else {
+                i++
+            }
+        }
+        if (cueIndex == 1) return null
+        val encoded = android.util.Base64.encodeToString(
+            out.toString().toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        )
+        return "data:application/x-subrip;base64,$encoded"
+    }
+
     suspend fun getVietnameseSubtitle(imdbId: String): String? = withContext(Dispatchers.IO) {
         if (imdbId.isBlank()) return@withContext null
         try {
@@ -1908,7 +1971,21 @@ class MovieRepository {
                         val lang = if (obj.has("lang")) obj.get("lang").asString else ""
                         if (lang.equals("vie", ignoreCase = true) || lang.equals("vi", ignoreCase = true)) {
                             if (obj.has("url")) {
-                                return@withContext obj.get("url").asString
+                                val subUrl = obj.get("url").asString
+                                try {
+                                    val subReq = Request.Builder()
+                                        .url(subUrl)
+                                        .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                                        .build()
+                                    val subRes = client.newCall(subReq).execute()
+                                    if (subRes.isSuccessful) {
+                                        val rawSub = subRes.body?.string()
+                                        if (!rawSub.isNullOrBlank()) {
+                                            sanitizeToCanonicalSrtDataUri(rawSub)?.let { return@withContext it }
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+                                return@withContext subUrl
                             }
                         }
                     }

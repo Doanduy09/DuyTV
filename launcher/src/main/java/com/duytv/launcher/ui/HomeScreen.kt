@@ -792,8 +792,9 @@ fun HomeScreen() {
     val wallpaperRequest = remember(currentWallpaperIndex, context) {
         ImageRequest.Builder(context)
             .data(wallpapers[currentWallpaperIndex])
-            .size(Size(1920, 1080))
+            .size(Size(960, 540))
             .bitmapConfig(Bitmap.Config.RGB_565)
+            .allowHardware(false)
             .crossfade(false)
             .build()
     }

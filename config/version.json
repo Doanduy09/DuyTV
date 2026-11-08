@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "1.8.0",
+  "versionCode": 24,
+  "versionName": "1.8.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• ⚽ Tích hợp 6 nguồn Bóng Đá Trực Tiếp Đa Luồng (Kho Gà Live API + Xôi Chè TV + Thập Cẩm TV Tencent/Alibaba CDN + CoBan66 + CooCaa + All-In-One IPTV)\n• 🛡️ Tự động đổi sang Server dự phòng (HLS .m3u8 & FLV) khi link chết hoặc đứng hình > 6.5 giây\n• 🧹 Tự động xóa bỏ trận đá banh đã hết giờ live (> 115 phút) và đẩy trận đang LIVE lên đầu\n• 🔥 Tự động cập nhật Phim Mới mỗi khi mở lại App + Nút '🔄 CẬP NHẬT PHIM' thủ công ngay trên thanh đầu trang\n• 🎬 Đưa hàng '🔥 PHIM MỚI CẬP NHẬT HÔM NAY' (gộp KKPhim v3 + NguonC + CoBePhim) lên vị trí đầu tiên"
+  "releaseNotes": "• 🛡️ Vá triệt để lỗi tràn bộ nhớ đồ họa EGL_BAD_ALLOC (12291) trên GPU MediaTek mt5891 bằng cơ chế RGB_565 + tự động giải phóng VRAM trước khi phát video\n• 🇻🇳 Chuẩn hóa phụ đề tiếng Việt (SRT/WebVTT) sang chuẩn SubRip thực thụ, loại bỏ 100% lỗi Skipping invalid timing / invalid index\n• ⚡ Tăng tốc Launcher: loại bỏ nạp lặp 24MB Icon vào Large Object Space và ép chuẩn phần cứng JPEG Decoder (0 frame drop)\n• ⚽ 6 nguồn Bóng Đá Trực Tiếp Đa Luồng + Tự động đổi Server dự phòng + Tự động cập nhật Phim Mới"
 }

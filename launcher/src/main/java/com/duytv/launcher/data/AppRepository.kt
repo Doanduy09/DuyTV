@@ -18,6 +18,7 @@ object AppRepository {
     private const val KEY_UNHIDDEN_SYSTEM_PACKAGES = "unhidden_system_packages"
 
     private val iconBitmapCache = ConcurrentHashMap<String, ImageBitmap>()
+    private val labelCache = ConcurrentHashMap<String, String>()
 
     // Các gói hệ thống nội bộ của Tivi Sharp / MediaTek gây rối mắt sẽ tự động ẩn mặc định
     // (Anh Duy vẫn có thể bật hiện lại bất kỳ lúc nào trong bảng Quản Lý Ẩn/Hiện App)
@@ -123,9 +124,9 @@ object AppRepository {
             .apply()
     }
 
-    private fun getOrDecodeIconBitmap(pkg: String, drawable: Drawable?): ImageBitmap? {
-        if (drawable == null) return null
+    private fun getOrDecodeIconBitmap(pkg: String, drawableProvider: () -> Drawable?): ImageBitmap? {
         iconBitmapCache[pkg]?.let { return it }
+        val drawable = try { drawableProvider() } catch (_: Throwable) { null } ?: return null
         return try {
             val targetSize = 96
             val bmp = if (drawable is BitmapDrawable && drawable.bitmap != null) {
@@ -163,18 +164,20 @@ object AppRepository {
             try {
                 val appInfo = pm.getApplicationInfo(pkg, 0)
                 val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                val icon: Drawable? = try {
-                    appInfo.loadIcon(pm) ?: appInfo.loadBanner(pm)
-                } catch (_: Throwable) {
-                    try { pm.getApplicationIcon(pkg) } catch (_: Throwable) { null }
+                val cachedBmp = getOrDecodeIconBitmap(pkg) {
+                    try {
+                        appInfo.loadIcon(pm) ?: appInfo.loadBanner(pm)
+                    } catch (_: Throwable) {
+                        try { pm.getApplicationIcon(pkg) } catch (_: Throwable) { null }
+                    }
                 }
                 result.add(
                     AppItem(
                         id = pkg,
                         packageName = pkg,
                         label = cfg.label,
-                        icon = icon,
-                        iconBitmap = getOrDecodeIconBitmap(pkg, icon),
+                        icon = null,
+                        iconBitmap = cachedBmp,
                         customBadge = cfg.badge,
                         cardColor = cfg.cardColor,
                         isCustomBranded = true,
@@ -206,20 +209,18 @@ object AppRepository {
             for (info in leanbackResolveInfos) {
                 val pkg = info.activityInfo.packageName
                 if (pkg != context.packageName && !seen.contains(pkg) && !pkg.contains("launcher") && !pkg.contains("setup")) {
-                    val label = info.loadLabel(pm).toString()
+                    val label = labelCache.getOrPut(pkg) { info.loadLabel(pm).toString() }
                     val isSystem = (info.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    val icon = try {
+                    val cachedBmp = getOrDecodeIconBitmap(pkg) {
                         info.activityInfo.loadIcon(pm) ?: info.activityInfo.loadBanner(pm)
-                    } catch (_: Throwable) {
-                        null
                     }
                     result.add(
                         AppItem(
                             id = pkg,
                             packageName = pkg,
                             label = label,
-                            icon = icon,
-                            iconBitmap = getOrDecodeIconBitmap(pkg, icon),
+                            icon = null,
+                            iconBitmap = cachedBmp,
                             cardColor = 0xFF1E293B,
                             isSystemApp = isSystem
                         )
@@ -236,20 +237,18 @@ object AppRepository {
             for (info in mainResolveInfos) {
                 val pkg = info.activityInfo.packageName
                 if (pkg != context.packageName && !seen.contains(pkg) && !pkg.contains("launcher") && !pkg.startsWith("com.android.cts") && !pkg.contains("setup")) {
-                    val label = info.loadLabel(pm).toString()
+                    val label = labelCache.getOrPut(pkg) { info.loadLabel(pm).toString() }
                     val isSystem = (info.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    val icon = try {
+                    val cachedBmp = getOrDecodeIconBitmap(pkg) {
                         info.loadIcon(pm)
-                    } catch (_: Throwable) {
-                        null
                     }
                     result.add(
                         AppItem(
                             id = pkg,
                             packageName = pkg,
                             label = label,
-                            icon = icon,
-                            iconBitmap = getOrDecodeIconBitmap(pkg, icon),
+                            icon = null,
+                            iconBitmap = cachedBmp,
                             cardColor = 0xFF1E293B,
                             isSystemApp = isSystem
                         )
