@@ -1,7 +1,7 @@
 {
   "app_name": "DuyTV Full Edition",
   "version": "1.6.0",
-  "last_updated": "2026-11-06",
+  "last_updated": "2026-11-08",
   "huong_dan_nhanh": "Khi một nguồn bị đổi domain hoặc sập, anh chỉ cần sửa lại link ở dòng 'api_base' tương ứng, sau đó bấm 'Commit changes' trên GitHub là app sẽ tự động build lại ngay lập tức!",
   "sources": {
     "kkphim": {
