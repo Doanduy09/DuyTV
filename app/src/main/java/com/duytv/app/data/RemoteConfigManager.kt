@@ -29,10 +29,18 @@ object RemoteConfigManager {
     const val COBAN66_SPORTS_M3U = "https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0"
     const val COOCAA_SPORTS_M3U = "https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u"
     const val DEFAULT_TV_M3U = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
+    const val A3_IPTV_M3U = "http://a3iptv.goitoi.co/playlist.m3u?r2h-token=9Pzpebvhp40NGRbSMuid"
     private const val KEY_CUSTOM_SPORTS_LIST = "custom_sports_sources_v1"
 
     @Volatile
     private var customSportsSources: List<String> = emptyList()
+
+    @Volatile
+    private var remoteIptvUrl: String? = null
+
+    fun getA3IptvUrl(): String {
+        return remoteIptvUrl?.takeIf { it.isNotBlank() } ?: A3_IPTV_M3U
+    }
 
     suspend fun fetchRemoteConfig(): RemoteConfig = withContext(Dispatchers.IO) {
         // 1. Thử nạp cấu hình JSON đầy đủ
@@ -100,6 +108,9 @@ object RemoteConfigManager {
                                     cobephim = currentConfig.sources.cobephim.copy(apiBase = clean)
                                 )
                             )
+                        }
+                        lower.contains("a3iptv") || (lower.contains(".m3u") && !lower.contains("coban") && !lower.contains("coocaa")) -> {
+                            remoteIptvUrl = clean
                         }
                     }
                 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,8 @@ fun TvChannelCard(
 ) {
     val inter = remember { MutableInteractionSource() }
     val isFoc by inter.collectIsFocusedAsState()
+    val isPress by inter.collectIsPressedAsState()
+    val isHighlighted = isFoc || isPress
     val totalSources = remember(channel) { channel.allStreamUrls().size }
     var logoFailed by remember(channel.logoUrl) { mutableStateOf(false) }
     val callSign = remember(channel.name) {
@@ -45,7 +48,7 @@ fun TvChannelCard(
             .take(12)
     }
 
-    val bgBrush = if (isFoc) {
+    val bgBrush = if (isHighlighted) {
         Brush.verticalGradient(
             colors = listOf(Color(0xFF566074), Color(0xFF2B313E))
         )
@@ -60,18 +63,17 @@ fun TvChannelCard(
             .width(176.dp)
             .height(106.dp)
             .graphicsLayer {
-                val sc = if (isFoc) 1.07f else 1.0f
+                val sc = if (isHighlighted) 1.07f else 1.0f
                 scaleX = sc
                 scaleY = sc
             }
             .clip(RoundedCornerShape(16.dp))
             .background(brush = bgBrush)
             .border(
-                width = if (isFoc) 2.5.dp else 1.dp,
-                color = if (isFoc) Color.White else Color(0x22FFFFFF),
+                width = if (isHighlighted) 2.5.dp else 1.dp,
+                color = if (isHighlighted) Color.White else Color(0x22FFFFFF),
                 shape = RoundedCornerShape(16.dp)
             )
-            .focusable(interactionSource = inter)
             .clickable(interactionSource = inter, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,9 +44,11 @@ fun FootballMatchCard(
 
     val inter = remember { MutableInteractionSource() }
     val isFoc by inter.collectIsFocusedAsState()
+    val isPress by inter.collectIsPressedAsState()
+    val isHighlighted = isFoc || isPress
 
     val borderColor = when {
-        isFoc -> AccentRed
+        isHighlighted -> AccentRed
         state.status == MatchStatus.LIVE -> Color(0xFFFF1744)
         state.status == MatchStatus.UPCOMING -> Color(0xFFFFB300)
         else -> Color(0x22FFFFFF)
@@ -62,15 +65,14 @@ fun FootballMatchCard(
             .width(320.dp)
             .height(180.dp)
             .graphicsLayer {
-                val sc = if (isFoc) 1.05f else 1.0f
+                val sc = if (isHighlighted) 1.05f else 1.0f
                 scaleX = sc
                 scaleY = sc
                 alpha = if (state.status == MatchStatus.FINISHED) 0.55f else 1.0f
             }
             .clip(RoundedCornerShape(12.dp))
             .background(cardBg)
-            .border(if (isFoc) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
-            .focusable(interactionSource = inter)
+            .border(if (isHighlighted) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = inter, indication = null) {
                 if (match.streams.isNotEmpty()) {
                     onSelectStream(match.streams.first())

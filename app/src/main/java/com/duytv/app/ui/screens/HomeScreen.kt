@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -407,18 +408,19 @@ fun HomeScreen(
                             // Search Button
                             val searchInter = remember { MutableInteractionSource() }
                             val searchFoc by searchInter.collectIsFocusedAsState()
+                            val searchPress by searchInter.collectIsPressedAsState()
+                            val searchActive = searchFoc || searchPress
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (searchFoc) AccentRed else CardBg)
+                                    .background(if (searchActive) AccentRed else CardBg)
                                     .border(
-                                        width = if (searchFoc) 1.5.dp else 0.dp,
+                                        width = if (searchActive) 1.5.dp else 0.dp,
                                         color = Color.White,
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = searchInter)
                                     .clickable(interactionSource = searchInter, indication = null, onClick = onOpenSearch)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -442,6 +444,8 @@ fun HomeScreen(
                             // Manual Refresh New Movies & Football Button (Cập nhật phim mới thủ công)
                             val refreshMoviesInter = remember { MutableInteractionSource() }
                             val refreshMoviesFoc by refreshMoviesInter.collectIsFocusedAsState()
+                            val refreshMoviesPress by refreshMoviesInter.collectIsPressedAsState()
+                            val refreshMoviesActive = refreshMoviesFoc || refreshMoviesPress
                             val isRefreshingNow = isLoading || isSilentSyncing
 
                             Row(
@@ -450,17 +454,16 @@ fun HomeScreen(
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(
                                         when {
-                                            refreshMoviesFoc -> AccentRed
+                                            refreshMoviesActive -> AccentRed
                                             isRefreshingNow -> Color(0xFF065F46)
                                             else -> Color(0xFF1E293B)
                                         }
                                     )
                                     .border(
-                                        width = if (refreshMoviesFoc) 1.5.dp else 1.dp,
-                                        color = if (refreshMoviesFoc) Color.White else Color(0xFF00E676),
+                                        width = if (refreshMoviesActive) 1.5.dp else 1.dp,
+                                        color = if (refreshMoviesActive) Color.White else Color(0xFF00E676),
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = refreshMoviesInter)
                                     .clickable(interactionSource = refreshMoviesInter, indication = null) {
                                         lastAutoSyncMillis = System.currentTimeMillis()
                                         reloadAllMovies(silent = true, forceRefreshSports = true, showSuccessToast = true)
@@ -469,7 +472,7 @@ fun HomeScreen(
                             ) {
                                 Text(
                                     text = if (isRefreshingNow) "⏳ ĐANG CẬP NHẬT..." else "🔄 CẬP NHẬT PHIM",
-                                    color = if (refreshMoviesFoc) Color.White else Color(0xFF00E676),
+                                    color = if (refreshMoviesActive) Color.White else Color(0xFF00E676),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
@@ -480,18 +483,19 @@ fun HomeScreen(
                             // Source Settings Button
                             val sourceInter = remember { MutableInteractionSource() }
                             val sourceFoc by sourceInter.collectIsFocusedAsState()
+                            val sourcePress by sourceInter.collectIsPressedAsState()
+                            val sourceActive = sourceFoc || sourcePress
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (sourceFoc) AccentRed else CardBg)
+                                    .background(if (sourceActive) AccentRed else CardBg)
                                     .border(
-                                        width = if (sourceFoc) 1.5.dp else 0.dp,
+                                        width = if (sourceActive) 1.5.dp else 0.dp,
                                         color = Color.White,
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = sourceInter)
                                     .clickable(interactionSource = sourceInter, indication = null) {
                                         showSourceSettingsDialog = true
                                     }
@@ -517,18 +521,19 @@ fun HomeScreen(
                             // Sports Source Settings Button
                             val sportsSourceInter = remember { MutableInteractionSource() }
                             val sportsSourceFoc by sportsSourceInter.collectIsFocusedAsState()
+                            val sportsSourcePress by sportsSourceInter.collectIsPressedAsState()
+                            val sportsSourceActive = sportsSourceFoc || sportsSourcePress
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (sportsSourceFoc) AccentRed else CardBg)
+                                    .background(if (sportsSourceActive) AccentRed else CardBg)
                                     .border(
-                                        width = if (sportsSourceFoc) 1.5.dp else 0.dp,
+                                        width = if (sportsSourceActive) 1.5.dp else 0.dp,
                                         color = Color.White,
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = sportsSourceInter)
                                     .clickable(interactionSource = sportsSourceInter, indication = null) {
                                         showSportsSourceDialog = true
                                     }
@@ -554,6 +559,8 @@ fun HomeScreen(
                             // 🚀 In-App OTA Self-Update Button (Cập nhật trực tiếp ngay trên App)
                             val updateInter = remember { MutableInteractionSource() }
                             val updateFoc by updateInter.collectIsFocusedAsState()
+                            val updatePress by updateInter.collectIsPressedAsState()
+                            val updateActive = updateFoc || updatePress
                             val hasNewUpdate = remoteUpdateInfo != null && remoteUpdateInfo!!.versionCode > currentVersionCode
 
                             Row(
@@ -562,17 +569,16 @@ fun HomeScreen(
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(
                                         when {
-                                            updateFoc -> AccentRed
+                                            updateActive -> AccentRed
                                             hasNewUpdate -> Color(0xFF00C853)
                                             else -> Color(0xFF1E293B)
                                         }
                                     )
                                     .border(
                                         width = 1.dp,
-                                        color = if (updateFoc) Color.White else if (hasNewUpdate) Color(0xFF00E676) else Color(0xFF38BDF8),
+                                        color = if (updateActive) Color.White else if (hasNewUpdate) Color(0xFF00E676) else Color(0xFF38BDF8),
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = updateInter)
                                     .clickable(interactionSource = updateInter, indication = null) {
                                         showAppUpdateDialog = true
                                     }
@@ -584,7 +590,7 @@ fun HomeScreen(
                                     } else {
                                         "🔄 v$currentVersionName"
                                     },
-                                    color = if (hasNewUpdate && !updateFoc) Color.Black else Color.White,
+                                    color = if (hasNewUpdate && !updateActive) Color.Black else Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black
                                 )
@@ -614,21 +620,22 @@ fun HomeScreen(
                             val isSelected = (selectedCategory.id == cat.id)
                             val catInter = remember { MutableInteractionSource() }
                             val isCatFoc by catInter.collectIsFocusedAsState()
+                            val isCatPress by catInter.collectIsPressedAsState()
+                            val isCatActive = isCatFoc || isCatPress
 
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
                                     .background(
-                                        if (isCatFoc) AccentRed
+                                        if (isCatActive) AccentRed
                                         else if (isSelected) Color(0xFF252B3B)
                                         else CardBg
                                     )
                                     .border(
-                                        width = if (isCatFoc) 2.dp else if (isSelected) 1.dp else 0.dp,
-                                        color = if (isCatFoc) Color.White else if (isSelected) AccentRed else Color.Transparent,
+                                        width = if (isCatActive) 2.dp else if (isSelected) 1.dp else 0.dp,
+                                        color = if (isCatActive) Color.White else if (isSelected) AccentRed else Color.Transparent,
                                         shape = RoundedCornerShape(20.dp)
                                     )
-                                    .focusable(interactionSource = catInter)
                                     .clickable(interactionSource = catInter, indication = null) {
                                         switchCategory(cat)
                                     }
@@ -636,7 +643,7 @@ fun HomeScreen(
                             ) {
                                 Text(
                                     text = cat.title,
-                                    color = if (isCatFoc || isSelected) TextWhite else TextDim,
+                                    color = if (isCatActive || isSelected) TextWhite else TextDim,
                                     fontSize = 13.sp,
                                     fontWeight = if (isSelected || isCatFoc) FontWeight.Bold else FontWeight.Medium
                                 )
@@ -1443,17 +1450,18 @@ fun HomeScreen(
                                 // Nút Phát Ngay Tự Động Chống Lag (Gộp tất cả link dự phòng)
                                 val autoInter = remember { MutableInteractionSource() }
                                 val autoFoc by autoInter.collectIsFocusedAsState()
+                                val autoPress by autoInter.collectIsPressedAsState()
+                                val autoActive = autoFoc || autoPress
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(if (autoFoc) Color(0xFF00C853) else Color(0xFF064E3B))
+                                        .background(if (autoActive) Color(0xFF00C853) else Color(0xFF064E3B))
                                         .border(
-                                            width = if (autoFoc) 2.dp else 1.dp,
-                                            color = if (autoFoc) Color.White else Color(0xFF00E676),
+                                            width = if (autoActive) 2.dp else 1.dp,
+                                            color = if (autoActive) Color.White else Color(0xFF00E676),
                                             shape = RoundedCornerShape(8.dp)
                                         )
-                                        .focusable(interactionSource = autoInter)
                                         .clickable(interactionSource = autoInter, indication = null) {
                                             selectedMatchForStreams = null
                                             val allUrls = match.streams.map { it.streamUrl }.distinct()
@@ -1472,19 +1480,19 @@ fun HomeScreen(
                                     Column {
                                         Text(
                                             text = "⚡ PHÁT NGAY TỰ ĐỘNG CHỐNG LAG (${match.streams.size} SERVER DỰ PHÒNG)",
-                                            color = if (autoFoc) Color.Black else Color.White,
+                                            color = if (autoActive) Color.Black else Color.White,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.ExtraBold
                                         )
                                         Text(
                                             text = "Tự động đổi sang link dự phòng ngay khi link chết hoặc bị đứng hình",
-                                            color = if (autoFoc) Color.Black.copy(alpha = 0.8f) else Color(0xFFA7F3D0),
+                                            color = if (autoActive) Color.Black.copy(alpha = 0.8f) else Color(0xFFA7F3D0),
                                             fontSize = 11.sp
                                         )
                                     }
                                     Text(
                                         text = "XEM NGAY ▶",
-                                        color = if (autoFoc) Color.Black else Color(0xFF00E676),
+                                        color = if (autoActive) Color.Black else Color(0xFF00E676),
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Black
                                     )
@@ -1493,18 +1501,19 @@ fun HomeScreen(
                                 match.streams.forEachIndexed { idx, stream ->
                                     val sInter = remember { MutableInteractionSource() }
                                     val sFoc by sInter.collectIsFocusedAsState()
+                                    val sPress by sInter.collectIsPressedAsState()
+                                    val sActive = sFoc || sPress
 
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(if (sFoc) AccentRed else Color(0xFF1E2533))
+                                            .background(if (sActive) AccentRed else Color(0xFF1E2533))
                                             .border(
-                                                width = if (sFoc) 1.5.dp else 1.dp,
-                                                color = if (sFoc) Color.White else Color(0x33FFFFFF),
+                                                width = if (sActive) 1.5.dp else 1.dp,
+                                                color = if (sActive) Color.White else Color(0x33FFFFFF),
                                                 shape = RoundedCornerShape(8.dp)
                                             )
-                                            .focusable(interactionSource = sInter)
                                             .clickable(interactionSource = sInter, indication = null) {
                                                 selectedMatchForStreams = null
                                                 val otherStreams = match.streams.map { it.streamUrl }.filter { it != stream.streamUrl }.distinct()
@@ -1534,14 +1543,14 @@ fun HomeScreen(
                                                 )
                                                 Text(
                                                     text = "Server ${idx + 1} • FHD HLS",
-                                                    color = if (sFoc) Color.White.copy(alpha = 0.8f) else TextDim,
+                                                    color = if (sActive) Color.White.copy(alpha = 0.8f) else TextDim,
                                                     fontSize = 11.sp
                                                 )
                                             }
                                         }
                                         Text(
                                             text = "PHÁT NGAY ▶",
-                                            color = if (sFoc) Color.White else AccentRed,
+                                            color = if (sActive) Color.White else AccentRed,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1552,12 +1561,13 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             val closeInter = remember { MutableInteractionSource() }
                             val closeFoc by closeInter.collectIsFocusedAsState()
+                            val closePress by closeInter.collectIsPressedAsState()
+                            val closeActive = closeFoc || closePress
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (closeFoc) Color.White else Color(0xFF2A3142))
-                                    .focusable(interactionSource = closeInter)
+                                    .background(if (closeActive) Color.White else Color(0xFF2A3142))
                                     .clickable(interactionSource = closeInter, indication = null) {
                                         selectedMatchForStreams = null
                                     }
@@ -1638,7 +1648,13 @@ fun AppUpdateDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xD9000000)),
+                .background(Color(0xD9000000))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    if (!isDownloading) onDismiss()
+                },
             contentAlignment = Alignment.Center
         ) {
             Card(
@@ -1646,52 +1662,61 @@ fun AppUpdateDialog(
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(2.dp, if (hasNewerVersion) Color(0xFF00E676) else AccentRed),
                 modifier = Modifier
-                    .widthIn(max = 580.dp)
+                    .widthIn(max = 600.dp)
                     .fillMaxWidth(0.92f)
-                    .wrapContentHeight()
+                    .fillMaxHeight(0.88f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { /* Chặn click xuyên nền */ }
                     .padding(16.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
+                        .fillMaxSize()
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // --- 1. TIÊU ĐỀ & PHIÊN BẢN (CỐ ĐỊNH Ở ĐẦU) ---
                     Text(
                         text = if (hasNewerVersion) "🚀 ĐÃ CÓ BẢN CẬP NHẬT MỚI: v${targetInfo.versionName}" else "🔄 CẬP NHẬT TRỰC TIẾP TRÊN APP (OTA)",
                         color = if (hasNewerVersion) Color(0xFF00E676) else Color.White,
-                        fontSize = 19.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "Phiên bản đang cài trên máy: v$currentVersionName (Build #$currentVersionCode)\nPhiên bản mới nhất trên máy chủ: v${targetInfo.versionName} (Build #${targetInfo.versionCode})",
                         color = Color(0xFFA0AAB8),
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         textAlign = TextAlign.Center
                     )
 
                     if (isChecking) {
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(color = Color(0xFF00E676), modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("Đang kiểm tra máy chủ LAN & GitHub Cloud...", color = Color(0xFF00E676), fontSize = 12.sp)
+                            CircularProgressIndicator(color = Color(0xFF00E676), modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Đang kiểm tra máy chủ LAN & GitHub Cloud...", color = Color(0xFF00E676), fontSize = 11.sp)
                         }
                     }
 
-                    if (targetInfo.releaseNotes.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF0E121A))
-                                .border(1.dp, Color(0xFF283042), RoundedCornerShape(10.dp))
-                                .padding(14.dp)
-                        ) {
-                            Column {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // --- 2. THÂN THÔNG BÁO CUỘN CẢM ỨNG MƯỢT MÀ BẰNG TAY (WEIGHT 1F) ---
+                    Box(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF0E121A))
+                            .border(1.dp, Color(0xFF283042), RoundedCornerShape(10.dp))
+                            .verticalScroll(rememberScrollState())
+                            .padding(14.dp)
+                    ) {
+                        Column {
+                            if (targetInfo.releaseNotes.isNotBlank()) {
                                 Text(
                                     text = "✨ TÍNH NĂNG MỚI TRONG BẢN CẬP NHẬT:",
                                     color = Color(0xFFFFD600),
@@ -1706,53 +1731,56 @@ fun AppUpdateDialog(
                                     lineHeight = 19.sp
                                 )
                             }
+
+                            if (isDownloading) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "⬇️ Đang tải gói cập nhật trực tiếp... $downloadProgress%",
+                                    color = Color(0xFF00E676),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(Color(0xFF252B3B))
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth((downloadProgress / 100f).coerceIn(0.03f, 1f))
+                                            .fillMaxHeight()
+                                            .background(Color(0xFF00E676))
+                                    )
+                                }
+                            }
+
+                            if (!statusMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = statusMessage!!,
+                                    color = Color(0xFFFFD600),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
 
-                    if (isDownloading) {
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Text(
-                            text = "⬇️ Đang tải gói cập nhật trực tiếp... $downloadProgress%",
-                            color = Color(0xFF00E676),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(10.dp)
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(Color(0xFF252B3B))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth((downloadProgress / 100f).coerceIn(0.03f, 1f))
-                                    .fillMaxHeight()
-                                    .background(Color(0xFF00E676))
-                            )
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    if (!statusMessage.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = statusMessage!!,
-                            color = Color(0xFFFFD600),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
+                    // --- 3. BĂNG NÚT BẤM CỐ ĐỊNH Ở ĐÁY: 100% LUÔN HIỂN THỊ & 1-CHẠM TỨC THÌ ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         val installInter = remember { MutableInteractionSource() }
                         val isInstallFoc by installInter.collectIsFocusedAsState()
+                        val isInstallPress by installInter.collectIsPressedAsState()
+                        val isInstallActive = isInstallFoc || isInstallPress
 
                         Box(
                             modifier = Modifier
@@ -1761,32 +1789,33 @@ fun AppUpdateDialog(
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(
                                     if (isDownloading) Color(0xFF2D3748)
-                                    else if (isInstallFoc) AccentRed
+                                    else if (isInstallActive) AccentRed
                                     else Color(0xFF00C853)
                                 )
                                 .border(
-                                    width = if (isInstallFoc) 2.dp else 0.dp,
+                                    width = if (isInstallActive) 2.dp else 0.dp,
                                     color = Color.White,
                                     shape = RoundedCornerShape(10.dp)
                                 )
-                                .focusable(interactionSource = installInter)
-                                .clickable(interactionSource = installInter, indication = null) {
-                                    if (!isDownloading) {
-                                        isDownloading = true
-                                        downloadProgress = 1
-                                        statusMessage = "Đang tải từ máy chủ tốc độ cao..."
-                                        scope.launch {
-                                            AppUpdateManager.downloadAndInstallApk(
-                                                context = context,
-                                                versionInfo = targetInfo,
-                                                onProgress = { pct -> downloadProgress = pct },
-                                                onError = { err ->
-                                                    isDownloading = false
-                                                    statusMessage = err
-                                                }
-                                            )
-                                            isDownloading = false
-                                        }
+                                .clickable(
+                                    interactionSource = installInter,
+                                    indication = null,
+                                    enabled = !isDownloading
+                                ) {
+                                    isDownloading = true
+                                    downloadProgress = 1
+                                    statusMessage = "Đang tải từ máy chủ tốc độ cao..."
+                                    scope.launch {
+                                        AppUpdateManager.downloadAndInstallApk(
+                                            context = context,
+                                            versionInfo = targetInfo,
+                                            onProgress = { pct -> downloadProgress = pct },
+                                            onError = { err ->
+                                                isDownloading = false
+                                                statusMessage = err
+                                            }
+                                        )
+                                        isDownloading = false
                                     }
                                 },
                             contentAlignment = Alignment.Center
@@ -1795,7 +1824,7 @@ fun AppUpdateDialog(
                                 text = if (isDownloading) "⏳ ĐANG TẢI ($downloadProgress%)..."
                                 else if (hasNewerVersion) "⬇️ CẬP NHẬT NGAY LÊN v${targetInfo.versionName}"
                                 else "⬇️ TẢI & CÀI ĐÈ BẢN MỚI NHẤT NGAY",
-                                color = if (!isDownloading && !isInstallFoc) Color.Black else Color.White,
+                                color = if (!isDownloading && !isInstallActive) Color.Black else Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black
                             )
@@ -1803,21 +1832,26 @@ fun AppUpdateDialog(
 
                         val closeInter = remember { MutableInteractionSource() }
                         val isCloseFoc by closeInter.collectIsFocusedAsState()
+                        val isClosePress by closeInter.collectIsPressedAsState()
+                        val isCloseActive = isCloseFoc || isClosePress
 
                         Box(
                             modifier = Modifier
                                 .weight(0.9f)
                                 .height(48.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isCloseFoc) AccentRed else Color(0xFF252A38))
+                                .background(if (isCloseActive) AccentRed else Color(0xFF252A38))
                                 .border(
-                                    width = if (isCloseFoc) 2.dp else 0.dp,
+                                    width = if (isCloseActive) 2.dp else 0.dp,
                                     color = Color.White,
                                     shape = RoundedCornerShape(10.dp)
                                 )
-                                .focusable(interactionSource = closeInter)
-                                .clickable(interactionSource = closeInter, indication = null) {
-                                    if (!isDownloading) onDismiss()
+                                .clickable(
+                                    interactionSource = closeInter,
+                                    indication = null,
+                                    enabled = !isDownloading
+                                ) {
+                                    onDismiss()
                                 },
                             contentAlignment = Alignment.Center
                         ) {

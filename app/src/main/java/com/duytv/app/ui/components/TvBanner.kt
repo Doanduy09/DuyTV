@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,8 @@ fun TvBanner(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val isHighlighted = isFocused || isPressed
 
     val backdropUrl = remember(featuredMovie.thumbUrl, featuredMovie.posterUrl) {
         val path = if (!featuredMovie.thumbUrl.isNullOrBlank()) featuredMovie.thumbUrl else featuredMovie.posterUrl
@@ -141,13 +144,12 @@ fun TvBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (isFocused) AccentGlow else AccentRed)
+                    .background(if (isHighlighted) AccentGlow else AccentRed)
                     .border(
-                        width = if (isFocused) 2.dp else 0.dp,
+                        width = if (isHighlighted) 2.dp else 0.dp,
                         color = Color.White,
                         shape = RoundedCornerShape(6.dp)
                     )
-                    .focusable(interactionSource = interactionSource)
                     .clickable(
                         interactionSource = interactionSource,
                         indication = null

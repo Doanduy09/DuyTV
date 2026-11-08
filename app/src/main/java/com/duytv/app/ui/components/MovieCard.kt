@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -39,9 +40,11 @@ fun MovieCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val isHighlighted = isFocused || isPressed
 
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1.0f,
+        targetValue = if (isHighlighted) 1.08f else 1.0f,
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "scale"
     )
@@ -68,11 +71,10 @@ fun MovieCard(
             .clip(RoundedCornerShape(8.dp))
             .background(CardBg)
             .border(
-                width = if (isFocused) 2.5.dp else 0.dp,
-                color = if (isFocused) AccentRed else Color.Transparent,
+                width = if (isHighlighted) 2.5.dp else 0.dp,
+                color = if (isHighlighted) AccentRed else Color.Transparent,
                 shape = RoundedCornerShape(8.dp)
             )
-            .focusable(interactionSource = interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

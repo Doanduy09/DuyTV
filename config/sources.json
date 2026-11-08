@@ -34,6 +34,11 @@
         "https://yts.mx"
       ],
       "enabled": true
+    },
+    "iptv": {
+      "name": "A3 IPTV VIP",
+      "url": "http://a3iptv.goitoi.co/playlist.m3u?r2h-token=9Pzpebvhp40NGRbSMuid",
+      "enabled": true
     }
   }
 }

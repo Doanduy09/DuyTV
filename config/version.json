@@ -1,7 +1,7 @@
 {
-  "versionCode": 27,
-  "versionName": "1.9.2",
+  "versionCode": 28,
+  "versionName": "1.9.3",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• ⚡ Ép chuẩn kích thước phần cứng giải mã ảnh nền (Hardware JPEG Decoder): tối ưu 100% ảnh Backdrop / Banner về 960x540 (RGB_565) loại bỏ triệt để rớt khung hình (0 frame drop)\n• 🛡️ Lá Chắn Chặn 100% Quảng Cáo Giữa Phim (HLS Ad-Block Engine): tự động bóc tách và cắt bỏ toàn bộ phân đoạn quảng cáo chèn trong luồng .m3u8\n• 🔧 Vá triệt để 5 lỗi từ log Tivi Sharp: chống tràn VRAM EGL_BAD_ALLOC (12291), chuẩn hóa phụ đề SRT/WebVTT 0 lỗi, và tối ưu Launcher 0 rớt khung hình"
+  "releaseNotes": "• Thêm gói kênh truyền hình VIP A3 IPTV chất lượng cao\n• Tối ưu cảm ứng 1-chạm mượt mà, cuộn danh sách và bảng cập nhật OTA trên Tablet Xiaomi"
 }

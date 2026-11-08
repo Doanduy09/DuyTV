@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -209,7 +210,7 @@ fun PlayerScreen(
 
     LaunchedEffect(showControls, isPlaying, showQualityMenu) {
         if (showControls && isPlaying && !showQualityMenu) {
-            delay(5000)
+            delay(6000)
             showControls = false
         }
     }
@@ -399,10 +400,10 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls timer (4 seconds)
+    // Auto-hide controls timer (6 seconds)
     LaunchedEffect(showControls, isPlaying, showQualityMenu) {
         if (showControls && isPlaying && !showQualityMenu) {
-            delay(4000)
+            delay(6000)
             showControls = false
         }
     }
@@ -1323,19 +1324,17 @@ fun PlayerScreen(
             .focusable()
             .pointerInput(isTouchLocked, isLive) {
                 detectTapGestures(
-                    onDoubleTap = { offset ->
+                    onDoubleTap = if (!isLive) { offset ->
                         if (isTouchLocked) {
                             showUnlockPill = true
                             return@detectTapGestures
                         }
                         val widthPx = size.width.toFloat().coerceAtLeast(1f)
                         val ratioX = offset.x / widthPx
-                        when {
-                            !isLive && ratioX < 0.32f -> triggerSeek(-10)
-                            !isLive && ratioX > 0.68f -> triggerSeek(10)
-                            else -> cycleAspectMode()
-                        }
-                    },
+                        if (ratioX < 0.32f) triggerSeek(-10)
+                        else if (ratioX > 0.68f) triggerSeek(10)
+                        else cycleAspectMode()
+                    } else null,
                     onTap = {
                         if (isTouchLocked) {
                             showUnlockPill = !showUnlockPill
@@ -2111,6 +2110,12 @@ fun PlayerScreen(
                             colors = listOf(Color(0xCC000000), Color.Transparent, Color(0xCC000000))
                         )
                     )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        showControls = false
+                    }
             ) {
                 // Top Header info
                 Row(
@@ -2126,17 +2131,18 @@ fun PlayerScreen(
                     ) {
                         val exitInter = remember { MutableInteractionSource() }
                         val isExitFoc by exitInter.collectIsFocusedAsState()
+                        val isExitPress by exitInter.collectIsPressedAsState()
+                        val isExitActive = isExitFoc || isExitPress
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (isExitFoc) AccentRed else Color(0xFF222938))
+                                .background(if (isExitActive) AccentRed else Color(0xFF222938))
                                 .border(
-                                    width = if (isExitFoc) 1.5.dp else 1.dp,
-                                    color = if (isExitFoc) Color.White else Color(0x44FFFFFF),
+                                    width = if (isExitActive) 1.5.dp else 1.dp,
+                                    color = if (isExitActive) Color.White else Color(0x44FFFFFF),
                                     shape = RoundedCornerShape(6.dp)
                                 )
-                                .focusable(interactionSource = exitInter)
                                 .clickable(interactionSource = exitInter, indication = null, onClick = onClose)
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
@@ -2184,13 +2190,14 @@ fun PlayerScreen(
                             // 🛡️ Nút Lá Chắn Chặn 100% Quảng Cáo HLS
                             val adInter = remember { MutableInteractionSource() }
                             val isAdFoc by adInter.collectIsFocusedAsState()
+                            val isAdPress by adInter.collectIsPressedAsState()
+                            val isAdActive = isAdFoc || isAdPress
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isAdFoc) AccentRed else if (isHlsAdBlockEnabled) Color(0xFF0D3B2E) else Color(0xFF222938))
-                                    .border(1.5.dp, if (isAdFoc) Color.White else if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
-                                    .focusable(interactionSource = adInter)
+                                    .background(if (isAdActive) AccentRed else if (isHlsAdBlockEnabled) Color(0xFF0D3B2E) else Color(0xFF222938))
+                                    .border(1.5.dp, if (isAdActive) Color.White else if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
                                     .clickable(interactionSource = adInter, indication = null) {
                                         val nextAdState = !isHlsAdBlockEnabled
                                         isHlsAdBlockEnabled = nextAdState
@@ -2231,17 +2238,18 @@ fun PlayerScreen(
                         if (isLive) {
                             val favInter = remember { MutableInteractionSource() }
                             val isFavFoc by favInter.collectIsFocusedAsState()
+                            val isFavPress by favInter.collectIsPressedAsState()
+                            val isFavActive = isFavFoc || isFavPress
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isFavFoc) AccentRed else if (isCurrentChannelFav) Color(0xFF3E2723) else Color(0xFF222938))
+                                    .background(if (isFavActive) AccentRed else if (isCurrentChannelFav) Color(0xFF3E2723) else Color(0xFF222938))
                                     .border(
-                                        width = if (isFavFoc || isCurrentChannelFav) 1.5.dp else 0.dp,
-                                        color = if (isFavFoc) Color.White else if (isCurrentChannelFav) Color(0xFFFFD600) else Color.Transparent,
+                                        width = if (isFavActive || isCurrentChannelFav) 1.5.dp else 0.dp,
+                                        color = if (isFavActive) Color.White else if (isCurrentChannelFav) Color(0xFFFFD600) else Color.Transparent,
                                         shape = RoundedCornerShape(4.dp)
                                     )
-                                    .focusable(interactionSource = favInter)
                                     .clickable(interactionSource = favInter, indication = null) {
                                         toggleCurrentChannelFavorite()
                                     }
@@ -2259,13 +2267,14 @@ fun PlayerScreen(
                         // ⚙️ NÚT TIỆN ÍCH HỢP NHẤT (Chứa toàn bộ 20 tính năng)
                         val utilInter = remember { MutableInteractionSource() }
                         val isUtilFoc by utilInter.collectIsFocusedAsState()
+                        val isUtilPress by utilInter.collectIsPressedAsState()
+                        val isUtilActive = isUtilFoc || isUtilPress
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (isUtilFoc) AccentRed else Color(0xFF6200EA))
-                                .border(1.5.dp, if (isUtilFoc) Color.White else Color(0xFFBB86FC), RoundedCornerShape(6.dp))
-                                .focusable(interactionSource = utilInter)
+                                .background(if (isUtilActive) AccentRed else Color(0xFF6200EA))
+                                .border(1.5.dp, if (isUtilActive) Color.White else Color(0xFFBB86FC), RoundedCornerShape(6.dp))
                                 .clickable(interactionSource = utilInter, indication = null) {
                                     showQuickActionSheet = true
                                 }
@@ -2635,17 +2644,18 @@ private fun QuickSeekPill(
 ) {
     val inter = remember { MutableInteractionSource() }
     val isFoc by inter.collectIsFocusedAsState()
+    val isPress by inter.collectIsPressedAsState()
+    val isHighlighted = isFoc || isPress
 
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isFoc) AccentRed else if (highlight) Color(0xFF222938) else Color(0x33FFFFFF))
+            .background(if (isHighlighted) AccentRed else if (highlight) Color(0xFF222938) else Color(0x33FFFFFF))
             .border(
-                width = if (isFoc) 1.5.dp else 1.dp,
-                color = if (isFoc) Color.White else Color(0x44FFFFFF),
+                width = if (isHighlighted) 1.5.dp else 1.dp,
+                color = if (isHighlighted) Color.White else Color(0x44FFFFFF),
                 shape = RoundedCornerShape(6.dp)
             )
-            .focusable(interactionSource = inter)
             .clickable(interactionSource = inter, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
@@ -2707,16 +2717,17 @@ fun SettingChoicePill(
 ) {
     val inter = remember { MutableInteractionSource() }
     val isFoc by inter.collectIsFocusedAsState()
+    val isPress by inter.collectIsPressedAsState()
+    val isHighlighted = isFoc || isPress
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isFoc) AccentRed else if (isSelected) Color(0xFF263238) else Color(0xFF181D28))
+            .background(if (isHighlighted) AccentRed else if (isSelected) Color(0xFF263238) else Color(0xFF181D28))
             .border(
-                width = if (isFoc) 1.5.dp else if (isSelected) 1.dp else 0.dp,
-                color = if (isFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
+                width = if (isHighlighted) 1.5.dp else if (isSelected) 1.dp else 0.dp,
+                color = if (isHighlighted) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
                 shape = RoundedCornerShape(6.dp)
             )
-            .focusable(interactionSource = inter)
             .clickable(interactionSource = inter, indication = null, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
