@@ -38,6 +38,40 @@ class MainActivity : ComponentActivity() {
     }
 
     private val repository = MovieRepository()
+    private var pendingScreenFromIntent by mutableStateOf<AppScreen?>(null)
+
+    private fun handleLauncherIntent(intent: android.content.Intent?) {
+        if (intent == null) return
+        com.duytv.app.data.AppCacheManager.init(applicationContext, MovieRepository.getVerifiedOfficialChannels())
+        val streamUrl = intent.getStringExtra("stream_url")
+        val channelName = intent.getStringExtra("channel_name")
+        if (!streamUrl.isNullOrBlank() && !channelName.isNullOrBlank()) {
+            val channelId = intent.getStringExtra("channel_id") ?: System.currentTimeMillis().toString()
+            val logoUrl = intent.getStringExtra("logo_url")
+            val backups = intent.getStringArrayListExtra("backup_urls") ?: arrayListOf()
+            pendingScreenFromIntent = AppScreen.Player(
+                slug = "live_launcher_$channelId",
+                movieTitle = channelName,
+                episodeName = "TRỰC TIẾP",
+                streamUrl = streamUrl,
+                posterUrl = logoUrl,
+                subtitleUrl = null,
+                initialPositionMs = 0L,
+                backupUrls = backups
+            )
+            intent.removeExtra("stream_url")
+            intent.removeExtra("channel_name")
+        } else if (intent.getBooleanExtra("open_home", false)) {
+            pendingScreenFromIntent = AppScreen.Home
+            intent.removeExtra("open_home")
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLauncherIntent(intent)
+    }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         if (onKeyEventListener?.invoke(event) == true) {
@@ -70,6 +104,7 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = android.graphics.Color.BLACK
         window.statusBarColor = android.graphics.Color.BLACK
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        handleLauncherIntent(intent)
 
         setContent {
             val appContext = applicationContext
@@ -82,12 +117,24 @@ class MainActivity : ComponentActivity() {
                 coil.Coil.setImageLoader(imageLoader)
             }
             DuyTvTheme {
-                var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Home) }
+                var currentScreen by remember { mutableStateOf<AppScreen>(pendingScreenFromIntent ?: AppScreen.Home) }
+
+                LaunchedEffect(pendingScreenFromIntent) {
+                    pendingScreenFromIntent?.let { target ->
+                        currentScreen = target
+                        pendingScreenFromIntent = null
+                    }
+                }
 
                 BackHandler(enabled = currentScreen !is AppScreen.Home) {
                     when (val screen = currentScreen) {
                         is AppScreen.Player -> {
-                            currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                            if (screen.slug.startsWith("live_launcher_")) {
+                                currentScreen = AppScreen.Home
+                                moveTaskToBack(true)
+                            } else {
+                                currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                            }
                         }
                         is AppScreen.Detail -> {
                             currentScreen = AppScreen.Home
@@ -185,7 +232,12 @@ class MainActivity : ComponentActivity() {
                             episodes = screen.episodes,
                             repository = repository,
                             onClose = {
-                                currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                                if (screen.slug.startsWith("live_launcher_")) {
+                                    currentScreen = AppScreen.Home
+                                    moveTaskToBack(true)
+                                } else {
+                                    currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                                }
                             },
                             modifier = Modifier.fillMaxSize()
                         )

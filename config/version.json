@@ -1,7 +1,7 @@
 {
-  "versionCode": 22,
-  "versionName": "1.7.0",
-  "apkUrlLan": "http://192.168.1.189:8888/DuyTV-v1.7.0.apk",
+  "versionCode": 23,
+  "versionName": "1.8.0",
+  "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• Bảng Tiện Ích Hợp Nhất (⚙️ Quick-Action Sheet) phân 4 nhóm rõ ràng, triệt tiêu 100% tình trạng chồng chéo UI\n• 🎬 Bộ lọc điện ảnh cổ trang TVB & phim kiếm hiệp tăng tương phản và nét mặt rực rỡ\n• 🌌 Ánh sáng viền vô cực (Virtual Ambilight Glow)\n• 🌙 Chế độ ban đêm DRC lọc rõ giọng thoại & nén tiếng nổ\n• 🔊 Khuếch đại âm lượng phần cứng 200%\n• 🛡️ Tự động tráo server chống lag khi nghẽn mạng > 3 giây\n• ⏭️ Tự động bỏ qua mở đầu 85 giây cho phim bộ\n• ⏲️ Hẹn giờ ngủ Fade-Out hạ dần âm lượng êm ái\n• Sửa triệt để lỗi cắt chữ trên Galaxy Z Fold và Tablet Xiaomi Pad"
+  "releaseNotes": "• ⚽ Tích hợp 6 nguồn Bóng Đá Trực Tiếp Đa Luồng (Kho Gà Live API + Xôi Chè TV + Thập Cẩm TV Tencent/Alibaba CDN + CoBan66 + CooCaa + All-In-One IPTV)\n• 🛡️ Tự động đổi sang Server dự phòng (HLS .m3u8 & FLV) khi link chết hoặc đứng hình > 6.5 giây\n• 🧹 Tự động xóa bỏ trận đá banh đã hết giờ live (> 115 phút) và đẩy trận đang LIVE lên đầu\n• 🔥 Tự động cập nhật Phim Mới mỗi khi mở lại App + Nút '🔄 CẬP NHẬT PHIM' thủ công ngay trên thanh đầu trang\n• 🎬 Đưa hàng '🔥 PHIM MỚI CẬP NHẬT HÔM NAY' (gộp KKPhim v3 + NguonC + CoBePhim) lên vị trí đầu tiên"
 }

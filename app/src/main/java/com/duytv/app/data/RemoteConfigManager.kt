@@ -22,6 +22,12 @@ object RemoteConfigManager {
     private var currentConfig = RemoteConfig()
 
     const val DEFAULT_SPORTS_M3U = "https://paste.c-net.org/PostersMistrust"
+    const val KHOGA_LIVE_API_PRIMARY = "https://khoga1.live/api/matches/?has_commentator=true&page_size=50&ordering=smart"
+    const val KHOGA_LIVE_API_MIRROR = "https://khoga.live/api/matches/?has_commentator=true&page_size=50&ordering=smart"
+    const val KHOGA_ALL_LIVE_API = "https://khoga1.live/api/matches/?status=live&page_size=40"
+    const val THAPCAM_LIVE_URL = "https://thapcamtvt1.com"
+    const val COBAN66_SPORTS_M3U = "https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0"
+    const val COOCAA_SPORTS_M3U = "https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u"
     const val DEFAULT_TV_M3U = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
     private const val KEY_CUSTOM_SPORTS_LIST = "custom_sports_sources_v1"
 
@@ -242,8 +248,13 @@ object RemoteConfigManager {
 
     fun getSavedSportsSourcesDisplay(context: android.content.Context): List<Pair<String, String>> {
         val baseList = mutableListOf(
-            "⚽ Kho Gà TV (Bóng Đá Chính)" to DEFAULT_SPORTS_M3U,
-            "📺 All-In-One IPTV (Truyền Hình & Thể Thao)" to DEFAULT_TV_M3U
+            "⚽ Kho Gà & Xôi Chè Live API (Chính - Đa Luồng)" to KHOGA_LIVE_API_PRIMARY,
+            "⚽ Kho Gà Mirror API (Dự Phòng #1)" to KHOGA_LIVE_API_MIRROR,
+            "🔥 Thập Cẩm TV / AntLive (Dự Phòng #2 - Đa Server)" to THAPCAM_LIVE_URL,
+            "🏆 CoBan66 Thể Thao & VTVcab (Dự Phòng #3)" to COBAN66_SPORTS_M3U,
+            "⚡ CooCaa Bóng Đá Việt & ON Sports (Dự Phòng #4)" to COOCAA_SPORTS_M3U,
+            "📺 All-In-One IPTV (Truyền Hình & Thể Thao)" to DEFAULT_TV_M3U,
+            "📋 Kho Gà M3U Paste (Dự Phòng #5)" to DEFAULT_SPORTS_M3U
         )
         val customs = getCustomSportsSources(context)
         customs.forEachIndexed { idx, raw ->

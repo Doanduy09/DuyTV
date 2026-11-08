@@ -26,12 +26,12 @@ object LunarCalendar {
         val mpr = 306.0253 + 385.81691806 * k + 0.0107306 * t2 + 0.00001236 * t3
         val f = 21.2964 + 390.67050646 * k - 0.0016528 * t2 - 0.00000239 * t3
         var c1 = (0.1734 - 0.000393 * t) * sin(m * dr) + 0.0021 * sin(2.0 * dr * m)
-        c1 = c1 - 0.4068 * sin(mpr * dr) + 0.0161 * sin(2.0 * dr * mpr)
-        c1 = c1 - 0.0004 * sin(3.0 * dr * mpr)
-        c1 = c1 + 0.0104 * sin(2.0 * dr * f) - 0.0051 * sin((m + mpr) * dr)
-        c1 = c1 - 0.0074 * sin((m - mpr) * dr) + 0.0004 * sin((2.0 * f + m) * dr)
-        c1 = c1 - 0.0004 * sin((2.0 * f - m) * dr) - 0.0006 * sin((2.0 * f + mpr) * dr)
-        c1 = c1 + 0.0010 * sin((2.0 * f - mpr) * dr) + 0.0005 * sin((2.0 * mpr + m) * dr)
+        c1 -= 0.4068 * sin(mpr * dr) - 0.0161 * sin(2.0 * dr * mpr)
+        c1 -= 0.0004 * sin(3.0 * dr * mpr)
+        c1 += 0.0104 * sin(2.0 * dr * f) - 0.0051 * sin((m + mpr) * dr)
+        c1 -= 0.0074 * sin((m - mpr) * dr) + 0.0004 * sin((2.0 * f + m) * dr)
+        c1 -= 0.0004 * sin((2.0 * f - m) * dr) - 0.0006 * sin((2.0 * f + mpr) * dr)
+        c1 += 0.0010 * sin((2.0 * f - mpr) * dr) + 0.0005 * sin((2.0 * mpr + m) * dr)
         val deltat = if (t < -11) {
             0.001 + 0.000839 * t + 0.0002261 * t2 - 0.00000845 * t3 - 0.000000081 * t * t3
         } else {
@@ -54,6 +54,17 @@ object LunarCalendar {
         return floor(theta / 30.0).toInt()
     }
 
+    private fun getLunarMonth11(yy: Int, timeZone: Double): Int {
+        val off = jdFromDate(31, 12, yy) - 2415021
+        val k = floor(off / 29.530588853).toInt()
+        var nm = getNewMoonDay(k, timeZone)
+        val sunLong = getSunLongitude(nm, timeZone)
+        if (sunLong >= 9) {
+            nm = getNewMoonDay(k - 1, timeZone)
+        }
+        return nm
+    }
+
     fun convertSolar2Lunar(dd: Int, mm: Int, yy: Int, timeZone: Double = 7.0): Pair<Int, Int> {
         val dayNumber = jdFromDate(dd, mm, yy)
         val k = floor((dayNumber - 2415021.0769986) / 29.530588853).toInt()
@@ -61,21 +72,15 @@ object LunarCalendar {
         if (monthStart > dayNumber) {
             monthStart = getNewMoonDay(k, timeZone)
         }
-        val a11 = getNewMoonDay(floor((jdFromDate(31, 12, yy) - 2415021.0769986) / 29.530588853).toInt(), timeZone)
-        val b11 = if (getSunLongitude(a11, timeZone) >= 9) {
-            getNewMoonDay(floor((jdFromDate(31, 12, yy) - 2415021.0769986) / 29.530588853).toInt() - 1, timeZone)
-        } else {
-            a11
+        var a11 = getLunarMonth11(yy, timeZone)
+        if (a11 >= monthStart) {
+            a11 = getLunarMonth11(yy - 1, timeZone)
         }
         val lunarDay = dayNumber - monthStart + 1
-        var diff = floor((monthStart - b11) / 29.0).toInt()
+        val diff = floor((monthStart - a11) / 29.0).toInt()
         var lunarMonth = diff + 11
-        if (lunarMonth > 12) lunarMonth -= 12
-        if (lunarMonth <= 0) lunarMonth += 12
-
-        // Calibrate for current era leap offset:
-        if (yy == 2026 && mm == 11) {
-            return Pair(27, 9)
+        if (lunarMonth > 12) {
+            lunarMonth -= 12
         }
         return Pair(lunarDay, lunarMonth)
     }
@@ -86,7 +91,7 @@ object LunarCalendar {
         val mm = cal.get(Calendar.MONTH) + 1
         val yy = cal.get(Calendar.YEAR)
         val (lDay, lMonth) = convertSolar2Lunar(dd, mm, yy)
-        return "Âm lịch · $lDay tháng $lMonth"
+        return "Âm lịch · Ngày $lDay Tháng $lMonth"
     }
 
     fun getTodaySolarString(): String {
@@ -103,7 +108,7 @@ object LunarCalendar {
         }
         val dd = cal.get(Calendar.DAY_OF_MONTH)
         val mm = cal.get(Calendar.MONTH) + 1
-        return "$dayOfWeek, $dd THÁNG $mm"
+        return "$dayOfWeek, NGÀY $dd THÁNG $mm"
     }
 
     fun getGreetingString(): String {

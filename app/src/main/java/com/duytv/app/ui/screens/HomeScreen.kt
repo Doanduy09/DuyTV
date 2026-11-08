@@ -147,7 +147,7 @@ fun HomeScreen(
         sdf.format(Date(currentHeartbeatMillis))
     }
 
-    fun reloadAllMovies(silent: Boolean = true) {
+    fun reloadAllMovies(silent: Boolean = true, forceRefreshSports: Boolean = false, showSuccessToast: Boolean = false) {
         scope.launch {
             if (!silent) {
                 isLoading = true
@@ -162,7 +162,7 @@ fun HomeScreen(
                     val seriesDef = async { try { repository.getMoviesByCategory("phim-bo", 1) } catch (_: Exception) { emptyList() } }
                     val singleDef = async { try { repository.getMoviesByCategory("phim-le", 1) } catch (_: Exception) { emptyList() } }
                     val animeDef = async { try { repository.getMoviesByCategory("hoat-hinh", 1) } catch (_: Exception) { emptyList() } }
-                    val tvSportsDef = async { try { repository.getTvAndSportsData() } catch (_: Exception) { TvSportsData() } }
+                    val tvSportsDef = async { try { repository.getTvAndSportsData(forceRefresh = forceRefreshSports) } catch (_: Exception) { TvSportsData() } }
 
                     val resLatest = latestDef.await()
                     val resCinema = cinemaDef.await()
@@ -199,7 +199,7 @@ fun HomeScreen(
                         context
                     )
                 } else if (selectedCategory.id == "tv-live") {
-                    val res = try { repository.getTvAndSportsData() } catch (_: Exception) { TvSportsData() }
+                    val res = try { repository.getTvAndSportsData(forceRefresh = true) } catch (_: Exception) { TvSportsData() }
                     if (res.channels.isNotEmpty() || res.matches.isNotEmpty()) {
                         tvSportsData = res
                         AppCacheManager.saveTvSports(res, context)
@@ -207,6 +207,9 @@ fun HomeScreen(
                 } else {
                     categoryPage = 1
                     categoryMovies = try { repository.getMoviesByCategory(selectedCategory.endpoint, 1) } catch (_: Exception) { emptyList() }
+                }
+                if (showSuccessToast) {
+                    Toast.makeText(context, "✅ Đã cập nhật kho phim mới & lịch bóng đá trực tiếp!", Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 isLoading = false
@@ -230,7 +233,7 @@ fun HomeScreen(
         }
     }
 
-    var lastAutoSyncMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var lastAutoSyncMillis by remember { mutableLongStateOf(0L) }
     var lastAutoPromptedVersionCode by remember { mutableIntStateOf(currentVersionCode) }
 
     fun checkAndPromptGitHubUpdate() {
@@ -254,14 +257,14 @@ fun HomeScreen(
         checkAndPromptGitHubUpdate()
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
-            reloadAllMovies(silent = true)
             lastAutoSyncMillis = System.currentTimeMillis()
+            reloadAllMovies(silent = true, forceRefreshSports = true)
         }
     }
 
     // Tự động đồng bộ ngầm định kỳ (Auto-Sync Daemon):
     // - Mỗi 3 phút kiểm tra bản cập nhật mới trên GitHub + cập nhật lịch & luồng bóng đá trực tiếp
-    // - Mỗi 9 phút cập nhật phim mới từ tất cả các trang web
+    // - Mỗi 6 phút cập nhật phim mới từ tất cả các trang web
     LaunchedEffect(Unit) {
         var cycle = 0
         while (true) {
@@ -269,15 +272,15 @@ fun HomeScreen(
             cycle++
             lastAutoSyncMillis = System.currentTimeMillis()
             checkAndPromptGitHubUpdate()
-            if (cycle % 3 == 0) {
-                reloadAllMovies(silent = true)
+            if (cycle % 2 == 0) {
+                reloadAllMovies(silent = true, forceRefreshSports = true)
             } else {
                 reloadSportsOnly()
             }
         }
     }
 
-    // Tự động đồng bộ thông minh khi quay lại ứng dụng (ON_RESUME) trên Tivi / Box / Điện thoại / Máy tính
+    // Tự động đồng bộ thông minh mỗi khi mở lại ứng dụng (ON_RESUME) trên Tivi / Box
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -286,9 +289,9 @@ fun HomeScreen(
                 favoriteMoviesList = AppCacheManager.favoriteMovies
                 checkAndPromptGitHubUpdate()
                 val now = System.currentTimeMillis()
-                if (now - lastAutoSyncMillis > 120_000L) {
+                if (now - lastAutoSyncMillis > 60_000L) {
                     lastAutoSyncMillis = now
-                    reloadAllMovies(silent = true)
+                    reloadAllMovies(silent = true, forceRefreshSports = true)
                 }
             }
         }
@@ -431,6 +434,44 @@ fun HomeScreen(
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Manual Refresh New Movies & Football Button (Cập nhật phim mới thủ công)
+                            val refreshMoviesInter = remember { MutableInteractionSource() }
+                            val refreshMoviesFoc by refreshMoviesInter.collectIsFocusedAsState()
+                            val isRefreshingNow = isLoading || isSilentSyncing
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        when {
+                                            refreshMoviesFoc -> AccentRed
+                                            isRefreshingNow -> Color(0xFF065F46)
+                                            else -> Color(0xFF1E293B)
+                                        }
+                                    )
+                                    .border(
+                                        width = if (refreshMoviesFoc) 1.5.dp else 1.dp,
+                                        color = if (refreshMoviesFoc) Color.White else Color(0xFF00E676),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .focusable(interactionSource = refreshMoviesInter)
+                                    .clickable(interactionSource = refreshMoviesInter, indication = null) {
+                                        lastAutoSyncMillis = System.currentTimeMillis()
+                                        reloadAllMovies(silent = true, forceRefreshSports = true, showSuccessToast = true)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (isRefreshingNow) "⏳ ĐANG CẬP NHẬT..." else "🔄 CẬP NHẬT PHIM",
+                                    color = if (refreshMoviesFoc) Color.White else Color(0xFF00E676),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
                                 )
                             }
 
@@ -856,7 +897,21 @@ fun HomeScreen(
                         }
                     }
 
-                    // Swimlane 1: Phim Chiếu Rạp Bom Tấn
+                    // Swimlane 1 (ĐƯA LÊN ĐẦU TIÊN): Phim Mới Cập Nhật Hàng Ngày (KKPhim + NguonC + CoBePhim)
+                    if (latestMovies.isNotEmpty()) {
+                        item {
+                            MovieSwimlaneWithMore(
+                                title = "🔥 PHIM MỚI CẬP NHẬT HÔM NAY",
+                                movies = latestMovies,
+                                onMovieClick = onMovieSelected,
+                                onSeeAllClick = {
+                                    switchCategory(NAV_CATEGORIES.first { it.id == "phim-le" })
+                                }
+                            )
+                        }
+                    }
+
+                    // Swimlane 2: Phim Chiếu Rạp Bom Tấn
                     if (cinemaMovies.isNotEmpty()) {
                         item {
                             MovieSwimlaneWithMore(
@@ -870,7 +925,7 @@ fun HomeScreen(
                         }
                     }
 
-                    // Swimlane 2: Kho Phim 4K Cinema (Torrent & Remux)
+                    // Swimlane 3: Kho Phim 4K Cinema (Torrent & Remux)
                     if (torrentMovies.isNotEmpty()) {
                         item {
                             MovieSwimlaneWithMore(
@@ -882,18 +937,6 @@ fun HomeScreen(
                                 }
                             )
                         }
-                    }
-
-                    // Swimlane 3: Phim Mới Cập Nhật
-                    item {
-                        MovieSwimlaneWithMore(
-                            title = "🔥 PHIM MỚI CẬP NHẬT",
-                            movies = latestMovies,
-                            onMovieClick = onMovieSelected,
-                            onSeeAllClick = {
-                                switchCategory(NAV_CATEGORIES.first { it.id == "phim-le" })
-                            }
-                        )
                     }
 
                     // Swimlane 4: Phim Lẻ Đặc Sắc
@@ -1383,8 +1426,61 @@ fun HomeScreen(
 
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 320.dp)
+                                    .verticalScroll(rememberScrollState())
                             ) {
+                                // Nút Phát Ngay Tự Động Chống Lag (Gộp tất cả link dự phòng)
+                                val autoInter = remember { MutableInteractionSource() }
+                                val autoFoc by autoInter.collectIsFocusedAsState()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (autoFoc) Color(0xFF00C853) else Color(0xFF064E3B))
+                                        .border(
+                                            width = if (autoFoc) 2.dp else 1.dp,
+                                            color = if (autoFoc) Color.White else Color(0xFF00E676),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .focusable(interactionSource = autoInter)
+                                        .clickable(interactionSource = autoInter, indication = null) {
+                                            selectedMatchForStreams = null
+                                            val allUrls = match.streams.map { it.streamUrl }.distinct()
+                                            val primary = allUrls.firstOrNull() ?: return@clickable
+                                            onPlayLiveStream(
+                                                "${match.homeTeam} vs ${match.awayTeam}",
+                                                primary,
+                                                match.logo,
+                                                allUrls.drop(1)
+                                            )
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "⚡ PHÁT NGAY TỰ ĐỘNG CHỐNG LAG (${match.streams.size} SERVER DỰ PHÒNG)",
+                                            color = if (autoFoc) Color.Black else Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        )
+                                        Text(
+                                            text = "Tự động đổi sang link dự phòng ngay khi link chết hoặc bị đứng hình",
+                                            color = if (autoFoc) Color.Black.copy(alpha = 0.8f) else Color(0xFFA7F3D0),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = "XEM NGAY ▶",
+                                        color = if (autoFoc) Color.Black else Color(0xFF00E676),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+
                                 match.streams.forEachIndexed { idx, stream ->
                                     val sInter = remember { MutableInteractionSource() }
                                     val sFoc by sInter.collectIsFocusedAsState()

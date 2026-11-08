@@ -123,10 +123,13 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val isLive = remember(streamUrl, slug) {
+        slug.startsWith("live_") || streamUrl.contains("/live/") || streamUrl.contains("akamaized.net") || streamUrl.contains("fptplay")
+    }
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showControls by remember { mutableStateOf(true) }
+    var showControls by remember { mutableStateOf(!isLive) }
     var showQualityMenu by remember { mutableStateOf(false) }
     var selectedQualityMode by remember { mutableStateOf("AUTO") }
     var videoResolution by remember { mutableStateOf("1080p FHD") }
@@ -138,9 +141,6 @@ fun PlayerScreen(
     var lastSeekTimestamp by remember { mutableLongStateOf(0L) }
     var seekConsecutiveCount by remember { mutableIntStateOf(0) }
     var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
-    val isLive = remember(streamUrl, slug) {
-        slug.startsWith("live_") || streamUrl.contains("/live/") || streamUrl.contains("akamaized.net") || streamUrl.contains("fptplay")
-    }
 
     var currentTitle by remember(movieTitle) { mutableStateOf(movieTitle) }
     var currentEpisodeName by remember(episodeName) { mutableStateOf(episodeName) }
@@ -411,15 +411,30 @@ fun PlayerScreen(
                 "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
             }
 
+            val headers = mutableMapOf<String, String>()
+            when {
+                streamUrl.contains("cdnfastter") || streamUrl.contains("khoga") -> {
+                    headers["Referer"] = "https://khoga1.live/"
+                    headers["Origin"] = "https://khoga1.live"
+                }
+                streamUrl.contains("livetl") || streamUrl.contains("thapcam") -> {
+                    headers["Referer"] = "https://thapcamtvt1.com/"
+                    headers["Origin"] = "https://thapcamtvt1.com"
+                }
+            }
+
             val dataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(userAgent)
-                .setConnectTimeoutMs(8000)
-                .setReadTimeoutMs(20000)
+                .setDefaultRequestProperties(headers)
+                .setConnectTimeoutMs(6000)
+                .setReadTimeoutMs(15000)
                 .setAllowCrossProtocolRedirects(true)
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
-            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.endsWith(".ts")) {
+            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.substringBefore("?").endsWith(".ts")) {
                 mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP2T)
+            } else if (streamUrl.substringBefore("?").endsWith(".flv")) {
+                mediaItemBuilder.setMimeType(MimeTypes.VIDEO_FLV)
             } else if (streamUrl.contains(".m3u8") || streamUrl.contains("/hls/")) {
                 mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
@@ -566,18 +581,8 @@ fun PlayerScreen(
     }
 
     fun showChannelOsd(channel: TvChannel, index: Int, total: Int, sourceIdx: Int = 0) {
-        val totalSources = channel.allStreamUrls().size
-        val sourceLabel = if (totalSources > 1) " • Nguồn ${sourceIdx + 1}/$totalSources" else ""
         showControls = false
-        channelOsdName = channel.name
-        channelOsdSub = "${channel.groupTitle} • Kênh ${index + 1}/$total$sourceLabel"
-        channelOsdLogo = channel.logoUrl
-        channelOsdVisible = true
-        channelOsdJob?.cancel()
-        channelOsdJob = scope.launch {
-            delay(3500)
-            channelOsdVisible = false
-        }
+        channelOsdVisible = false
     }
 
     fun loadLiveStreamUrl(url: String) {
@@ -589,15 +594,29 @@ fun PlayerScreen(
             } else {
                 "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
             }
+            val headers = mutableMapOf<String, String>()
+            when {
+                url.contains("cdnfastter") || url.contains("khoga") -> {
+                    headers["Referer"] = "https://khoga1.live/"
+                    headers["Origin"] = "https://khoga1.live"
+                }
+                url.contains("livetl") || url.contains("thapcam") -> {
+                    headers["Referer"] = "https://thapcamtvt1.com/"
+                    headers["Origin"] = "https://thapcamtvt1.com"
+                }
+            }
             val dsFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(userAgent)
-                .setConnectTimeoutMs(8000)
-                .setReadTimeoutMs(20000)
+                .setDefaultRequestProperties(headers)
+                .setConnectTimeoutMs(6000)
+                .setReadTimeoutMs(15000)
                 .setAllowCrossProtocolRedirects(true)
             val msFactory = DefaultMediaSourceFactory(dsFactory)
             val mediaItemB = MediaItem.Builder().setUri(url)
-            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.endsWith(".ts")) {
+            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.substringBefore("?").endsWith(".ts")) {
                 mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
+            } else if (url.substringBefore("?").endsWith(".flv")) {
+                mediaItemB.setMimeType(MimeTypes.VIDEO_FLV)
             } else if (url.contains(".m3u8") || url.contains("/hls/")) {
                 mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
@@ -686,19 +705,7 @@ fun PlayerScreen(
             } catch (_: Exception) {}
 
             showControls = false
-            channelOsdName = "$currentTitle • ${ep.name}"
-            channelOsdSub = if (isAutoAdvance) {
-                "⏭️ Hết tập • Tự động chuyển sang ${ep.name} (${targetIndex + 1}/${availableEpisodes.size})"
-            } else {
-                "🎬 Đang phát: ${ep.name} (${targetIndex + 1}/${availableEpisodes.size})"
-            }
-            channelOsdLogo = currentPosterUrl
-            channelOsdVisible = true
-            channelOsdJob?.cancel()
-            channelOsdJob = scope.launch {
-                delay(4000)
-                channelOsdVisible = false
-            }
+            channelOsdVisible = false
         }
     }
 
@@ -710,20 +717,15 @@ fun PlayerScreen(
                     if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
                         stallTimerJob?.cancel()
                         stallTimerJob = scope.launch {
-                            delay(3000L)
+                            delay(6500L)
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
                                 val nextBackupIdx = (currentBackupIndex + 1) % allUrls.size
                                 currentBackupIndex = nextBackupIdx
                                 errorMessage = null
-                                loadLiveStreamUrl(allUrls[nextBackupIdx])
-                                val curCh = if (isLive && currentChannelIndex in availableChannels.indices) availableChannels[currentChannelIndex] else null
-                                channelOsdName = curCh?.name ?: currentTitle
-                                channelOsdSub = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
-                                channelOsdLogo = curCh?.logoUrl ?: currentPosterUrl
-                                channelOsdVisible = true
-                                delay(3000L)
                                 channelOsdVisible = false
+                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
+                                loadLiveStreamUrl(allUrls[nextBackupIdx])
                             }
                         }
                     }
@@ -767,27 +769,19 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                val currentChannel = if (isLive && currentChannelIndex in availableChannels.indices) {
-                    availableChannels[currentChannelIndex]
-                } else null
                 val allUrls = getActiveLiveUrls()
 
                 if (isLive && currentBackupIndex + 1 < allUrls.size) {
                     val nextBackupIdx = currentBackupIndex + 1
                     currentBackupIndex = nextBackupIdx
                     errorMessage = null
+                    channelOsdVisible = false
+                    aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
                     loadLiveStreamUrl(allUrls[nextBackupIdx])
-                    channelOsdName = currentChannel?.name ?: currentTitle
-                    channelOsdSub = "⚡ Đường truyền lỗi • Tự chuyển Dự phòng ${nextBackupIdx + 1}/${allUrls.size}"
-                    channelOsdLogo = currentChannel?.logoUrl ?: currentPosterUrl
-                    channelOsdVisible = true
-                    channelOsdJob?.cancel()
-                    channelOsdJob = scope.launch {
-                        delay(4000)
-                        channelOsdVisible = false
-                    }
                 } else {
-                    errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
+                    if (!isLive) {
+                        errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
+                    }
                     errorRetryJob?.cancel()
                     errorRetryJob = scope.launch {
                         delay(2500)

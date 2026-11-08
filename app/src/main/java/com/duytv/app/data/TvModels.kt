@@ -92,7 +92,7 @@ object MatchStateHelper {
         }
 
         val diffMs = matchMillis - nowMillis
-        val matchDurationMs = 120 * 60 * 1000L // Thời lượng trận đấu tối đa: 120 phút
+        val matchDurationMs = 115 * 60 * 1000L // Thời lượng trận đấu tối đa: 115 phút (xóa ngay trận đã hết live)
 
         return when {
             diffMs > 0 -> {
