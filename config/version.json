@@ -1,7 +1,7 @@
 {
-  "versionCode": 25,
-  "versionName": "1.9.0",
+  "versionCode": 26,
+  "versionName": "1.9.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• 🛡️ Lá Chắn Chặn 100% Quảng Cáo Giữa Phim (HLS Ad-Block Engine): tự động bóc tách và cắt bỏ toàn bộ phân đoạn quảng cáo chèn trong luồng .m3u8 (KKPhim, OPhim, NguonC, CoBePhim) để phát phim liên tục không ngắt quãng\n• 🎙️ AI Lồng Tiếng Đa Nhân Vật Cảm Xúc (4 vai: Nam Chính Trầm Ấm, Nữ Chính Truyền Cảm, Thiếu Niên, Trưởng Bối + 4 sắc thái cảm xúc: Kịch tính, Xúc động, Ngạc nhiên, Tự nhiên) kèm tự động hạ nhạc nền phim xuống 22% (Audio Ducking chuẩn rạp)\n• 🔧 Vá triệt để 5 lỗi từ log Tivi Sharp: chống tràn VRAM EGL_BAD_ALLOC (12291), chuẩn hóa phụ đề SRT/WebVTT 0 lỗi, và tối ưu Launcher 0 rớt khung hình"
+  "releaseNotes": "• 🛡️ Lá Chắn Chặn 100% Quảng Cáo Giữa Phim (HLS Ad-Block Engine): tự động bóc tách và cắt bỏ toàn bộ phân đoạn quảng cáo chèn trong luồng .m3u8 (KKPhim, OPhim, NguonC, CoBePhim) để phát phim liên tục không ngắt quãng\n• 🧹 Gỡ bỏ tính năng đọc phụ đề bằng giọng AI để giữ nguyên âm thanh gốc chuẩn điện ảnh và các luồng Thuyết Minh / Lồng Tiếng thật\n• 🔧 Vá triệt để 5 lỗi từ log Tivi Sharp: chống tràn VRAM EGL_BAD_ALLOC (12291), chuẩn hóa phụ đề SRT/WebVTT 0 lỗi, và tối ưu Launcher 0 rớt khung hình"
 }
