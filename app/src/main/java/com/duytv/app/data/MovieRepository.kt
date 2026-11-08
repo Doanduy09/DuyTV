@@ -1952,46 +1952,93 @@ class MovieRepository {
         return "data:application/x-subrip;base64,$encoded"
     }
 
-    suspend fun getVietnameseSubtitle(imdbId: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolveImdbIdByTitle(originName: String?, movieTitle: String?, year: Int?): String? = withContext(Dispatchers.IO) {
+        val targetYear = year ?: 0
+        val queries = listOf(originName?.trim().orEmpty(), movieTitle?.trim().orEmpty()).filter { it.length >= 2 }.distinct()
+        for (q in queries) {
+            try {
+                val cleanQ = q.replace(Regex("\\([^)]*\\)"), "").trim()
+                val encoded = URLEncoder.encode(cleanQ, "UTF-8").replace("+", "%20")
+                val firstChar = cleanQ.firstOrNull { it.isLetterOrDigit() }?.lowercaseChar() ?: 'x'
+                val url = "https://v3.sg.media-imdb.com/suggestion/$firstChar/$encoded.json"
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val json = res.body?.string() ?: continue
+                    val root = JsonParser.parseString(json).asJsonObject
+                    if (root.has("d") && root.get("d").isJsonArray) {
+                        val arr = root.getAsJsonArray("d")
+                        var fallbackId: String? = null
+                        for (elem in arr) {
+                            val obj = elem.asJsonObject
+                            val id = if (obj.has("id")) obj.get("id").asString else ""
+                            if (!id.startsWith("tt")) continue
+                            if (fallbackId == null) fallbackId = id
+                            val itemYear = if (obj.has("y") && !obj.get("y").isJsonNull) {
+                                try { obj.get("y").asInt } catch (_: Exception) { 0 }
+                            } else 0
+                            if (targetYear <= 0 || itemYear == 0 || kotlin.math.abs(itemYear - targetYear) <= 1) {
+                                return@withContext id
+                            }
+                        }
+                        if (fallbackId != null) return@withContext fallbackId
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        null
+    }
+
+    suspend fun getVietnameseSubtitle(imdbId: String, episodeNumber: Int = 0): String? = withContext(Dispatchers.IO) {
         if (imdbId.isBlank()) return@withContext null
-        try {
-            val url = "https://opensubtitles-v3.strem.io/subtitles/movie/$imdbId.json"
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
-                .build()
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                val json = res.body?.string() ?: return@withContext null
-                val jsonTree = JsonParser.parseString(json).asJsonObject
-                if (jsonTree.has("subtitles") && jsonTree.get("subtitles").isJsonArray) {
-                    val subs = jsonTree.getAsJsonArray("subtitles")
-                    for (sub in subs) {
-                        val obj = sub.asJsonObject
-                        val lang = if (obj.has("lang")) obj.get("lang").asString else ""
-                        if (lang.equals("vie", ignoreCase = true) || lang.equals("vi", ignoreCase = true)) {
-                            if (obj.has("url")) {
-                                val subUrl = obj.get("url").asString
-                                try {
-                                    val subReq = Request.Builder()
-                                        .url(subUrl)
-                                        .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
-                                        .build()
-                                    val subRes = client.newCall(subReq).execute()
-                                    if (subRes.isSuccessful) {
-                                        val rawSub = subRes.body?.string()
-                                        if (!rawSub.isNullOrBlank()) {
-                                            sanitizeToCanonicalSrtDataUri(rawSub)?.let { return@withContext it }
+        val candidateUrls = mutableListOf<String>()
+        if (episodeNumber > 0) {
+            candidateUrls.add("https://opensubtitles-v3.strem.io/subtitles/series/${imdbId}:1:${episodeNumber}.json")
+        }
+        candidateUrls.add("https://opensubtitles-v3.strem.io/subtitles/movie/$imdbId.json")
+
+        for (url in candidateUrls) {
+            try {
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val json = res.body?.string() ?: continue
+                    val jsonTree = JsonParser.parseString(json).asJsonObject
+                    if (jsonTree.has("subtitles") && jsonTree.get("subtitles").isJsonArray) {
+                        val subs = jsonTree.getAsJsonArray("subtitles")
+                        for (sub in subs) {
+                            val obj = sub.asJsonObject
+                            val lang = if (obj.has("lang")) obj.get("lang").asString else ""
+                            if (lang.equals("vie", ignoreCase = true) || lang.equals("vi", ignoreCase = true)) {
+                                if (obj.has("url")) {
+                                    val subUrl = obj.get("url").asString
+                                    try {
+                                        val subReq = Request.Builder()
+                                            .url(subUrl)
+                                            .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                                            .build()
+                                        val subRes = client.newCall(subReq).execute()
+                                        if (subRes.isSuccessful) {
+                                            val rawSub = subRes.body?.string()
+                                            if (!rawSub.isNullOrBlank()) {
+                                                sanitizeToCanonicalSrtDataUri(rawSub)?.let { return@withContext it }
+                                            }
                                         }
-                                    }
-                                } catch (_: Exception) {}
-                                return@withContext subUrl
+                                    } catch (_: Exception) {}
+                                    return@withContext subUrl
+                                }
                             }
                         }
                     }
                 }
-            }
-        } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
         null
     }
 

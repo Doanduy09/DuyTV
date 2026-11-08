@@ -67,18 +67,28 @@ fun MovieDetailScreen(
         scope.launch {
             val res = repository.getMovieDetail(slug)
             detailResponse = res
+            isLoading = false
 
-            // Check if there is an IMDb code to prefetch Vietnamese subtitles
-            val imdb = if (slug.startsWith("torrent_")) {
+            // Tự động tìm mã IMDb và tải phụ đề tiếng Việt cho TẤT CẢ các nguồn phim (KKPhim, OPhim, NguonC, Torrent...)
+            // để phục vụ cả hiển thị Phụ đề lẫn tính năng AI Lồng Tiếng Đa Nhân Vật Cảm Xúc
+            val explicitImdb = if (slug.startsWith("torrent_")) {
                 slug.split("_").getOrNull(2)
             } else null
 
-            if (!imdb.isNullOrBlank()) {
-                val subUrl = repository.getVietnameseSubtitle(imdb)
+            val resolvedImdb = if (!explicitImdb.isNullOrBlank()) {
+                explicitImdb
+            } else if (res?.movie != null) {
+                repository.resolveImdbIdByTitle(
+                    originName = res.movie.originName,
+                    movieTitle = res.movie.name,
+                    year = res.movie.year
+                )
+            } else null
+
+            if (!resolvedImdb.isNullOrBlank()) {
+                val subUrl = repository.getVietnameseSubtitle(resolvedImdb)
                 vietnameseSubtitleUrl = subUrl
             }
-
-            isLoading = false
         }
     }
 

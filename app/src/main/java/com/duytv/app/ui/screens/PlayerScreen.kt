@@ -250,11 +250,25 @@ fun PlayerScreen(
     var isDrcVoiceEnabled by remember { mutableStateOf(false) }
     var zeroStallFailoverEnabled by remember { mutableStateOf(true) }
     var autoSkipIntroEnabled by remember { mutableStateOf(true) }
+    var isHlsAdBlockEnabled by remember { mutableStateOf(com.duytv.app.util.HlsAdBlockEngine.isEnabled) }
+    var adsBlockedSessionCount by remember { mutableIntStateOf(com.duytv.app.util.HlsAdBlockEngine.totalAdsBlocked.get()) }
+    var aiDubMode by remember { mutableStateOf(com.duytv.app.util.AiDubMode.OFF) }
+    var aiDubLiveStatus by remember { mutableStateOf<String?>(null) }
+    var activeSubtitleData by remember(subtitleUrl) { mutableStateOf(subtitleUrl) }
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickActionTab by remember { mutableIntStateOf(0) }
     var stallTimerJob by remember { mutableStateOf<Job?>(null) }
     var isCurrentChannelFav by remember(currentTitle) {
         mutableStateOf(AppCacheManager.isFavoriteChannel(currentTitle))
+    }
+
+    DisposableEffect(Unit) {
+        com.duytv.app.util.HlsAdBlockEngine.onAdBlockedCallback = { total ->
+            adsBlockedSessionCount = total
+        }
+        onDispose {
+            com.duytv.app.util.HlsAdBlockEngine.onAdBlockedCallback = null
+        }
     }
 
     LaunchedEffect(currentTitle) {
@@ -423,12 +437,11 @@ fun PlayerScreen(
                 }
             }
 
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent(userAgent)
-                .setDefaultRequestProperties(headers)
-                .setConnectTimeoutMs(6000)
-                .setReadTimeoutMs(15000)
-                .setAllowCrossProtocolRedirects(true)
+            val combinedDataSourceFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+                context = context,
+                userAgent = userAgent,
+                headers = headers
+            )
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
             if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.substringBefore("?").endsWith(".ts")) {
@@ -465,7 +478,6 @@ fun PlayerScreen(
             }
 
             val mediaItem = mediaItemBuilder.build()
-            val combinedDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, dataSourceFactory)
             val mediaSourceFactory = DefaultMediaSourceFactory(combinedDataSourceFactory)
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
@@ -533,16 +545,60 @@ fun PlayerScreen(
 
     if (exoPlayer == null) return
 
-    // Track playback position & Save history mỗi 10s (bỏ qua nếu đang xem luồng trực tiếp / TV)
-    LaunchedEffect(exoPlayer) {
+    val aiDubbingEngine = remember(exoPlayer) {
+        com.duytv.app.util.AiVoiceDubbingEngine(
+            context = context,
+            scope = scope,
+            moviePlayer = exoPlayer,
+            onStatusUpdate = { status ->
+                aiDubLiveStatus = status
+            }
+        )
+    }
+
+    // Tự động nạp kịch bản phụ đề tiếng Việt cho AI Lồng Tiếng Đa Nhân Vật (kể cả khi mở phim từ Lịch sử hoặc KKPhim/OPhim/NguonC)
+    LaunchedEffect(activeSubtitleData, slug, currentEpisodeName, isLive) {
+        if (!isLive) {
+            if (!activeSubtitleData.isNullOrBlank()) {
+                aiDubbingEngine.loadSubtitleScript(activeSubtitleData)
+            } else if (repository != null) {
+                try {
+                    val detail = repository.getMovieDetail(slug)
+                    val m = detail?.movie
+                    val epNum = Regex("(\\d+)").find(currentEpisodeName)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                    val explicitImdb = if (slug.startsWith("torrent_")) slug.split("_").getOrNull(2) else null
+                    val imdbId = if (!explicitImdb.isNullOrBlank()) {
+                        explicitImdb
+                    } else if (m != null) {
+                        repository.resolveImdbIdByTitle(m.originName, m.name, m.year)
+                    } else {
+                        repository.resolveImdbIdByTitle(currentTitle, currentTitle, 0)
+                    }
+                    if (!imdbId.isNullOrBlank()) {
+                        val fetchedSub = repository.getVietnameseSubtitle(imdbId, epNum)
+                        if (!fetchedSub.isNullOrBlank()) {
+                            activeSubtitleData = fetchedSub
+                            aiDubbingEngine.loadSubtitleScript(fetchedSub)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    // Track playback position & đồng bộ AI Lồng Tiếng Đa Nhân Vật mỗi 250ms
+    LaunchedEffect(exoPlayer, aiDubbingEngine) {
         var tickCount = 0
         while (true) {
-            delay(1000)
+            delay(250)
             if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
                 currentPosMs = exoPlayer.currentPosition
                 totalDurationMs = maxOf(1L, exoPlayer.duration)
+                if (!isLive) {
+                    aiDubbingEngine.onPlaybackPositionTick(currentPosMs, exoPlayer.isPlaying)
+                }
                 tickCount++
-                if (!isLive && tickCount % 10 == 0) {
+                if (!isLive && tickCount % 40 == 0) {
                     WatchHistoryManager.saveProgress(
                         context = context,
                         slug = slug,
@@ -682,19 +738,25 @@ fun PlayerScreen(
             )
 
             try {
-                val dsFactory = DefaultHttpDataSource.Factory()
-                    .setUserAgent("Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0")
-                    .setConnectTimeoutMs(8000)
-                    .setReadTimeoutMs(20000)
-                    .setAllowCrossProtocolRedirects(true)
+                val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+                    context = context,
+                    userAgent = "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0",
+                    headers = emptyMap()
+                )
                 val msFactory = DefaultMediaSourceFactory(dsFactory)
                 val mediaItemB = MediaItem.Builder().setUri(nextUrl)
                 if (nextUrl.contains(".m3u8") || nextUrl.contains("/hls/")) {
                     mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
                 }
-                if (!subtitleUrl.isNullOrBlank()) {
-                    val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                        .setMimeType(if (subtitleUrl.endsWith(".vtt")) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP)
+                val currentSub = activeSubtitleData ?: subtitleUrl
+                if (!currentSub.isNullOrBlank()) {
+                    val subMime = when {
+                        currentSub.startsWith("data:application/x-subrip") -> MimeTypes.APPLICATION_SUBRIP
+                        currentSub.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+                        else -> MimeTypes.APPLICATION_SUBRIP
+                    }
+                    val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(currentSub))
+                        .setMimeType(subMime)
                         .setLanguage("vi")
                         .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                         .build()
@@ -757,6 +819,16 @@ fun PlayerScreen(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                if (!playing) {
+                    aiDubbingEngine.stopSpeaking()
+                }
+            }
+
+            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                val firstText = cueGroup.cues.firstOrNull()?.text?.toString()
+                if (!firstText.isNullOrBlank()) {
+                    aiDubbingEngine.onRealtimeCueText(firstText)
+                }
             }
 
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -812,6 +884,9 @@ fun PlayerScreen(
                     context, slug, currentTitle, currentEpisodeName, currentStreamUrl, currentPosterUrl, pos, dur, forceSave = true
                 )
             }
+            try {
+                aiDubbingEngine.release()
+            } catch (_: Exception) {}
             try {
                 loudnessEnhancer?.release()
             } catch (_: Exception) {}
@@ -1794,7 +1869,24 @@ fun PlayerScreen(
                                 }
                             }
                             1 -> {
-                                // 🎧 TAB ÂM THANH
+                                // 🎧 TAB ÂM THANH & AI LỒNG TIẾNG
+                                if (!isLive) {
+                                    SettingSectionHeader("🎙️ AI LỒNG TIẾNG ĐA NHÂN VẬT CẢM XÚC (TỰ HẠ NHẠC NỀN 22%)")
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                        com.duytv.app.util.AiDubMode.values().forEach { mode ->
+                                            SettingChoicePill(
+                                                title = mode.label,
+                                                isSelected = (aiDubMode == mode),
+                                                modifier = Modifier.weight(1f),
+                                                onClick = {
+                                                    aiDubMode = mode
+                                                    aiDubbingEngine.setDubMode(mode, currentTitle)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
                                 SettingSectionHeader("🔊 KHUẾCH ĐẠI ÂM LƯỢNG DSP (PHẦN CỨNG)")
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                     listOf(100 to "100% GỐC", 150 to "150% TO RÕ", 200 to "200% CỰC ĐẠI").forEach { (boost, label) ->
@@ -1854,6 +1946,28 @@ fun PlayerScreen(
                             }
                             2 -> {
                                 // ⚡ TAB TỐC ĐỘ & LUỒNG
+                                SettingSectionHeader("🛡️ LÁ CHẮN DIỆT 100% QUẢNG CÁO CHÈN GIỮA PHIM (HLS AD-BLOCK)")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    SettingChoicePill(
+                                        title = "🛡️ BẬT CHẶN 100% QUẢNG CÁO (ĐÃ DIỆT $adsBlockedSessionCount QC)",
+                                        isSelected = isHlsAdBlockEnabled,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            isHlsAdBlockEnabled = true
+                                            com.duytv.app.util.HlsAdBlockEngine.isEnabled = true
+                                        }
+                                    )
+                                    SettingChoicePill(
+                                        title = "TẮT",
+                                        isSelected = !isHlsAdBlockEnabled,
+                                        modifier = Modifier.weight(0.4f),
+                                        onClick = {
+                                            isHlsAdBlockEnabled = false
+                                            com.duytv.app.util.HlsAdBlockEngine.isEnabled = false
+                                        }
+                                    )
+                                }
+
                                 SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                     listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
@@ -1972,6 +2086,33 @@ fun PlayerScreen(
                     .fillMaxSize()
                     .background(Color(0x28FF8F00))
             )
+        }
+
+        // 🎙️ Thẻ nổi hiển thị câu thoại & vai nhân vật khi đang bật AI Lồng Tiếng Đa Nhân Vật Cảm Xúc
+        AnimatedVisibility(
+            visible = !isLive && aiDubMode != com.duytv.app.util.AiDubMode.OFF && !aiDubLiveStatus.isNullOrBlank() && !isScreenOffAudioMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 28.dp, end = 36.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xD90F172A))
+                    .border(1.5.dp, Color(0xFF00E676), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = aiDubLiveStatus ?: "",
+                    color = Color(0xFF00E676),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
         }
 
         // ⏭️ Thẻ nổi "Sắp Qua Tập Tiếp Theo" ở 20 giây cuối của tập phim
@@ -2142,7 +2283,69 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
-                        if (!subtitleUrl.isNullOrBlank()) {
+                        if (!isLive) {
+                            // 🛡️ Nút Lá Chắn Chặn 100% Quảng Cáo HLS
+                            val adInter = remember { MutableInteractionSource() }
+                            val isAdFoc by adInter.collectIsFocusedAsState()
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isAdFoc) AccentRed else if (isHlsAdBlockEnabled) Color(0xFF0D3B2E) else Color(0xFF222938))
+                                    .border(1.5.dp, if (isAdFoc) Color.White else if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
+                                    .focusable(interactionSource = adInter)
+                                    .clickable(interactionSource = adInter, indication = null) {
+                                        val nextAdState = !isHlsAdBlockEnabled
+                                        isHlsAdBlockEnabled = nextAdState
+                                        com.duytv.app.util.HlsAdBlockEngine.isEnabled = nextAdState
+                                        aspectBadgeText = if (nextAdState) "🛡️ ĐÃ BẬT LÁ CHẮN CHẶN 100% QUẢNG CÁO GIỮA PHIM" else "Đã tắt chặn quảng cáo"
+                                        scope.launch {
+                                            delay(2200)
+                                            aspectBadgeText = null
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (isHlsAdBlockEnabled) "🛡️ DIỆT QC${if (adsBlockedSessionCount > 0) " ($adsBlockedSessionCount)" else ": BẬT"}" else "🛡️ DIỆT QC: TẮT",
+                                    color = if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+
+                            // 🎙️ Nút Bật/Đổi Giọng AI Lồng Tiếng Đa Nhân Vật Cảm Xúc
+                            val dubInter = remember { MutableInteractionSource() }
+                            val isDubFoc by dubInter.collectIsFocusedAsState()
+                            val isDubActive = aiDubMode != com.duytv.app.util.AiDubMode.OFF
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isDubFoc) AccentRed else if (isDubActive) Color(0xFF1E3A8A) else Color(0xFF222938))
+                                    .border(1.5.dp, if (isDubFoc) Color.White else if (isDubActive) Color(0xFF38BDF8) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
+                                    .focusable(interactionSource = dubInter)
+                                    .clickable(interactionSource = dubInter, indication = null) {
+                                        val nextMode = aiDubbingEngine.cycleDubMode(currentTitle)
+                                        aiDubMode = nextMode
+                                        aspectBadgeText = nextMode.badge
+                                        scope.launch {
+                                            delay(2400)
+                                            aspectBadgeText = null
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (isDubActive) "🎙️ AI LỒNG TIẾNG: ${aiDubMode.label}" else "🎙️ BẬT AI LỒNG TIẾNG",
+                                    color = if (isDubActive) Color(0xFF38BDF8) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        if (!activeSubtitleData.isNullOrBlank()) {
                             Box(
                                 modifier = Modifier
                                     .background(Color(0xFF00E676), RoundedCornerShape(4.dp))
@@ -2436,7 +2639,21 @@ fun PlayerScreen(
                                     onClick = { playVodEpisodeAt(currentEpisodeIndex + 1, isAutoAdvance = false) }
                                 )
                             }
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            QuickSeekPill(
+                                text = if (aiDubMode != com.duytv.app.util.AiDubMode.OFF) "🎙️ AI: ${aiDubMode.label}" else "🎙️ AI LỒNG TIẾNG",
+                                highlight = (aiDubMode != com.duytv.app.util.AiDubMode.OFF),
+                                onClick = {
+                                    val nextMode = aiDubbingEngine.cycleDubMode(currentTitle)
+                                    aiDubMode = nextMode
+                                    aspectBadgeText = nextMode.badge
+                                    scope.launch {
+                                        delay(2400)
+                                        aspectBadgeText = null
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
                             QuickSeekPill(
                                 text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
                                 onClick = { cyclePlaybackSpeed() }

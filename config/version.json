@@ -1,7 +1,7 @@
 {
-  "versionCode": 24,
-  "versionName": "1.8.1",
+  "versionCode": 25,
+  "versionName": "1.9.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• 🛡️ Vá triệt để lỗi tràn bộ nhớ đồ họa EGL_BAD_ALLOC (12291) trên GPU MediaTek mt5891 bằng cơ chế RGB_565 + tự động giải phóng VRAM trước khi phát video\n• 🇻🇳 Chuẩn hóa phụ đề tiếng Việt (SRT/WebVTT) sang chuẩn SubRip thực thụ, loại bỏ 100% lỗi Skipping invalid timing / invalid index\n• ⚡ Tăng tốc Launcher: loại bỏ nạp lặp 24MB Icon vào Large Object Space và ép chuẩn phần cứng JPEG Decoder (0 frame drop)\n• ⚽ 6 nguồn Bóng Đá Trực Tiếp Đa Luồng + Tự động đổi Server dự phòng + Tự động cập nhật Phim Mới"
+  "releaseNotes": "• 🛡️ Lá Chắn Chặn 100% Quảng Cáo Giữa Phim (HLS Ad-Block Engine): tự động bóc tách và cắt bỏ toàn bộ phân đoạn quảng cáo chèn trong luồng .m3u8 (KKPhim, OPhim, NguonC, CoBePhim) để phát phim liên tục không ngắt quãng\n• 🎙️ AI Lồng Tiếng Đa Nhân Vật Cảm Xúc (4 vai: Nam Chính Trầm Ấm, Nữ Chính Truyền Cảm, Thiếu Niên, Trưởng Bối + 4 sắc thái cảm xúc: Kịch tính, Xúc động, Ngạc nhiên, Tự nhiên) kèm tự động hạ nhạc nền phim xuống 22% (Audio Ducking chuẩn rạp)\n• 🔧 Vá triệt để 5 lỗi từ log Tivi Sharp: chống tràn VRAM EGL_BAD_ALLOC (12291), chuẩn hóa phụ đề SRT/WebVTT 0 lỗi, và tối ưu Launcher 0 rớt khung hình"
 }
