@@ -1,7 +1,7 @@
 {
-  "versionCode": 28,
-  "versionName": "1.9.3",
+  "versionCode": 29,
+  "versionName": "1.9.4",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• Thêm gói kênh truyền hình VIP A3 IPTV chất lượng cao\n• Tối ưu cảm ứng 1-chạm mượt mà, cuộn danh sách và bảng cập nhật OTA trên Tablet Xiaomi"
+  "releaseNotes": "• Ưu tiên 100% luồng truyền hình Full HD 8.5Mbps/1080p lên đầu tiên\n• Tự động loại bỏ link chết, tối ưu 1-chạm mượt mà trên Tablet và Android TV"
 }
