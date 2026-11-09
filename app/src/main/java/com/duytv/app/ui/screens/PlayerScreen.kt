@@ -2558,15 +2558,18 @@ private fun PlayerQuickActionSheet(
     closeFocusRequester: FocusRequester,
     onCloseSheet: () -> Unit
 ) {
+    LaunchedEffect(Unit) {
+        delay(80)
+        try { closeFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xCC0A0E17))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onCloseSheet
-            )
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onCloseSheet() })
+            }
             .padding(horizontal = 20.dp, vertical = 16.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -2578,11 +2581,9 @@ private fun PlayerQuickActionSheet(
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF141923))
                 .border(1.5.dp, Color(0xFF2E384D), RoundedCornerShape(16.dp))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {}
-                )
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = {})
+                }
                 .padding(20.dp)
         ) {
             Row(
@@ -3154,7 +3155,7 @@ private fun createConfiguredExoPlayer(
         .build()
         .apply {
             setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
-            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
+            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
             setMediaSource(mediaSource)
             prepare()
             if (initialPositionMs > 0) {
