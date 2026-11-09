@@ -28,11 +28,13 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
             }
             .build()
 
+        val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(this)
         return ImageLoader.Builder(this)
             .okHttpClient(imageHttpClient)
+            .allowHardware(hwProfile.allowHardwareBitmaps)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.15) // Giới hạn 15% heap cho TV 1.5GB RAM (chống OOM)
+                    .maxSizeBytes(12 * 1024 * 1024) // Giới hạn 12MB RAM tránh tràn GraphicBuffer (EGL_BAD_ALLOC)
                     .build()
             }
             .diskCache {
@@ -42,7 +44,7 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .allowRgb565(true) // Dùng RGB_565 cho ảnh JPEG poster (tiết kiệm 50% RAM) nhưng giữ kênh trong suốt Alpha cho logo PNG truyền hình
-            .crossfade(true)
+            .crossfade(false)
             .respectCacheHeaders(false) // Cache triệt để poster phim & logo kênh để lướt siêu mượt 60fps
             .build()
     }

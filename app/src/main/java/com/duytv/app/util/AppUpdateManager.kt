@@ -70,14 +70,16 @@ object AppUpdateManager {
         }
     }
 
+    // [✅ ĐÃ CHUẨN - CẤM SỬA]: Ưu tiên kiểm tra GitHub Cloud trước để luôn lấy bản mới nhất tức thì,
+    // tránh nghẽn 1.5s-4s khi máy chủ LAN (192.168.1.189:8888) đang tắt hoặc chứa bản cũ.
     suspend fun checkForUpdate(): AppVersionInfo? = withContext(Dispatchers.IO) {
-        // 1. Ưu tiên kiểm tra máy chủ LAN nội bộ (tốc độ tức thì 0.1s trong mạng Wi-Fi gia đình)
+        // 1. Ưu tiên kiểm tra GitHub Cloud (luôn đồng bộ bản mới nhất mọi lúc mọi nơi)
         try {
             val req = Request.Builder()
-                .url("$LAN_VERSION_URL?t=${System.currentTimeMillis()}")
+                .url("$CLOUD_VERSION_URL?t=${System.currentTimeMillis()}")
                 .header("Cache-Control", "no-cache")
                 .build()
-            lanClient.newCall(req).execute().use { res ->
+            cloudClient.newCall(req).execute().use { res ->
                 if (res.isSuccessful) {
                     val body = res.body?.string()
                     if (!body.isNullOrBlank()) {
@@ -90,13 +92,13 @@ object AppUpdateManager {
             }
         } catch (_: Exception) {}
 
-        // 2. Fallback tự động lên GitHub Cloud (hoạt động mọi lúc mọi nơi qua Internet/4G/Wi-Fi)
+        // 2. Fallback sang máy chủ LAN nội bộ nếu mất kết nối Internet ra GitHub
         try {
             val req = Request.Builder()
-                .url("$CLOUD_VERSION_URL?t=${System.currentTimeMillis()}")
+                .url("$LAN_VERSION_URL?t=${System.currentTimeMillis()}")
                 .header("Cache-Control", "no-cache")
                 .build()
-            cloudClient.newCall(req).execute().use { res ->
+            lanClient.newCall(req).execute().use { res ->
                 if (res.isSuccessful) {
                     val body = res.body?.string()
                     if (!body.isNullOrBlank()) {
@@ -124,8 +126,8 @@ object AppUpdateManager {
         } catch (_: Exception) {}
 
         val candidateUrls = listOfNotNull(
-            versionInfo.apkUrlLan.takeIf { it.isNotBlank() },
-            versionInfo.apkUrlCloud.takeIf { it.isNotBlank() }
+            versionInfo.apkUrlCloud.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" },
+            versionInfo.apkUrlLan.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" }
         )
 
         var downloadedSuccess = false

@@ -119,7 +119,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                 }
                 .build()
-            coil.Coil.setImageLoader(imageLoader)
+            // [✅ ĐÃ CHUẨN - CẤM SỬA]: Không gọi setImageLoader ở đây để giữ nguyên cấu hình chuẩn tại DuyTvApplication.newImageLoader()
         } catch (_: Exception) {}
 
         handleLauncherIntent(intent)

@@ -108,7 +108,19 @@ fun MovieDetailScreen(
 
             if (movie == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Không tìm thấy thông tin phim", color = TextWhite)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Không tìm thấy thông tin phim", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AccentRed)
+                                .clickable { onBack() }
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                        ) {
+                            Text("QUAY LẠI", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
                 return
             }

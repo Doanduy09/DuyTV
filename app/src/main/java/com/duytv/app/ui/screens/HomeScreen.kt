@@ -234,7 +234,9 @@ fun HomeScreen(
         }
     }
 
-    var lastAutoSyncMillis by remember { mutableLongStateOf(0L) }
+    // [✅ ĐÃ CHUẨN - CẤM SỬA]: Khởi tạo lastAutoSyncMillis = System.currentTimeMillis() để tránh ON_RESUME
+    // chạy trùng lặp reloadAllMovies() lần thứ 2 ngay lúc vừa mở app.
+    var lastAutoSyncMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var lastAutoPromptedVersionCode by remember { mutableIntStateOf(currentVersionCode) }
 
     fun checkAndPromptGitHubUpdate() {
@@ -255,7 +257,6 @@ fun HomeScreen(
         RemoteConfigManager.loadLocalCustomSources(context)
         watchHistory = WatchHistoryManager.getHistory(context)
         favoriteMoviesList = AppCacheManager.favoriteMovies
-        checkAndPromptGitHubUpdate()
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
             lastAutoSyncMillis = System.currentTimeMillis()
