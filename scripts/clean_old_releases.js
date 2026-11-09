@@ -104,6 +104,37 @@ async function run() {
         }
     } catch {}
 
+    // 5. Xóa toàn bộ lịch sử Workflow Runs cũ đã hoàn tất (Completed) trong tab GitHub Actions,
+    // chỉ giữ lại các tiến trình đang chạy (in_progress/queued) hoặc KEEP_COUNT bản chạy mới nhất.
+    try {
+        const runsData = await ghApi('/actions/runs?per_page=100');
+        const runs = (runsData && runsData.workflow_runs) || [];
+        runs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        const currentRunId = process.env.GITHUB_RUN_ID ? Number(process.env.GITHUB_RUN_ID) : null;
+        const activeRuns = runs.filter(r => r.status !== 'completed' || r.id === currentRunId);
+        const completedRuns = runs.filter(r => r.status === 'completed' && r.id !== currentRunId);
+
+        const keepCompletedCount = activeRuns.length > 0 ? 0 : KEEP_COUNT;
+        const runsToDelete = completedRuns.slice(keepCompletedCount);
+
+        if (runsToDelete.length > 0) {
+            console.log(`\n⚡ Đang dọn sạch ${runsToDelete.length} bản build cũ trong GitHub Actions...`);
+            for (const runItem of runsToDelete) {
+                try {
+                    await ghApi(`/actions/runs/${runItem.id}`, { method: 'DELETE' });
+                    console.log(`   🗑️ Đã xóa Workflow Run #${runItem.run_number}: ${runItem.display_title || runItem.name}`);
+                } catch (err) {
+                    console.error(`   ⚠️ Không thể xóa Workflow Run ${runItem.id}: ${err.message}`);
+                }
+            }
+        } else {
+            console.log(`\n✅ Danh sách Workflow Runs trong Actions đã gọn gàng.`);
+        }
+    } catch (err) {
+        console.error(`   ⚠️ Không thể dọn Workflow Runs: ${err.message}`);
+    }
+
     console.log(`\n✨ Hoàn tất làm sạch GitHub! Hiện chỉ giữ lại ${toKeep.length} bản mới nhất.`);
 }
 

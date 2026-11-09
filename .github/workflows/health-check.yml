@@ -12,10 +12,18 @@ jobs:
     permissions:
       issues: write
       contents: read
+      actions: write
 
     steps:
       - name: Tải mã nguồn repository
         uses: actions/checkout@v4
+
+      - name: Dọn sạch các lịch sử chạy cũ trước khi kiểm tra
+        run: node scripts/clean_old_releases.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          KEEP_RELEASES: '1'
 
       - name: Cài đặt Node.js môi trường kiểm thử
         uses: actions/setup-node@v4

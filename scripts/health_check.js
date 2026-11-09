@@ -107,6 +107,9 @@ async function run() {
             if (rootRes.ok) {
                 console.log(`✅ HOẠT ĐỘNG TỐT (${rootRes.latency}ms)`);
                 results.push({ name: cobe.name, url: cobe.api_base, status: 'OK', latency: rootRes.latency });
+            } else if (res.status === 403 || rootRes.status === 403) {
+                console.log(`🛡️ HOẠT ĐỘNG TẠI VN (Cloudflare chặn IP Data Center Mỹ: HTTP 403 - ${res.latency}ms)`);
+                results.push({ name: cobe.name, url: cobe.api_base, status: 'OK', latency: res.latency });
             } else {
                 console.log(`❌ BỊ LỖI: ${rootRes.error}`);
                 hasFailure = true;

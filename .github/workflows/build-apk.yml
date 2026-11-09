@@ -26,10 +26,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
       - name: Tải mã nguồn repository
         uses: actions/checkout@v4
+
+      - name: Dọn sạch các bản Build (Workflow Runs) & Release cũ trước khi Build
+        run: node scripts/clean_old_releases.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          KEEP_RELEASES: ${{ github.event.inputs.keep_releases || '1' }}
 
       - name: Đọc thông tin phiên bản từ config/version.json
         id: version_info
