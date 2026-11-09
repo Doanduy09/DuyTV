@@ -639,9 +639,14 @@ private fun PlayerScreenContent(
         while (true) {
             delay(1000)
             if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
-                currentPosMs = exoPlayer.currentPosition
-                totalDurationMs = maxOf(1L, exoPlayer.duration)
+                val livePos = exoPlayer.currentPosition
+                val liveDur = maxOf(1L, exoPlayer.duration)
                 tickCount++
+                // Chỉ cập nhật biến State UI khi mở HUD hoặc ở 50s cuối tập phim (giảm 98% Recomposition nền khi xem TV/Phim)
+                if (!isLive && (showControls || (liveDur - livePos) <= 50_000L || tickCount % 10 == 0)) {
+                    currentPosMs = livePos
+                    totalDurationMs = liveDur
+                }
 
                 // #7 Cảm biến phát hiện "Đứng hình ngầm" 6s khi xem IPTV / Bóng đá
                 if (isLive && zeroStallFailoverEnabled && exoPlayer.playbackState == Player.STATE_READY) {
@@ -653,9 +658,15 @@ private fun PlayerScreenContent(
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
                                 AppCacheManager.markStreamFailed(currentStreamUrl)
-                                val nextIdx = (currentBackupIndex + 1) % allUrls.size
+                                val backupCandidates = allUrls.filterNot { it == currentStreamUrl }
+                                val fastestUrl = com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                val nextIdx = if (fastestUrl != null) {
+                                    allUrls.indexOf(fastestUrl).takeIf { it >= 0 } ?: ((currentBackupIndex + 1) % allUrls.size)
+                                } else {
+                                    (currentBackupIndex + 1) % allUrls.size
+                                }
                                 currentBackupIndex = nextIdx
-                                aspectBadgeText = "🛡️ Phát hiện đứng hình: Tự đổi sang Nguồn ${nextIdx + 1}/${allUrls.size}"
+                                aspectBadgeText = "🛡️ Phát hiện đứng hình: Tự đổi sang Nguồn nhanh nhất (${nextIdx + 1}/${allUrls.size})"
                                 loadLiveStreamUrl(allUrls[nextIdx])
                             }
                         }
@@ -669,8 +680,8 @@ private fun PlayerScreenContent(
                 }
 
                 // #11 Tự nạp trước tập tiếp theo khi còn 45 giây cuối (Pre-warm HLS Manifest & khử tập trùng)
-                if (!isLive && preWarmedEpisodeUrl == null && totalDurationMs > 120_000L &&
-                    (totalDurationMs - currentPosMs) in 10_000L..45_000L
+                if (!isLive && preWarmedEpisodeUrl == null && liveDur > 120_000L &&
+                    (liveDur - livePos) in 10_000L..45_000L
                 ) {
                     val nextEp = availableEpisodes.getOrNull(currentEpisodeIndex + 1)
                     if (nextEp != null) {
@@ -704,8 +715,8 @@ private fun PlayerScreenContent(
                         episodeName = currentEpisodeName,
                         streamUrl = currentStreamUrl,
                         posterUrl = currentPosterUrl,
-                        positionMs = currentPosMs,
-                        durationMs = totalDurationMs
+                        positionMs = livePos,
+                        durationMs = liveDur
                     )
                 }
             }

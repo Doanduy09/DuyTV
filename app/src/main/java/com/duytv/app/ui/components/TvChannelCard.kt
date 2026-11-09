@@ -23,7 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.duytv.app.data.TvChannel
 import com.duytv.app.ui.theme.AccentRed
 import com.duytv.app.ui.theme.CardBg
@@ -100,10 +102,18 @@ fun TvChannelCard(
         ) {
             Spacer(modifier = Modifier.height(2.dp))
 
-            // Channel Logo centered large & crisp like TV Dock
+            // Channel Logo centered large & crisp like TV Dock (giới hạn decode 240x160 giữ kênh Alpha PNG)
             if (!channel.logoUrl.isNullOrBlank() && !logoFailed) {
+                val context = LocalContext.current
+                val logoRequest = remember(channel.logoUrl) {
+                    ImageRequest.Builder(context)
+                        .data(channel.logoUrl)
+                        .size(240, 160)
+                        .allowRgb565(false)
+                        .build()
+                }
                 AsyncImage(
-                    model = channel.logoUrl,
+                    model = logoRequest,
                     contentDescription = channel.name,
                     onError = { logoFailed = true },
                     modifier = Modifier

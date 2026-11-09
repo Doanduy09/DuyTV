@@ -30,18 +30,24 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
             .build()
 
         val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(this)
+        val ramCacheBytes = when {
+            hwProfile.isLowRamDevice -> 12 * 1024 * 1024 // 12MB RAM cho TV RAM thấp tránh tràn GraphicBuffer (EGL_BAD_ALLOC)
+            hwProfile.totalRamMb >= 5500L -> 64 * 1024 * 1024 // 64MB RAM cho Tablet 3.2K 144Hz (Xiaomi Pad 7 Pro) & Z Fold
+            else -> 32 * 1024 * 1024 // 32MB RAM cho thiết bị tầm trung
+        }
+        val diskCacheBytes = if (hwProfile.isLowRamDevice) 50L * 1024 * 1024 else 100L * 1024 * 1024
         return ImageLoader.Builder(this)
             .okHttpClient(imageHttpClient)
             .allowHardware(hwProfile.allowHardwareBitmaps)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizeBytes(12 * 1024 * 1024) // Giới hạn 12MB RAM tránh tràn GraphicBuffer (EGL_BAD_ALLOC)
+                    .maxSizeBytes(ramCacheBytes)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(50L * 1024 * 1024) // 50MB disk cache lưu poster offline
+                    .maxSizeBytes(diskCacheBytes)
                     .build()
             }
             .allowRgb565(true) // Dùng RGB_565 cho ảnh JPEG poster (tiết kiệm 50% RAM) nhưng giữ kênh trong suốt Alpha cho logo PNG truyền hình

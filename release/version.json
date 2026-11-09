@@ -1,7 +1,7 @@
 {
-  "versionCode": 38,
-  "versionName": "2.0.3",
+  "versionCode": 39,
+  "versionName": "2.0.4",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản chính thức v2.0.3 (Build #38): Nâng cấp toàn diện AI nhận diện tự động 100% mọi loại màn hình & thiết bị (TV, Tablet 3.2K 3:2, Z Fold gập/mở, Điện thoại), đua đa luồng Fast-Track chọn Server nhanh nhất, nạp trước tập kế tiếp 0 giây chờ, tự phục hồi giải mã phần cứng MediaCodec và hỗ trợ Picture-in-Picture (PiP)"
+  "releaseNotes": "Bản chính thức v2.0.4 (Build #39): Tối ưu hiệu năng 144Hz/60fps toàn diện theo đánh giá Hội đồng Chuyên gia — giảm 98% tải CPU nền khi phát video, tự động chia cột danh mục theo mọi màn hình, lưu đệm 588 kênh truyền hình 0ms và mở rộng RAM Cache 64MB cho Tablet/Fold"
 }

@@ -357,6 +357,35 @@ fun HomeScreen(
     val horizontalPad = screenConfig.horizontalPaddingDp.dp
     val isTvDeviceCheck = screenConfig.isTv
     val verticalPad = screenConfig.verticalPaddingDp.dp
+    val gridColumns = when {
+        screenConfig.isTv -> 6
+        screenWidthDp >= 900 -> 5
+        screenWidthDp >= 580 -> 4
+        else -> 3
+    }
+
+    // Lưu đệm (Memoize) phân nhóm 588 kênh truyền hình 1 lần duy nhất khi tvSportsData đổi để cuộn 144Hz/60fps 0ms độ trễ
+    val channelGroupsMemo = remember(tvSportsData) {
+        val chs = tvSportsData?.channels ?: emptyList()
+        val vtv = chs.filter {
+            it.groupTitle == "VTV Quốc Gia" || (it.name.startsWith("VTV", ignoreCase = true) && !it.name.startsWith("VTVcab", ignoreCase = true)) || it.name.contains("ANTV") || it.name.contains("QPVN")
+        }
+        val thvl = chs.filter {
+            it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
+        }
+        val htv = chs.filter {
+            it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+        }
+        val vtvcab = chs.filter {
+            it.groupTitle == "Truyền Hình VTVcab" || it.name.startsWith("VTVcab", ignoreCase = true) || it.name.startsWith("ON ", ignoreCase = true)
+        }
+        val quocte = chs.filter {
+            it.groupTitle == "Kênh Quốc Tế VIP"
+        }
+        val used = (vtv + thvl + htv + vtvcab + quocte).map { it.id }.toSet()
+        val tinh = chs.filter { it.id !in used }
+        arrayOf(vtv, thvl, htv, vtvcab, quocte, tinh)
+    }
 
     Box(
         modifier = modifier
@@ -1109,24 +1138,12 @@ fun HomeScreen(
                             val favChannels = sports.channels.filter {
                                 AppCacheManager.isFavoriteChannel(it.name)
                             }
-                            val thvlCount = sports.channels.count {
-                                it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
-                            }
-                            val vtvCount = sports.channels.count {
-                                it.groupTitle == "VTV Quốc Gia" || (it.name.startsWith("VTV", ignoreCase = true) && !it.name.startsWith("VTVcab", ignoreCase = true)) || it.name.contains("ANTV") || it.name.contains("QPVN")
-                            }
-                            val htvCount = sports.channels.count {
-                                it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
-                            }
-                            val vtvcabCount = sports.channels.count {
-                                it.groupTitle == "Truyền Hình VTVcab" || it.name.startsWith("VTVcab", ignoreCase = true) || it.name.startsWith("ON ", ignoreCase = true)
-                            }
-                            val quocteCount = sports.channels.count {
-                                it.groupTitle == "Kênh Quốc Tế VIP"
-                            }
-                            val tinhCount = sports.channels.count {
-                                it.groupTitle == "Đài Tỉnh Thành"
-                            }
+                            val vtvCount = channelGroupsMemo[0].size
+                            val thvlCount = channelGroupsMemo[1].size
+                            val htvCount = channelGroupsMemo[2].size
+                            val vtvcabCount = channelGroupsMemo[3].size
+                            val quocteCount = channelGroupsMemo[4].size
+                            val tinhCount = channelGroupsMemo[5].size
                             val filters = listOf(
                                 "all" to "TẤT CẢ",
                                 "fav" to "⭐ YÊU THÍCH (${favChannels.size})",
@@ -1196,23 +1213,12 @@ fun HomeScreen(
 
                     val showChannels = (tvSubFilter == "all" || tvSubFilter == "fav" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "vtvcab" || tvSubFilter == "quocte" || tvSubFilter == "tinh")
                     val favChannelList = sports.channels.filter { AppCacheManager.isFavoriteChannel(it.name) }
-                    val vtvChannels = sports.channels.filter {
-                        it.groupTitle == "VTV Quốc Gia" || (it.name.startsWith("VTV", ignoreCase = true) && !it.name.startsWith("VTVcab", ignoreCase = true)) || it.name.contains("ANTV") || it.name.contains("QPVN")
-                    }
-                    val thvlChannels = sports.channels.filter {
-                        it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
-                    }
-                    val htvChannels = sports.channels.filter {
-                        it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
-                    }
-                    val vtvcabChannels = sports.channels.filter {
-                        it.groupTitle == "Truyền Hình VTVcab" || it.name.startsWith("VTVcab", ignoreCase = true) || it.name.startsWith("ON ", ignoreCase = true)
-                    }
-                    val quocteChannels = sports.channels.filter {
-                        it.groupTitle == "Kênh Quốc Tế VIP"
-                    }
-                    val usedIds = (vtvChannels + thvlChannels + htvChannels + vtvcabChannels + quocteChannels).map { it.id }.toSet()
-                    val tinhChannels = sports.channels.filter { it.id !in usedIds }
+                    val vtvChannels = channelGroupsMemo[0]
+                    val thvlChannels = channelGroupsMemo[1]
+                    val htvChannels = channelGroupsMemo[2]
+                    val vtvcabChannels = channelGroupsMemo[3]
+                    val quocteChannels = channelGroupsMemo[4]
+                    val tinhChannels = channelGroupsMemo[5]
 
                     if (filteredMatches.isNotEmpty()) {
                         item {
@@ -1344,9 +1350,9 @@ fun HomeScreen(
                         }
                     }
 
-                    // Chunk into rows of 6 cards for TV grid display
-                    val rows = categoryMovies.chunked(6)
-                    itemsIndexed(rows) { index, rowMovies ->
+                    // Chia số cột tự động theo thiết bị (6 cột TV, 5 cột Tablet ngang, 4 cột Fold mở/Tablet dọc, 3 cột Phone dọc)
+                    val rows = categoryMovies.chunked(gridColumns)
+                    itemsIndexed(rows, key = { idx, row -> "cat_row_${idx}_${row.firstOrNull()?.slug ?: idx}" }) { index, rowMovies ->
                         // Auto-load next page when user scrolls near the end of loaded rows
                         if (index >= rows.size - 2 && !isCategoryLoadingMore) {
                             LaunchedEffect(index) {
@@ -1365,8 +1371,8 @@ fun HomeScreen(
                                     modifier = Modifier.weight(1f)
                                 )
                             }
-                            // Fill remaining slots in last row if not multiple of 6
-                            val remaining = 6 - rowMovies.size
+                            // Fill remaining slots in last row
+                            val remaining = gridColumns - rowMovies.size
                             if (remaining > 0) {
                                 for (i in 0 until remaining) {
                                     Spacer(modifier = Modifier.weight(1f))
