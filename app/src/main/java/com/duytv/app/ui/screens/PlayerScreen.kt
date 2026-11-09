@@ -3173,6 +3173,10 @@ private fun buildStreamMediaSource(
 }
 
 @OptIn(UnstableApi::class)
+// [✅ ĐÃ CHUẨN - CẤM SỬA] Bắt buộc giữ nguyên:
+// 1. TrackSelector ưu tiên chất lượng cao nhất (Int.MAX_VALUE + setForceHighestSupportedBitrate(true))
+// 2. setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT) kết hợp với PlayerView RESIZE_MODE_FILL
+//    để co giãn tràn 100% mọi màn hình (16:9, 3:2, 4:3, 20:9, 23:9) không viền đen VÀ không bị cắt mất logo/phụ đề/tỷ số.
 private fun createConfiguredExoPlayer(
     context: Context,
     streamUrl: String,

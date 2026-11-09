@@ -214,8 +214,9 @@ object HardwareOptimizer {
     }
 
     /**
-     * Nhận diện chuẩn xác thiết bị Android TV / TV Box qua Leanback & UiModeManager.
-     * Trả về true nếu là TV (không có thanh trạng thái), false nếu là Phone, Fold hoặc Tablet.
+     * [✅ ĐÃ CHUẨN - CẤM SỬA]
+     * Nhận diện chuẩn xác thiết bị Android TV / TV Box qua Leanback, UiModeManager & Touchscreen.
+     * Trả về true nếu là TV, false nếu là Phone, Fold hoặc Tablet (như Xiaomi Pad 7 Pro 1163dp).
      */
     fun isTvDevice(context: Context): Boolean {
         return try {
@@ -255,6 +256,7 @@ object HardwareOptimizer {
         val gridMinCardWidthDp: Int
     )
 
+    // [✅ ĐÃ CHUẨN - CẤM SỬA] Tự động nhận diện 100% mọi màn hình & thiết bị bằng Pixel thực tế + isTvDevice
     fun detectScreenConfig(context: Context, screenWidthDp: Int, screenHeightDp: Int): ResponsiveScreenConfig {
         val isTv = isTvDevice(context)
         val dm = context.resources.displayMetrics
