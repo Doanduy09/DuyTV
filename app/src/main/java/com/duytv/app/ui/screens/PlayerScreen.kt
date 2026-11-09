@@ -105,8 +105,8 @@ enum class CinematicFilter(val title: String, val desc: String) {
 }
 
 enum class VideoAspectMode(val mode: Int, val label: String, val desc: String) {
-    ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "🌟 TRÀN MÀN HÌNH (100%)", "Xóa sạch 100% viền đen, lấp kín toàn màn hình"),
-    FILL(AspectRatioFrameLayout.RESIZE_MODE_FILL, "↔️ CO GIÃN ĐẦY MÀN HÌNH", "Kéo phẳng vừa khít toàn bộ diện tích tấm nền"),
+    FILL(AspectRatioFrameLayout.RESIZE_MODE_FILL, "↔️ TỰ CO GIÃN TRÀN MÀN HÌNH (100%)", "Tự co giãn theo tỷ lệ mọi màn hình, xóa sạch 100% khúc đen và giữ trọn phụ đề/tỷ số"),
+    ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "🌟 PHÓNG TRÀN VIỀN (CẮT VIỀN)", "Xóa sạch 100% viền đen, lấp kín toàn màn hình"),
     FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT, "📺 VỪA VẶN CHUẨN GỐC", "Giữ nguyên tỷ lệ chuẩn điện ảnh gốc")
 }
 
@@ -339,14 +339,24 @@ private fun PlayerScreenContent(
 
     
 
-    // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) hoặc khôi phục chế độ người dùng đã chọn (#5)
+    // Mặc định tự động CO GIÃN TRÀN MÀN HÌNH 100% KHÔNG KHÚC ĐEN (FILL) theo tỷ lệ mọi màn hình (#5)
     var currentAspectMode by remember {
         val savedName = AppCacheManager.getPreferredAspectModeName(context)
-        val mode = VideoAspectMode.values().firstOrNull { it.name == savedName } ?: VideoAspectMode.ZOOM
+        val mode = VideoAspectMode.values().firstOrNull { it.name == savedName } ?: VideoAspectMode.FILL
         mutableStateOf(mode)
     }
     var aspectBadgeText by remember { mutableStateOf<String?>(null) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+    val currentConfig = LocalConfiguration.current
+
+    // Tự động nhận diện mọi thay đổi kích thước/tỷ lệ màn hình (xoay ngang/dọc, gập/mở Z Fold, Tablet, TV)
+    // để co giãn tràn 100% diện tích màn hình không bị khúc đen
+    LaunchedEffect(currentConfig.screenWidthDp, currentConfig.screenHeightDp, currentConfig.orientation, currentAspectMode) {
+        playerViewRef?.let { pv ->
+            pv.resizeMode = currentAspectMode.mode
+            pv.requestLayout()
+        }
+    }
 
     LaunchedEffect(isNightWarmMode) {
         AppCacheManager.savePreferredNightMode(context, isNightWarmMode)
@@ -804,6 +814,7 @@ private fun PlayerScreenContent(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                MainActivity.notifyPlaybackState(playing)
             }
 
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -822,6 +833,13 @@ private fun PlayerScreenContent(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    errorMessage = null
+                    exoPlayer.seekToDefaultPosition()
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                    return
+                }
                 val allUrls = getActiveLiveUrls()
                 if (isLive) {
                     AppCacheManager.markStreamFailed(currentStreamUrl)
@@ -894,6 +912,7 @@ private fun PlayerScreenContent(
         exoPlayer.addListener(listener)
 
         onDispose {
+            MainActivity.notifyPlaybackState(false)
             if (!isLive) {
                 val pos = exoPlayer.currentPosition
                 val dur = maxOf(1L, exoPlayer.duration)
@@ -993,22 +1012,27 @@ private fun PlayerScreenContent(
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
                 .setMaxVideoBitrate(Int.MAX_VALUE)
                 .setMinVideoSize(7680, 4320)
+                .setForceHighestSupportedBitrate(true)
                 .build()
             "8K" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(7680, 4320)
                 .setMinVideoSize(3840, 2160)
+                .setForceHighestSupportedBitrate(true)
                 .build()
             "4K" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(3840, 2160)
                 .setMinVideoSize(2560, 1440)
+                .setForceHighestSupportedBitrate(true)
                 .build()
             "2K" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(2560, 1440)
                 .setMinVideoSize(1920, 1080)
+                .setForceHighestSupportedBitrate(true)
                 .build()
             "1080P" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(1920, 1080)
                 .setMinVideoSize(1280, 720)
+                .setForceHighestSupportedBitrate(true)
                 .build()
             "720P" -> exoPlayer.trackSelectionParameters.buildUpon()
                 .setMaxVideoSize(1280, 720)
@@ -1017,6 +1041,8 @@ private fun PlayerScreenContent(
                 .clearVideoSizeConstraints()
                 .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
                 .setMaxVideoBitrate(Int.MAX_VALUE)
+                .setMaxAudioBitrate(Int.MAX_VALUE)
+                .setForceHighestSupportedBitrate(true)
                 .build()
         }
         showQualityMenu = false
@@ -3108,14 +3134,27 @@ private fun createConfiguredExoPlayer(
 ): ExoPlayer {
     val loadControl = com.duytv.app.util.HardwareOptimizer.buildLoadControl(context, isLive)
     val renderersFactory = com.duytv.app.util.HardwareOptimizer.buildRenderersFactory(context)
+    val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
+        setParameters(
+            buildUponParameters()
+                .clearVideoSizeConstraints()
+                .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                .setMaxVideoBitrate(Int.MAX_VALUE)
+                .setMaxAudioBitrate(Int.MAX_VALUE)
+                .setForceHighestSupportedBitrate(true)
+                .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                .setAllowVideoNonSeamlessAdaptiveness(true)
+        )
+    }
     val mediaSource = buildStreamMediaSource(context, streamUrl, isLive, subtitleUrl)
     return ExoPlayer.Builder(context, renderersFactory)
+        .setTrackSelector(trackSelector)
         .setLoadControl(loadControl)
         .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
         .build()
         .apply {
             setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
-            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
             setMediaSource(mediaSource)
             prepare()
             if (initialPositionMs > 0) {

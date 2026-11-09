@@ -198,11 +198,25 @@ object AppCacheManager {
         }
     }
 
+    @Synchronized
     private fun writeDiskCache(context: Context, fileName: String, obj: Any) {
+        val tmpFile = File(context.cacheDir, "$fileName.tmp")
+        val targetFile = File(context.cacheDir, fileName)
         try {
-            val file = File(context.cacheDir, fileName)
-            file.writer().use { gson.toJson(obj, it) }
-        } catch (_: Exception) {}
+            java.io.FileOutputStream(tmpFile).use { fos ->
+                fos.writer(Charsets.UTF_8).use { writer ->
+                    gson.toJson(obj, writer)
+                    writer.flush()
+                }
+                try { fos.fd.sync() } catch (_: Exception) {}
+            }
+            if (tmpFile.exists() && tmpFile.length() > 0) {
+                if (targetFile.exists()) targetFile.delete()
+                tmpFile.renameTo(targetFile)
+            }
+        } catch (_: Exception) {
+            try { if (tmpFile.exists()) tmpFile.delete() } catch (_: Exception) {}
+        }
     }
 
     // =========================================================================
@@ -251,12 +265,12 @@ object AppCacheManager {
 
     fun getPreferredAspectModeName(context: Context): String {
         return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
-            .getString("pref_aspect_mode", "ZOOM") ?: "ZOOM"
+            .getString("pref_aspect_mode_v2", "FILL") ?: "FILL"
     }
 
     fun savePreferredAspectModeName(context: Context, modeName: String) {
         context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
-            .edit().putString("pref_aspect_mode", modeName).apply()
+            .edit().putString("pref_aspect_mode_v2", modeName).apply()
     }
 
     fun getPreferredAudioBoost(context: Context): Int {

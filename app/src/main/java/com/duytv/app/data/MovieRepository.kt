@@ -778,27 +778,29 @@ class MovieRepository {
                         val away = vsMatch?.groupValues?.get(2)?.replace(REGEX_BRACKETS, "")?.trim()?.takeIf { it.isNotBlank() }
                             ?: parts.getOrNull(1)?.trim().orEmpty()
                         val time = timeMatch.groupValues[1].trim()
-                        val blv = blvRegex.find(rawTitle)?.groupValues?.get(1)?.trim() ?: "Bình Luận Tiếng Việt"
-                        val tournament = group
-                            .replace("Kho Ga TV - ", "")
-                            .replace("Trực Tiếp - ", "")
-                            .trim()
-
-                        rawMatches.add(
-                            FootballMatch(
-                                id = "${home}_${away}_${time}_${rawMatches.size}",
-                                title = rawTitle,
-                                homeTeam = home,
-                                awayTeam = away,
-                                homeLogo = logo,
-                                awayLogo = logo,
-                                tournament = tournament,
-                                kickoffTime = time,
-                                commentator = blv,
-                                streamUrl = trimmed,
-                                groupTitle = group
-                            )
+                        val rawBlv = blvRegex.find(rawTitle)?.groupValues?.get(1)?.trim() ?: "Bình Luận Tiếng Việt"
+                        val blv = com.duytv.app.util.HlsAdBlockEngine.cleanBookmakerText(rawBlv).ifBlank { "Bình Luận Tiếng Việt" }
+                        val tournament = com.duytv.app.util.HlsAdBlockEngine.cleanBookmakerText(
+                            group.replace("Kho Ga TV - ", "").replace("Trực Tiếp - ", "").trim()
                         )
+
+                        if (!com.duytv.app.util.HlsAdBlockEngine.isAdOrBookmakerUrl(trimmed)) {
+                            rawMatches.add(
+                                FootballMatch(
+                                    id = "${home}_${away}_${time}_${rawMatches.size}",
+                                    title = com.duytv.app.util.HlsAdBlockEngine.cleanBookmakerText(rawTitle),
+                                    homeTeam = home,
+                                    awayTeam = away,
+                                    homeLogo = logo,
+                                    awayLogo = logo,
+                                    tournament = tournament,
+                                    kickoffTime = time,
+                                    commentator = blv,
+                                    streamUrl = trimmed,
+                                    groupTitle = group
+                                )
+                            )
+                        }
                     } else {
                         var cleanName = rawTitle.replace(REGEX_BRACKETS, "")
                             .replace(REGEX_PARENS, "")
@@ -950,11 +952,13 @@ class MovieRepository {
                             val rawBlv = if (cObj.has("commentator_name") && !cObj.get("commentator_name").isJsonNull) {
                                 cObj.get("commentator_name").asString.trim().ifBlank { "Kho Gà" }
                             } else "Kho Gà"
-                            val blv = rawBlv.replace(Regex("^(?:BLV\\s+)+", RegexOption.IGNORE_CASE), "").trim().ifBlank { "Kho Gà" }
+                            val blv = com.duytv.app.util.HlsAdBlockEngine.cleanBookmakerText(
+                                rawBlv.replace(Regex("^(?:BLV\\s+)+", RegexOption.IGNORE_CASE), "").trim()
+                            ).ifBlank { "Kho Gà" }
                             val hlsUrl = if (cObj.has("stream_url") && !cObj.get("stream_url").isJsonNull) cObj.get("stream_url").asString.trim() else ""
                             val flvUrl = if (cObj.has("flv_stream_url") && !cObj.get("flv_stream_url").isJsonNull) cObj.get("flv_stream_url").asString.trim() else ""
 
-                            if (hlsUrl.startsWith("http") && !hlsUrl.contains("example.com")) {
+                            if (hlsUrl.startsWith("http") && !hlsUrl.contains("example.com") && !com.duytv.app.util.HlsAdBlockEngine.isAdOrBookmakerUrl(hlsUrl)) {
                                 streams.add(
                                     MatchStreamItem(
                                         title = "$homeTeam vs $awayTeam (Server Kho Gà HLS)",
@@ -963,7 +967,7 @@ class MovieRepository {
                                     )
                                 )
                             }
-                            if (flvUrl.startsWith("http") && !flvUrl.contains("example.com")) {
+                            if (flvUrl.startsWith("http") && !flvUrl.contains("example.com") && !com.duytv.app.util.HlsAdBlockEngine.isAdOrBookmakerUrl(flvUrl)) {
                                 streams.add(
                                     MatchStreamItem(
                                         title = "$homeTeam vs $awayTeam (Server Kho Gà FLV Dự Phòng)",
@@ -977,10 +981,10 @@ class MovieRepository {
 
                     val primaryUrl = if (obj.has("primary_stream_url") && !obj.get("primary_stream_url").isJsonNull) obj.get("primary_stream_url").asString.trim() else ""
                     val backupUrl = if (obj.has("backup_stream_url") && !obj.get("backup_stream_url").isJsonNull) obj.get("backup_stream_url").asString.trim() else ""
-                    if (primaryUrl.startsWith("http") && !primaryUrl.contains("example.com")) {
+                    if (primaryUrl.startsWith("http") && !primaryUrl.contains("example.com") && !com.duytv.app.util.HlsAdBlockEngine.isAdOrBookmakerUrl(primaryUrl)) {
                         streams.add(MatchStreamItem("$homeTeam vs $awayTeam (Luồng Chính)", "🔥 Server VIP #1", primaryUrl))
                     }
-                    if (backupUrl.startsWith("http") && !backupUrl.contains("example.com")) {
+                    if (backupUrl.startsWith("http") && !backupUrl.contains("example.com") && !com.duytv.app.util.HlsAdBlockEngine.isAdOrBookmakerUrl(backupUrl)) {
                         streams.add(MatchStreamItem("$homeTeam vs $awayTeam (Luồng Dự Phòng)", "🛡️ Server Dự Phòng #2", backupUrl))
                     }
 

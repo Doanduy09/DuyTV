@@ -35,10 +35,49 @@ sealed class AppScreen {
 class MainActivity : ComponentActivity() {
     companion object {
         var onKeyEventListener: ((android.view.KeyEvent) -> Boolean)? = null
+        private const val IDLE_AUTO_KILL_MS = 10 * 60 * 1000L // 10 phút không hoạt động trên Điện thoại / Máy tính bảng
+
+        @Volatile
+        var isVideoActivelyPlaying: Boolean = false
+            private set
+
+        @Volatile
+        var lastUserInteractionMs: Long = System.currentTimeMillis()
+            private set
+
+        fun notifyPlaybackState(isPlaying: Boolean) {
+            isVideoActivelyPlaying = isPlaying
+            lastUserInteractionMs = System.currentTimeMillis()
+        }
     }
 
     private val repository = MovieRepository()
     private var pendingScreenFromIntent by mutableStateOf<AppScreen?>(null)
+    private val idleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var backgroundedAtMs: Long = 0L
+
+    private val idleWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (com.duytv.app.util.HardwareOptimizer.isTvDevice(this@MainActivity)) return
+            val now = System.currentTimeMillis()
+            val isBackgroundIdleExpired = backgroundedAtMs > 0L && (now - backgroundedAtMs >= IDLE_AUTO_KILL_MS)
+            val isForegroundIdleExpired = backgroundedAtMs == 0L && !isVideoActivelyPlaying && (now - lastUserInteractionMs >= IDLE_AUTO_KILL_MS)
+            if (isBackgroundIdleExpired || isForegroundIdleExpired) {
+                terminateForBatterySaving()
+                return
+            }
+            idleHandler.postDelayed(this, 20_000L)
+        }
+    }
+
+    private fun terminateForBatterySaving() {
+        try {
+            idleHandler.removeCallbacksAndMessages(null)
+            coil.Coil.imageLoader(this).memoryCache?.clear()
+            finishAndRemoveTask()
+        } catch (_: Exception) {}
+        kotlin.system.exitProcess(0)
+    }
 
     private fun handleLauncherIntent(intent: android.content.Intent?) {
         if (intent == null) return
@@ -73,18 +112,44 @@ class MainActivity : ComponentActivity() {
         handleLauncherIntent(intent)
     }
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
+        lastUserInteractionMs = System.currentTimeMillis()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        lastUserInteractionMs = System.currentTimeMillis()
         if (onKeyEventListener?.invoke(event) == true) {
             return true
         }
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onStart() {
+        super.onStart()
+        backgroundedAtMs = 0L
+        lastUserInteractionMs = System.currentTimeMillis()
+        if (!com.duytv.app.util.HardwareOptimizer.isTvDevice(this)) {
+            idleHandler.removeCallbacks(idleWatchdogRunnable)
+            idleHandler.postDelayed(idleWatchdogRunnable, 20_000L)
+        }
+    }
+
     override fun onStop() {
         super.onStop()
+        backgroundedAtMs = System.currentTimeMillis()
+        if (!com.duytv.app.util.HardwareOptimizer.isTvDevice(this)) {
+            idleHandler.removeCallbacks(idleWatchdogRunnable)
+            idleHandler.postDelayed(idleWatchdogRunnable, IDLE_AUTO_KILL_MS)
+        }
         // Giữ Activity ấm trong RAM (Hot Process) để khi người dùng bấm mở DuyTV sẽ bật lên tức thì (0ms).
         // Âm thanh và MediaCodec của ExoPlayer đã được LifecycleEventObserver trong PlayerScreen
         // tự động pause/stop an toàn khi nhận sự kiện ON_STOP, bảo đảm 100% không rò rỉ âm thanh nền.
+    }
+
+    override fun onDestroy() {
+        idleHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     override fun onTrimMemory(level: Int) {

@@ -120,8 +120,12 @@ fun SearchScreen(
         }
     }
 
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+    val config = LocalConfiguration.current
+    val screenConfig = remember(context, config.screenWidthDp, config.screenHeightDp) {
+        com.duytv.app.util.HardwareOptimizer.detectScreenConfig(context, config.screenWidthDp, config.screenHeightDp)
+    }
+    val horizontalPad = screenConfig.horizontalPaddingDp.dp
+    val verticalPad = screenConfig.verticalPaddingDp.dp
 
     Column(
         modifier = modifier
@@ -129,7 +133,7 @@ fun SearchScreen(
             .background(DarkBg)
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = horizontalPad, vertical = 20.dp)
+            .padding(horizontal = horizontalPad, vertical = verticalPad)
     ) {
         // Top Bar: Back & Search Field
         Row(
@@ -311,7 +315,7 @@ fun SearchScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 145.dp),
+                columns = GridCells.Adaptive(minSize = screenConfig.gridMinCardWidthDp.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize()

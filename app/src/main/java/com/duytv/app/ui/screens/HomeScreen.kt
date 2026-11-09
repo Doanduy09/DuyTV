@@ -347,11 +347,16 @@ fun HomeScreen(
         }
     }
 
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val config = LocalConfiguration.current
+    val screenWidthDp = config.screenWidthDp
+    val screenHeightDp = config.screenHeightDp
+    val screenConfig = remember(context, screenWidthDp, screenHeightDp) {
+        com.duytv.app.util.HardwareOptimizer.detectScreenConfig(context, screenWidthDp, screenHeightDp)
+    }
     val isCompactScreen = screenWidthDp < 960
-    val horizontalPad = if (screenWidthDp < 600) 14.dp else if (screenWidthDp < 900) 20.dp else 48.dp
-    val isTvDeviceCheck = remember(context) { com.duytv.app.util.HardwareOptimizer.isTvDevice(context) }
-    val verticalPad = if (isTvDeviceCheck) 20.dp else if (screenWidthDp < 600) 10.dp else 14.dp
+    val horizontalPad = screenConfig.horizontalPaddingDp.dp
+    val isTvDeviceCheck = screenConfig.isTv
+    val verticalPad = screenConfig.verticalPaddingDp.dp
 
     Box(
         modifier = modifier

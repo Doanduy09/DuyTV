@@ -165,16 +165,20 @@ fun MovieDetailScreen(
                     )
             )
 
-            val screenWidthDp = LocalConfiguration.current.screenWidthDp
-            val horizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
+            val config = LocalConfiguration.current
+            val screenConfig = remember(context, config.screenWidthDp, config.screenHeightDp) {
+                com.duytv.app.util.HardwareOptimizer.detectScreenConfig(context, config.screenWidthDp, config.screenHeightDp)
+            }
+            val horizontalPad = screenConfig.horizontalPaddingDp.dp
+            val verticalPad = screenConfig.verticalPaddingDp.dp
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding(),
-                // Android TV Standard 5% Safe Area Margin & Responsive Mobile/Tablet/PC Padding
-                contentPadding = PaddingValues(horizontal = horizontalPad, vertical = 24.dp),
+                // Android TV Standard 5% Safe Area Margin & Responsive Mobile/Tablet/Foldable/PC Padding
+                contentPadding = PaddingValues(horizontal = horizontalPad, vertical = verticalPad),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Back Button & Favorite Watchlist Button

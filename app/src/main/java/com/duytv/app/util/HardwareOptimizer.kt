@@ -229,4 +229,65 @@ object HardwareOptimizer {
             false
         }
     }
+
+    enum class ScreenFormFactor(val label: String) {
+        TV_CINEMA("TV / 4K Cinema (16:9)"),
+        TABLET_WIDE("Máy Tính Bảng (16:10 / 3:2)"),
+        FOLDABLE_UNFOLDED("Màn Hình Gập Mở Rộng (6:5)"),
+        FOLDABLE_COVER("Màn Hình Phụ Gập (23:9)"),
+        PHONE_ULTRAWIDE("Điện Thoại Tràn Viền (20:9 / 21:9)"),
+        PHONE_STANDARD("Điện Thoại (16:9 / 18:9)")
+    }
+
+    data class ResponsiveScreenConfig(
+        val formFactor: ScreenFormFactor,
+        val isTv: Boolean,
+        val aspectRatio: Float,
+        val horizontalPaddingDp: Int,
+        val verticalPaddingDp: Int,
+        val gridMinCardWidthDp: Int
+    )
+
+    fun detectScreenConfig(context: Context, screenWidthDp: Int, screenHeightDp: Int): ResponsiveScreenConfig {
+        val isTv = isTvDevice(context)
+        val w = screenWidthDp.coerceAtLeast(320).toFloat()
+        val h = screenHeightDp.coerceAtLeast(320).toFloat()
+        val maxDim = maxOf(w, h)
+        val minDim = minOf(w, h)
+        val ratio = maxDim / minDim
+
+        val formFactor = when {
+            isTv || screenWidthDp >= 960 -> ScreenFormFactor.TV_CINEMA
+            minDim >= 580f && ratio <= 1.38f -> ScreenFormFactor.FOLDABLE_UNFOLDED
+            minDim >= 580f -> ScreenFormFactor.TABLET_WIDE
+            ratio >= 2.32f -> ScreenFormFactor.FOLDABLE_COVER
+            ratio >= 1.95f -> ScreenFormFactor.PHONE_ULTRAWIDE
+            else -> ScreenFormFactor.PHONE_STANDARD
+        }
+
+        val hPad = when {
+            isTv -> 42
+            screenWidthDp >= 900 -> 32
+            screenWidthDp >= 600 -> 20
+            else -> 14
+        }
+        val vPad = when {
+            isTv -> 18
+            screenWidthDp >= 600 -> 14
+            else -> 10
+        }
+        val minCardW = when {
+            isTv -> 160
+            screenWidthDp >= 700 -> 150
+            else -> 125
+        }
+        return ResponsiveScreenConfig(
+            formFactor = formFactor,
+            isTv = isTv,
+            aspectRatio = w / h,
+            horizontalPaddingDp = hPad,
+            verticalPaddingDp = vPad,
+            gridMinCardWidthDp = minCardW
+        )
+    }
 }

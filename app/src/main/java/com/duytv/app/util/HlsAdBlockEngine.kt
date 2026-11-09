@@ -55,9 +55,80 @@ object HlsAdBlockEngine {
 
     private val AD_KEYWORDS = listOf(
         "adjump", "/ads/", "/ad/", "quangcao", "qc_", "promo", "banner",
-        "88bet", "i9bet", "789bet", "f8bet", "okvip", "jun88", "new88",
-        "hi88", "shbet", "mb66", "casino", "nhacai", "v7bet", "kubet"
+        "intro_ad", "outro_ad", "preroll", "midroll", "scte35", "doubleclick", "popads", "adservice",
+        "8xbet", "88bet", "i9bet", "789bet", "f8bet", "okvip", "jun88", "new88",
+        "hi88", "shbet", "mb66", "casino", "nhacai", "v7bet", "kubet", "ku777",
+        "bong88", "saba", "cmd368", "sv388", "rikvip", "sunwin", "go88", "hitclub",
+        "b52", "fb88", "w88", "m88", "dafabet", "vn88", "fun88", "bk8", "188bet",
+        "v9bet", "ok9", "gk88", "qq88", "8kbet", "bet88", "f168", "tx88", "ta88",
+        "uk88", "debet", "zbet", "five88", "red88", "sin88", "sky88", "mibet", "lucky88", "one88"
     )
+
+    private val BOOKMAKER_TEXT_REGEX = Regex(
+        """(?i)\b(?:8xbet|88bet|i9bet|789bet|f8bet|okvip|jun88|new88|hi88|shbet|mb66|kubet|ku777|bong88|rikvip|sunwin|go88|hitclub|fb88|w88|m88|dafabet|vn88|fun88|bk8|188bet|v9bet|ok9|gk88|qq88|8kbet|bet88|f168|tx88|ta88|uk88|debet|zbet|five88|red88|sin88|sky88|mibet|lucky88|one88|nhà\s*cái|cá\s*cược|tài\s*trợ)\b[^\n|•]*"""
+    )
+
+    fun isAdOrBookmakerUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return AD_KEYWORDS.any { lower.contains(it) }
+    }
+
+    fun cleanBookmakerText(raw: String): String {
+        val cleaned = raw.replace(BOOKMAKER_TEXT_REGEX, "")
+            .replace(Regex("""\s*[-|•]\s*$"""), "")
+            .replace(Regex("""^\s*[-|•]\s*"""), "")
+            .trim()
+        return cleaned.ifBlank { raw.trim() }
+    }
+
+    private fun prioritizeHighestQualityMasterPlaylist(rawM3u8: String): String {
+        val lines = rawM3u8.replace("\r\n", "\n").split('\n')
+        data class VariantBlock(val infLine: String, val uriLine: String, val score: Long)
+        val headerAndMediaLines = mutableListOf<String>()
+        val variants = mutableListOf<VariantBlock>()
+
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i].trim()
+            if (line.isEmpty()) {
+                i++
+                continue
+            }
+            if (line.startsWith("#EXT-X-STREAM-INF")) {
+                val bw = Regex("""BANDWIDTH=(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(line)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+                val resMatch = Regex("""RESOLUTION=(\d+)x(\d+)""", RegexOption.IGNORE_CASE).find(line)
+                val width = resMatch?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+                val height = resMatch?.groupValues?.getOrNull(2)?.toLongOrNull() ?: 0L
+                val pixels = width * height
+                var nextIdx = i + 1
+                while (nextIdx < lines.size && lines[nextIdx].trim().isEmpty()) {
+                    nextIdx++
+                }
+                if (nextIdx < lines.size && !lines[nextIdx].trim().startsWith("#")) {
+                    val uriLine = lines[nextIdx].trim()
+                    if (!isAdOrBookmakerUrl(uriLine)) {
+                        val score = pixels * 1_000_000L + bw
+                        variants.add(VariantBlock(line, uriLine, score))
+                    }
+                    i = nextIdx + 1
+                    continue
+                }
+            }
+            headerAndMediaLines.add(line)
+            i++
+        }
+
+        if (variants.size <= 1) return rawM3u8
+        val sortedVariants = variants.sortedByDescending { it.score }
+        val out = StringBuilder()
+        headerAndMediaLines.forEach { out.append(it).append('\n') }
+        sortedVariants.forEach { v ->
+            out.append(v.infLine).append('\n')
+            out.append(v.uriLine).append('\n')
+        }
+        return out.toString()
+    }
 
     private data class M3u8Section(
         val hasLeadingDiscontinuity: Boolean,
@@ -78,18 +149,78 @@ object HlsAdBlockEngine {
         return clean.replace(Regex("\\d+\\.[a-zA-Z0-9]+$"), "")
     }
 
+    private fun stripInlineAdSegments(rawM3u8: String): Pair<String, Int> {
+        val lines = rawM3u8.replace("\r\n", "\n").split('\n')
+        val out = mutableListOf<String>()
+        var removedCount = 0
+        var pendingExtInf: String? = null
+        var inCueOutBlock = false
+
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            if (line.isEmpty()) continue
+
+            if (line.startsWith("#EXT-X-CUE-OUT")) {
+                inCueOutBlock = true
+                removedCount++
+                continue
+            }
+            if (line.startsWith("#EXT-X-CUE-IN")) {
+                inCueOutBlock = false
+                continue
+            }
+            if (inCueOutBlock) {
+                continue
+            }
+            if (line.startsWith("#EXT-X-DATERANGE") && isAdOrBookmakerUrl(line)) {
+                removedCount++
+                continue
+            }
+
+            if (line.startsWith("#EXTINF:")) {
+                pendingExtInf = line
+            } else if (!line.startsWith("#")) {
+                val extInf = pendingExtInf
+                pendingExtInf = null
+                if (isAdOrBookmakerUrl(line) || (extInf != null && isAdOrBookmakerUrl(extInf))) {
+                    removedCount++
+                } else {
+                    if (extInf != null) out.add(extInf)
+                    out.add(line)
+                }
+            } else {
+                if (pendingExtInf != null) {
+                    out.add(pendingExtInf!!)
+                    pendingExtInf = null
+                }
+                out.add(line)
+            }
+        }
+        return if (removedCount > 0) Pair(out.joinToString("\n"), removedCount) else Pair(rawM3u8, 0)
+    }
+
     fun sanitizeM3u8Manifest(rawM3u8: String, requestUrl: String): String {
-        if (!isEnabled) return rawM3u8
-        if (!rawM3u8.contains("#EXTM3U") || !rawM3u8.contains("#EXT-X-DISCONTINUITY")) {
+        if (!rawM3u8.contains("#EXTM3U")) {
             return rawM3u8
         }
-        // Không can thiệp nếu là Master Playlist (chứa #EXT-X-STREAM-INF)
+        // Nếu là Master Playlist (chứa #EXT-X-STREAM-INF): Sắp xếp ưu tiên luồng chất lượng cao nhất (4K / 1080p FHD) lên đầu
         if (rawM3u8.contains("#EXT-X-STREAM-INF")) {
-            return rawM3u8
+            return prioritizeHighestQualityMasterPlaylist(rawM3u8)
+        }
+        if (!isEnabled) return rawM3u8
+
+        val (inlineCleanedM3u8, inlineRemoved) = stripInlineAdSegments(rawM3u8)
+        if (inlineRemoved > 0) {
+            val totalNow = totalAdsBlocked.addAndGet(inlineRemoved)
+            onAdBlockedCallback?.invoke(totalNow)
         }
 
-        val isVod = rawM3u8.contains("#EXT-X-ENDLIST") || rawM3u8.contains("PLAYLIST-TYPE:VOD")
-        val allLines = rawM3u8.replace("\r\n", "\n").split('\n')
+        if (!inlineCleanedM3u8.contains("#EXT-X-DISCONTINUITY")) {
+            return inlineCleanedM3u8
+        }
+
+        val isVod = inlineCleanedM3u8.contains("#EXT-X-ENDLIST") || inlineCleanedM3u8.contains("PLAYLIST-TYPE:VOD")
+        val allLines = inlineCleanedM3u8.replace("\r\n", "\n").split('\n')
 
         val headerLines = mutableListOf<String>()
         val footerLines = mutableListOf<String>()
@@ -146,7 +277,7 @@ object HlsAdBlockEngine {
             sections.add(currentSection)
         }
 
-        if (sections.size <= 1) return rawM3u8
+        if (sections.size <= 1) return inlineCleanedM3u8
 
         // Tìm prefix phổ biến nhất của bộ phim (chiếm đa số phân đoạn)
         val prefixFrequency = mutableMapOf<String, Int>()
@@ -170,12 +301,14 @@ object HlsAdBlockEngine {
             if (sec.segmentCount == 0) continue
 
             val secMainPrefix = sec.segmentPrefixes.firstOrNull() ?: ""
-            val isDifferentPrefix = dominantRatio >= 0.65 && secMainPrefix != dominantPrefix
+            val isDifferentPrefix = dominantRatio >= 0.60 && secMainPrefix != dominantPrefix
             val isShortAdIsland = isVod && totalSegments > 60 && sec.segmentCount in 1..25 && sec.totalDurationSec in 2.0..95.0
+            val isLiveShortForeignAd = !isVod && isDifferentPrefix && sec.segmentCount in 1..15 && sec.totalDurationSec <= 60.0
 
             val isAdSection = sec.hasAdKeyword ||
                 (isDifferentPrefix && sec.totalDurationSec < 180.0) ||
-                (sec.hasLeadingDiscontinuity && isShortAdIsland)
+                (sec.hasLeadingDiscontinuity && isShortAdIsland) ||
+                isLiveShortForeignAd
 
             if (isAdSection) {
                 removedSectionsCount++
@@ -186,7 +319,7 @@ object HlsAdBlockEngine {
         }
 
         if (removedSectionsCount == 0 || keptSections.isEmpty()) {
-            return rawM3u8
+            return inlineCleanedM3u8
         }
 
         val totalNow = totalAdsBlocked.addAndGet(removedSectionsCount)
