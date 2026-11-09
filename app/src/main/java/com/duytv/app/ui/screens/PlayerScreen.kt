@@ -75,6 +75,8 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultAllocator
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.duytv.app.MainActivity
@@ -205,13 +207,6 @@ fun PlayerScreen(
             (ch.allStreamUrls() + backupUrls).filter { it.isNotBlank() }.distinct()
         } else {
             (listOf(streamUrl) + backupUrls).filter { it.isNotBlank() }.distinct()
-        }
-    }
-
-    LaunchedEffect(showControls, isPlaying, showQualityMenu) {
-        if (showControls && isPlaying && !showQualityMenu) {
-            delay(6000)
-            showControls = false
         }
     }
 
@@ -401,8 +396,8 @@ fun PlayerScreen(
     }
 
     // Auto-hide controls timer (6 seconds)
-    LaunchedEffect(showControls, isPlaying, showQualityMenu) {
-        if (showControls && isPlaying && !showQualityMenu) {
+    LaunchedEffect(showControls, isPlaying, showQuickActionSheet) {
+        if (showControls && isPlaying && !showQuickActionSheet) {
             delay(6000)
             showControls = false
         }
@@ -443,7 +438,7 @@ fun PlayerScreen(
             )
 
             val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
-            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.substringBefore("?").endsWith(".ts")) {
+            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.contains("a3iptv.goitoi.co") || streamUrl.contains("r2h-token=") || streamUrl.substringBefore("?").endsWith(".ts")) {
                 mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP2T)
             } else if (streamUrl.substringBefore("?").endsWith(".flv")) {
                 mediaItemBuilder.setMimeType(MimeTypes.VIDEO_FLV)
@@ -477,7 +472,12 @@ fun PlayerScreen(
             }
 
             val mediaItem = mediaItemBuilder.build()
-            val mediaSourceFactory = DefaultMediaSourceFactory(combinedDataSourceFactory)
+            val extractorsFactory = DefaultExtractorsFactory()
+                .setTsExtractorFlags(
+                    DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+                )
+            val mediaSourceFactory = DefaultMediaSourceFactory(combinedDataSourceFactory, extractorsFactory)
             val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
 
             ExoPlayer.Builder(context, renderersFactory)
@@ -569,10 +569,30 @@ fun PlayerScreen(
         }
     }
 
+    fun togglePlayPause() {
+        if (exoPlayer.isPlaying) {
+            exoPlayer.pause()
+        } else {
+            if (exoPlayer.playbackState == Player.STATE_IDLE) {
+                exoPlayer.prepare()
+            }
+            exoPlayer.playWhenReady = true
+            exoPlayer.play()
+        }
+        showControls = true
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    if (exoPlayer.playbackState == Player.STATE_IDLE) {
+                        exoPlayer.prepare()
+                    }
+                    exoPlayer.playWhenReady = true
+                    exoPlayer.play()
+                }
                 Lifecycle.Event.ON_PAUSE -> {
                     exoPlayer.pause()
                     exoPlayer.playWhenReady = false
@@ -599,7 +619,16 @@ fun PlayerScreen(
 
     fun showChannelOsd(channel: TvChannel, index: Int, total: Int, sourceIdx: Int = 0) {
         showControls = false
-        channelOsdVisible = false
+        val totalSources = getActiveLiveUrls().size.coerceAtLeast(1)
+        channelOsdName = "${index + 1}. ${channel.name}"
+        channelOsdSub = "Kênh ${index + 1}/$total • Nguồn ${sourceIdx + 1}/$totalSources • ${channel.groupTitle.ifBlank { "Truyền Hình FHD" }}"
+        channelOsdLogo = channel.logoUrl
+        channelOsdVisible = true
+        channelOsdJob?.cancel()
+        channelOsdJob = scope.launch {
+            delay(3000)
+            channelOsdVisible = false
+        }
     }
 
     fun loadLiveStreamUrl(url: String) {
@@ -622,15 +651,19 @@ fun PlayerScreen(
                     headers["Origin"] = "https://thapcamtvt1.com"
                 }
             }
-            val dsFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent(userAgent)
-                .setDefaultRequestProperties(headers)
-                .setConnectTimeoutMs(6000)
-                .setReadTimeoutMs(15000)
-                .setAllowCrossProtocolRedirects(true)
-            val msFactory = DefaultMediaSourceFactory(dsFactory)
+            val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+                context = context,
+                userAgent = userAgent,
+                headers = headers
+            )
+            val extractorsFactory = DefaultExtractorsFactory()
+                .setTsExtractorFlags(
+                    DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+                )
+            val msFactory = DefaultMediaSourceFactory(dsFactory, extractorsFactory)
             val mediaItemB = MediaItem.Builder().setUri(url)
-            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.substringBefore("?").endsWith(".ts")) {
+            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.contains("a3iptv.goitoi.co") || url.contains("r2h-token=") || url.substringBefore("?").endsWith(".ts")) {
                 mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
             } else if (url.substringBefore("?").endsWith(".flv")) {
                 mediaItemB.setMimeType(MimeTypes.VIDEO_FLV)
@@ -1230,8 +1263,7 @@ fun PlayerScreen(
                 }
                 isPlayPause -> {
                     if (action == KeyEvent.ACTION_DOWN) {
-                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                        showControls = true
+                        togglePlayPause()
                     }
                     true
                 }
@@ -1256,8 +1288,7 @@ fun PlayerScreen(
                             seekDeltaText = ""
                             showControls = true
                         } else {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                            showControls = true
+                            togglePlayPause()
                         }
                     }
                     true
@@ -1364,8 +1395,7 @@ fun PlayerScreen(
                                 showControls = true
                                 return@onKeyEvent true
                             }
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                            showControls = true
+                            togglePlayPause()
                             return@onKeyEvent true
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> {
@@ -1419,11 +1449,15 @@ fun PlayerScreen(
                             return@onKeyEvent true
                         }
                         KeyEvent.KEYCODE_MENU -> {
-                            showQualityMenu = !showQualityMenu
+                            showQuickActionSheet = !showQuickActionSheet
                             showControls = true
                             return@onKeyEvent true
                         }
                         KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                            if (showQuickActionSheet) {
+                                showQuickActionSheet = false
+                                return@onKeyEvent true
+                            }
                             if (showQualityMenu) {
                                 showQualityMenu = false
                                 return@onKeyEvent true
@@ -1632,369 +1666,60 @@ fun PlayerScreen(
         val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
         // ⚙️ BẢNG ĐIỀU KHIỂN TIỆN ÍCH HỢP NHẤT (UNIFIED QUICK-ACTION SHEET)
         if (showQuickActionSheet) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xCC0A0E17))
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .widthIn(max = 640.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF141923))
-                        .border(1.5.dp, Color(0xFF2E384D), RoundedCornerShape(16.dp))
-                        .padding(20.dp)
-                ) {
-                    // Title
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("⚙️", fontSize = 18.sp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "BẢNG TIỆN ÍCH & TÙY CHỈNH THÔNG MINH",
-                                color = Color.White,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        Text(
-                            text = "Bấm BACK để đóng",
-                            color = Color(0xFF8B949E),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 4 Tabs: 🎬 HÌNH ẢNH | 🎧 ÂM THANH | ⚡ TỐC ĐỘ & LUỒNG | 📱 ĐIỀU KHIỂN
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val tabs = listOf(
-                            "🎬 HÌNH ẢNH",
-                            "🎧 ÂM THANH",
-                            "⚡ TỐC ĐỘ & LUỒNG",
-                            "📱 ĐIỀU KHIỂN"
-                        )
-                        tabs.forEachIndexed { idx, title ->
-                            val isSelected = (quickActionTab == idx)
-                            val tInter = remember { MutableInteractionSource() }
-                            val isTFoc by tInter.collectIsFocusedAsState()
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isTFoc) AccentRed else if (isSelected) Color(0xFF252E40) else Color(0xFF1B202D))
-                                    .border(
-                                        width = if (isTFoc) 2.dp else if (isSelected) 1.dp else 0.dp,
-                                        color = if (isTFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .focusable(interactionSource = tInter)
-                                    .clickable(interactionSource = tInter, indication = null) {
-                                        quickActionTab = idx
-                                    }
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = title,
-                                    color = if (isSelected) Color(0xFF00E676) else Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Tab Contents (Scrollable if height constrained)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 380.dp)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        when (quickActionTab) {
-                            0 -> {
-                                // 🎬 TAB HÌNH ẢNH
-                                SettingSectionHeader("🎬 BỘ LỌC ĐIỆN ẢNH CỔ TRANG / PHIM CŨ")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    CinematicFilter.values().forEach { filter ->
-                                        SettingChoicePill(
-                                            title = filter.title,
-                                            isSelected = (cinematicFilter == filter),
-                                            modifier = Modifier.weight(1f),
-                                            onClick = { cinematicFilter = filter }
-                                        )
-                                    }
-                                }
-
-                                SettingSectionHeader("🌌 ÁNH SÁNG VIỀN VÔ CỰC (VIRTUAL AMBILIGHT)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !isAmbilightEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isAmbilightEnabled = false }
-                                    )
-                                    SettingChoicePill(
-                                        title = "🌌 BẬT HÀO QUANG",
-                                        isSelected = isAmbilightEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isAmbilightEnabled = true }
-                                    )
-                                }
-
-                                SettingSectionHeader("📺 TỶ LỆ KHUNG HÌNH (ASPECT RATIO)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "📺 CHUẨN GỐC",
-                                        isSelected = (currentAspectMode == VideoAspectMode.FIT),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { currentAspectMode = VideoAspectMode.FIT }
-                                    )
-                                    SettingChoicePill(
-                                        title = "🌟 TRÀN VIỀN 100%",
-                                        isSelected = (currentAspectMode == VideoAspectMode.ZOOM),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { currentAspectMode = VideoAspectMode.ZOOM }
-                                    )
-                                    SettingChoicePill(
-                                        title = "↔️ CO GIÃN",
-                                        isSelected = (currentAspectMode == VideoAspectMode.FILL),
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { currentAspectMode = VideoAspectMode.FILL }
-                                    )
-                                }
-
-                                SettingSectionHeader("🌆 CHẾ ĐỘ DỊU MẮT BAN ĐÊM")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !isNightWarmMode,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isNightWarmMode = false }
-                                    )
-                                    SettingChoicePill(
-                                        title = "🌆 BẬT DỊU MẮT",
-                                        isSelected = isNightWarmMode,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isNightWarmMode = true }
-                                    )
-                                }
-
-                                SettingSectionHeader("💎 ĐỘ PHÂN GIẢI & BĂNG THÔNG")
-                                val qualityOptions = listOf("AUTO", "4K", "2K", "1080P", "720P")
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                    qualityOptions.forEach { q ->
-                                        SettingChoicePill(
-                                            title = q,
-                                            isSelected = (selectedQualityMode == q),
-                                            modifier = Modifier.weight(1f),
-                                            onClick = { applyQualitySetting(q) }
-                                        )
-                                    }
-                                }
-                            }
-                            1 -> {
-                                // 🎧 TAB ÂM THANH
-                                SettingSectionHeader("🔊 KHUẾCH ĐẠI ÂM LƯỢNG DSP (PHẦN CỨNG)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    listOf(100 to "100% GỐC", 150 to "150% TO RÕ", 200 to "200% CỰC ĐẠI").forEach { (boost, label) ->
-                                        SettingChoicePill(
-                                            title = label,
-                                            isSelected = (audioBoostPercent == boost && !isDrcVoiceEnabled),
-                                            modifier = Modifier.weight(1f),
-                                            onClick = {
-                                                isDrcVoiceEnabled = false
-                                                audioBoostPercent = boost
-                                            }
-                                        )
-                                    }
-                                }
-
-                                SettingSectionHeader("🌙 CHẾ ĐỘ BAN ĐÊM & LỌC GIỌNG (DRC VOICE CLEAR)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !isDrcVoiceEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isDrcVoiceEnabled = false }
-                                    )
-                                    SettingChoicePill(
-                                        title = "🌙 LỌC GIỌNG RÕ THOẠI",
-                                        isSelected = isDrcVoiceEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { isDrcVoiceEnabled = true }
-                                    )
-                                }
-
-                                SettingSectionHeader("⏲️ HẸN GIỜ TỰ TẮT GIẢM DẦN ÂM LƯỢNG (FADE-OUT)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                    listOf(0 to "TẮT", 15 to "15P", 30 to "30P", 60 to "60P", 90 to "90P").forEach { (min, label) ->
-                                        SettingChoicePill(
-                                            title = label,
-                                            isSelected = (sleepTimerMinutes == min),
-                                            modifier = Modifier.weight(1f),
-                                            onClick = { sleepTimerMinutes = min }
-                                        )
-                                    }
-                                }
-
-                                SettingSectionHeader("🌙 TIẾT KIỆM ĐIỆN")
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "🌙 TẮT MÀN HÌNH CHỈ NGHE TIẾNG",
-                                        isSelected = false,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = {
-                                            isScreenOffAudioMode = true
-                                            showQuickActionSheet = false
-                                            showControls = false
-                                        }
-                                    )
-                                }
-                            }
-                            2 -> {
-                                // ⚡ TAB TỐC ĐỘ & LUỒNG
-                                SettingSectionHeader("🛡️ LÁ CHẮN DIỆT 100% QUẢNG CÁO CHÈN GIỮA PHIM (HLS AD-BLOCK)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "🛡️ BẬT CHẶN 100% QUẢNG CÁO (ĐÃ DIỆT $adsBlockedSessionCount QC)",
-                                        isSelected = isHlsAdBlockEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = {
-                                            isHlsAdBlockEnabled = true
-                                            com.duytv.app.util.HlsAdBlockEngine.isEnabled = true
-                                        }
-                                    )
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !isHlsAdBlockEnabled,
-                                        modifier = Modifier.weight(0.4f),
-                                        onClick = {
-                                            isHlsAdBlockEnabled = false
-                                            com.duytv.app.util.HlsAdBlockEngine.isEnabled = false
-                                        }
-                                    )
-                                }
-
-                                SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                    listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
-                                        SettingChoicePill(
-                                            title = "${spd}x",
-                                            isSelected = (playbackSpeed == spd),
-                                            modifier = Modifier.weight(1f),
-                                            onClick = {
-                                                playbackSpeed = spd
-                                                exoPlayer?.playbackParameters = PlaybackParameters(spd)
-                                            }
-                                        )
-                                    }
-                                }
-
-                                SettingSectionHeader("🛡️ TỰ ĐỘNG TRÁO SERVER CHỐNG LAG (> 3S)")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "🛡️ BẬT (KHUYÊN DÙNG)",
-                                        isSelected = zeroStallFailoverEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { zeroStallFailoverEnabled = true }
-                                    )
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !zeroStallFailoverEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { zeroStallFailoverEnabled = false }
-                                    )
-                                }
-
-                                SettingSectionHeader("⏭️ TỰ ĐỘNG BỎ QUA MỞ ĐẦU 85S")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "⏭️ BẬT",
-                                        isSelected = autoSkipIntroEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { autoSkipIntroEnabled = true }
-                                    )
-                                    SettingChoicePill(
-                                        title = "TẮT",
-                                        isSelected = !autoSkipIntroEnabled,
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { autoSkipIntroEnabled = false }
-                                    )
-                                }
-
-                                if (isLive && activeChannelTotalSources > 1) {
-                                    SettingSectionHeader("🔄 ĐỔI SERVER TRUYỀN HÌNH THỦ CÔNG")
-                                    Row(modifier = Modifier.fillMaxWidth()) {
-                                        SettingChoicePill(
-                                            title = "🔄 TRÁO SANG SERVER DỰ PHÒNG (${currentBackupIndex + 1}/$activeChannelTotalSources)",
-                                            isSelected = true,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            onClick = { switchBackupSource() }
-                                        )
-                                    }
-                                }
-                            }
-                            3 -> {
-                                // 📱 TAB ĐIỀU KHIỂN & ĐA MÀN HÌNH
-                                SettingSectionHeader("📱 REMOTE ẢO QUA MẠNG WI-FI")
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1B202D))
-                                        .padding(14.dp)
-                                ) {
-                                    Text(
-                                        text = "📱 Dùng điện thoại / tablet làm Remote điều khiển:",
-                                        color = Color.White,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "Kết nối cùng mạng Wi-Fi, mở trình duyệt trên điện thoại và gõ IP của thiết bị để điều khiển điều hướng D-pad, âm lượng và nhảy kênh mượt mà.",
-                                        color = Color(0xFFA0AAB8),
-                                        fontSize = 11.sp
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                SettingSectionHeader("🔒 KHÓA CẢM ỨNG MÀN HÌNH")
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    SettingChoicePill(
-                                        title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Chống chạm nhầm)",
-                                        isSelected = false,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = {
-                                            isTouchLocked = true
-                                            showQuickActionSheet = false
-                                            showControls = false
-                                            showUnlockPill = true
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            PlayerQuickActionSheet(
+                quickActionTab = quickActionTab,
+                onSelectTab = { quickActionTab = it },
+                cinematicFilter = cinematicFilter,
+                onSelectCinematicFilter = { cinematicFilter = it },
+                isAmbilightEnabled = isAmbilightEnabled,
+                onSetAmbilight = { isAmbilightEnabled = it },
+                currentAspectMode = currentAspectMode,
+                onSelectAspectMode = { currentAspectMode = it },
+                isNightWarmMode = isNightWarmMode,
+                onSetNightWarmMode = { isNightWarmMode = it },
+                selectedQualityMode = selectedQualityMode,
+                onSelectQuality = { applyQualitySetting(it) },
+                audioBoostPercent = audioBoostPercent,
+                isDrcVoiceEnabled = isDrcVoiceEnabled,
+                onSelectAudioBoost = { boost ->
+                    isDrcVoiceEnabled = false
+                    audioBoostPercent = boost
+                },
+                onSetDrcVoice = { isDrcVoiceEnabled = it },
+                sleepTimerMinutes = sleepTimerMinutes,
+                onSelectSleepTimer = { sleepTimerMinutes = it },
+                onActivateScreenOffAudio = {
+                    isScreenOffAudioMode = true
+                    showQuickActionSheet = false
+                    showControls = false
+                },
+                isHlsAdBlockEnabled = isHlsAdBlockEnabled,
+                adsBlockedSessionCount = adsBlockedSessionCount,
+                onSetHlsAdBlock = { enabled ->
+                    isHlsAdBlockEnabled = enabled
+                    com.duytv.app.util.HlsAdBlockEngine.isEnabled = enabled
+                },
+                playbackSpeed = playbackSpeed,
+                onSelectPlaybackSpeed = { spd ->
+                    playbackSpeed = spd
+                    exoPlayer.playbackParameters = PlaybackParameters(spd)
+                },
+                zeroStallFailoverEnabled = zeroStallFailoverEnabled,
+                onSetZeroStallFailover = { zeroStallFailoverEnabled = it },
+                autoSkipIntroEnabled = autoSkipIntroEnabled,
+                onSetAutoSkipIntro = { autoSkipIntroEnabled = it },
+                isLive = isLive,
+                activeChannelTotalSources = activeChannelTotalSources,
+                currentBackupIndex = currentBackupIndex,
+                onSwitchBackupSource = { switchBackupSource() },
+                onActivateTouchLock = {
+                    isTouchLocked = true
+                    showQuickActionSheet = false
+                    showControls = false
+                    showUnlockPill = true
+                },
+                onCloseSheet = { showQuickActionSheet = false }
+            )
         }
 
         // HUD Overlay Controls
@@ -2348,8 +2073,7 @@ fun PlayerScreen(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
                                 ) {
-                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                    showControls = true
+                                    togglePlayPause()
                                 }
                                 .padding(16.dp)
                         )
@@ -2444,8 +2168,7 @@ fun PlayerScreen(
                                 text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
                                 highlight = true,
                                 onClick = {
-                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                    showControls = true
+                                    togglePlayPause()
                                 }
                             )
                             if (availableChannels.isNotEmpty()) {
@@ -2497,8 +2220,7 @@ fun PlayerScreen(
                                 text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
                                 highlight = true,
                                 onClick = {
-                                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                                    showControls = true
+                                    togglePlayPause()
                                 }
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -2629,6 +2351,404 @@ fun PlayerScreen(
                         GuideItem(key = "MENU", desc = "Băng thông (4K/12K)")
                         Spacer(modifier = Modifier.width(12.dp))
                         GuideItem(key = "BACK", desc = "Thoát")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerQuickActionSheet(
+    quickActionTab: Int,
+    onSelectTab: (Int) -> Unit,
+    cinematicFilter: CinematicFilter,
+    onSelectCinematicFilter: (CinematicFilter) -> Unit,
+    isAmbilightEnabled: Boolean,
+    onSetAmbilight: (Boolean) -> Unit,
+    currentAspectMode: VideoAspectMode,
+    onSelectAspectMode: (VideoAspectMode) -> Unit,
+    isNightWarmMode: Boolean,
+    onSetNightWarmMode: (Boolean) -> Unit,
+    selectedQualityMode: String,
+    onSelectQuality: (String) -> Unit,
+    audioBoostPercent: Int,
+    isDrcVoiceEnabled: Boolean,
+    onSelectAudioBoost: (Int) -> Unit,
+    onSetDrcVoice: (Boolean) -> Unit,
+    sleepTimerMinutes: Int,
+    onSelectSleepTimer: (Int) -> Unit,
+    onActivateScreenOffAudio: () -> Unit,
+    isHlsAdBlockEnabled: Boolean,
+    adsBlockedSessionCount: Int,
+    onSetHlsAdBlock: (Boolean) -> Unit,
+    playbackSpeed: Float,
+    onSelectPlaybackSpeed: (Float) -> Unit,
+    zeroStallFailoverEnabled: Boolean,
+    onSetZeroStallFailover: (Boolean) -> Unit,
+    autoSkipIntroEnabled: Boolean,
+    onSetAutoSkipIntro: (Boolean) -> Unit,
+    isLive: Boolean,
+    activeChannelTotalSources: Int,
+    currentBackupIndex: Int,
+    onSwitchBackupSource: () -> Unit,
+    onActivateTouchLock: () -> Unit,
+    onCloseSheet: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xCC0A0E17))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onCloseSheet
+            )
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .widthIn(max = 640.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF141923))
+                .border(1.5.dp, Color(0xFF2E384D), RoundedCornerShape(16.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+                .padding(20.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("⚙️", fontSize = 18.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "BẢNG TIỆN ÍCH & TÙY CHỈNH THÔNG MINH",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+                val closeInter = remember { MutableInteractionSource() }
+                val isCloseFoc by closeInter.collectIsFocusedAsState()
+                val isClosePress by closeInter.collectIsPressedAsState()
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isCloseFoc || isClosePress) AccentRed else Color(0xFF252E40))
+                        .border(1.dp, if (isCloseFoc || isClosePress) Color.White else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
+                        .focusable(interactionSource = closeInter)
+                        .clickable(interactionSource = closeInter, indication = null, onClick = onCloseSheet)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "✕ ĐÓNG",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val tabs = listOf(
+                    "🎬 HÌNH ẢNH",
+                    "🎧 ÂM THANH",
+                    "⚡ TỐC ĐỘ & LUỒNG",
+                    "📱 ĐIỀU KHIỂN"
+                )
+                tabs.forEachIndexed { idx, title ->
+                    val isSelected = (quickActionTab == idx)
+                    val tInter = remember { MutableInteractionSource() }
+                    val isTFoc by tInter.collectIsFocusedAsState()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isTFoc) AccentRed else if (isSelected) Color(0xFF252E40) else Color(0xFF1B202D))
+                            .border(
+                                width = if (isTFoc) 2.dp else if (isSelected) 1.dp else 0.dp,
+                                color = if (isTFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .focusable(interactionSource = tInter)
+                            .clickable(interactionSource = tInter, indication = null) {
+                                onSelectTab(idx)
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = title,
+                            color = if (isSelected) Color(0xFF00E676) else Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when (quickActionTab) {
+                    0 -> {
+                        SettingSectionHeader("🎬 BỘ LỌC ĐIỆN ẢNH CỔ TRANG / PHIM CŨ")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            CinematicFilter.values().forEach { filter ->
+                                SettingChoicePill(
+                                    title = filter.title,
+                                    isSelected = (cinematicFilter == filter),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onSelectCinematicFilter(filter) }
+                                )
+                            }
+                        }
+
+                        SettingSectionHeader("🌌 ÁNH SÁNG VIỀN VÔ CỰC (VIRTUAL AMBILIGHT)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !isAmbilightEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetAmbilight(false) }
+                            )
+                            SettingChoicePill(
+                                title = "🌌 BẬT HÀO QUANG",
+                                isSelected = isAmbilightEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetAmbilight(true) }
+                            )
+                        }
+
+                        SettingSectionHeader("📺 TỶ LỆ KHUNG HÌNH (ASPECT RATIO)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "📺 CHUẨN GỐC",
+                                isSelected = (currentAspectMode == VideoAspectMode.FIT),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectAspectMode(VideoAspectMode.FIT) }
+                            )
+                            SettingChoicePill(
+                                title = "🌟 TRÀN VIỀN 100%",
+                                isSelected = (currentAspectMode == VideoAspectMode.ZOOM),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectAspectMode(VideoAspectMode.ZOOM) }
+                            )
+                            SettingChoicePill(
+                                title = "↔️ CO GIÃN",
+                                isSelected = (currentAspectMode == VideoAspectMode.FILL),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectAspectMode(VideoAspectMode.FILL) }
+                            )
+                        }
+
+                        SettingSectionHeader("🌆 CHẾ ĐỘ DỊU MẮT BAN ĐÊM")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !isNightWarmMode,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetNightWarmMode(false) }
+                            )
+                            SettingChoicePill(
+                                title = "🌆 BẬT DỊU MẮT",
+                                isSelected = isNightWarmMode,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetNightWarmMode(true) }
+                            )
+                        }
+
+                        SettingSectionHeader("💎 ĐỘ PHÂN GIẢI & BĂNG THÔNG")
+                        val qualityOptions = listOf("AUTO", "4K", "2K", "1080P", "720P")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            qualityOptions.forEach { q ->
+                                SettingChoicePill(
+                                    title = q,
+                                    isSelected = (selectedQualityMode == q),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onSelectQuality(q) }
+                                )
+                            }
+                        }
+                    }
+                    1 -> {
+                        SettingSectionHeader("🔊 KHUẾCH ĐẠI ÂM LƯỢNG DSP (PHẦN CỨNG)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(100 to "100% GỐC", 150 to "150% TO RÕ", 200 to "200% CỰC ĐẠI").forEach { (boost, label) ->
+                                SettingChoicePill(
+                                    title = label,
+                                    isSelected = (audioBoostPercent == boost && !isDrcVoiceEnabled),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onSelectAudioBoost(boost) }
+                                )
+                            }
+                        }
+
+                        SettingSectionHeader("🌙 CHẾ ĐỘ BAN ĐÊM & LỌC GIỌNG (DRC VOICE CLEAR)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !isDrcVoiceEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetDrcVoice(false) }
+                            )
+                            SettingChoicePill(
+                                title = "🌙 LỌC GIỌNG RÕ THOẠI",
+                                isSelected = isDrcVoiceEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetDrcVoice(true) }
+                            )
+                        }
+
+                        SettingSectionHeader("⏲️ HẸN GIỜ TỰ TẮT GIẢM DẦN ÂM LƯỢNG (FADE-OUT)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(0 to "TẮT", 15 to "15P", 30 to "30P", 60 to "60P", 90 to "90P").forEach { (min, label) ->
+                                SettingChoicePill(
+                                    title = label,
+                                    isSelected = (sleepTimerMinutes == min),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onSelectSleepTimer(min) }
+                                )
+                            }
+                        }
+
+                        SettingSectionHeader("🌙 TIẾT KIỆM ĐIỆN")
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "🌙 TẮT MÀN HÌNH CHỈ NGHE TIẾNG",
+                                isSelected = false,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = onActivateScreenOffAudio
+                            )
+                        }
+                    }
+                    2 -> {
+                        SettingSectionHeader("🛡️ LÁ CHẮN DIỆT 100% QUẢNG CÁO CHÈN GIỮA PHIM (HLS AD-BLOCK)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "🛡️ BẬT CHẶN 100% QUẢNG CÁO (ĐÃ DIỆT $adsBlockedSessionCount QC)",
+                                isSelected = isHlsAdBlockEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetHlsAdBlock(true) }
+                            )
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !isHlsAdBlockEnabled,
+                                modifier = Modifier.weight(0.4f),
+                                onClick = { onSetHlsAdBlock(false) }
+                            )
+                        }
+
+                        SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
+                                SettingChoicePill(
+                                    title = "${spd}x",
+                                    isSelected = (playbackSpeed == spd),
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onSelectPlaybackSpeed(spd) }
+                                )
+                            }
+                        }
+
+                        SettingSectionHeader("🛡️ TỰ ĐỘNG TRÁO SERVER CHỐNG LAG (> 3S)")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "🛡️ BẬT (KHUYÊN DÙNG)",
+                                isSelected = zeroStallFailoverEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetZeroStallFailover(true) }
+                            )
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !zeroStallFailoverEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetZeroStallFailover(false) }
+                            )
+                        }
+
+                        SettingSectionHeader("⏭️ TỰ ĐỘNG BỎ QUA MỞ ĐẦU 85S")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "⏭️ BẬT",
+                                isSelected = autoSkipIntroEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetAutoSkipIntro(true) }
+                            )
+                            SettingChoicePill(
+                                title = "TẮT",
+                                isSelected = !autoSkipIntroEnabled,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSetAutoSkipIntro(false) }
+                            )
+                        }
+
+                        if (isLive && activeChannelTotalSources > 1) {
+                            SettingSectionHeader("🔄 ĐỔI SERVER TRUYỀN HÌNH THỦ CÔNG")
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                SettingChoicePill(
+                                    title = "🔄 TRÁO SANG SERVER DỰ PHÒNG (${currentBackupIndex + 1}/$activeChannelTotalSources)",
+                                    isSelected = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = onSwitchBackupSource
+                                )
+                            }
+                        }
+                    }
+                    3 -> {
+                        SettingSectionHeader("📱 REMOTE ẢO QUA MẠNG WI-FI")
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF1B202D))
+                                .padding(14.dp)
+                        ) {
+                            Text(
+                                text = "📱 Dùng điện thoại / tablet làm Remote điều khiển:",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Kết nối cùng mạng Wi-Fi, mở trình duyệt trên điện thoại và gõ IP của thiết bị để điều khiển điều hướng D-pad, âm lượng và nhảy kênh mượt mà.",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        SettingSectionHeader("🔒 KHÓA CẢM ỨNG MÀN HÌNH")
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            SettingChoicePill(
+                                title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Chống chạm nhầm)",
+                                isSelected = false,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = onActivateTouchLock
+                            )
+                        }
                     }
                 }
             }

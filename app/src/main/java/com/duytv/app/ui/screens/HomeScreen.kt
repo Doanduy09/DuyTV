@@ -1066,10 +1066,16 @@ fun HomeScreen(
                                 it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
                             }
                             val vtvCount = sports.channels.count {
-                                it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
+                                it.groupTitle == "VTV Quốc Gia" || (it.name.startsWith("VTV", ignoreCase = true) && !it.name.startsWith("VTVcab", ignoreCase = true)) || it.name.contains("ANTV") || it.name.contains("QPVN")
                             }
                             val htvCount = sports.channels.count {
                                 it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
+                            }
+                            val vtvcabCount = sports.channels.count {
+                                it.groupTitle == "Truyền Hình VTVcab" || it.name.startsWith("VTVcab", ignoreCase = true) || it.name.startsWith("ON ", ignoreCase = true)
+                            }
+                            val quocteCount = sports.channels.count {
+                                it.groupTitle == "Kênh Quốc Tế VIP"
                             }
                             val tinhCount = sports.channels.count {
                                 it.groupTitle == "Đài Tỉnh Thành"
@@ -1080,6 +1086,8 @@ fun HomeScreen(
                                 "vtv" to "🔴 VTV QUỐC GIA ($vtvCount)",
                                 "thvl" to "⭐ THVL VĨNH LONG ($thvlCount)",
                                 "htv" to "📺 HTV TP.HCM ($htvCount)",
+                                "vtvcab" to "🎬 VTVCAB & ON ($vtvcabCount)",
+                                "quocte" to "🌍 QUỐC TẾ VIP ($quocteCount)",
                                 "tinh" to "🏛️ ĐÀI TỈNH THÀNH ($tinhCount)",
                                 "live" to "🔴 ĐANG LIVE",
                                 "upcoming" to "⏳ SẮP ĐÁ"
@@ -1136,14 +1144,14 @@ fun HomeScreen(
                     val filteredMatches = when (tvSubFilter) {
                         "live" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.LIVE }
                         "upcoming" -> allMatchesSorted.filter { MatchStateHelper.calculateMatchState(it.kickoffTime, currentHeartbeatMillis).status == MatchStatus.UPCOMING }
-                        "tv", "fav", "thvl", "vtv", "htv", "tinh" -> emptyList()
+                        "tv", "fav", "thvl", "vtv", "htv", "vtvcab", "quocte", "tinh" -> emptyList()
                         else -> allMatchesSorted
                     }
 
-                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "fav" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "tinh")
+                    val showChannels = (tvSubFilter == "all" || tvSubFilter == "fav" || tvSubFilter == "tv" || tvSubFilter == "thvl" || tvSubFilter == "vtv" || tvSubFilter == "htv" || tvSubFilter == "vtvcab" || tvSubFilter == "quocte" || tvSubFilter == "tinh")
                     val favChannelList = sports.channels.filter { AppCacheManager.isFavoriteChannel(it.name) }
                     val vtvChannels = sports.channels.filter {
-                        it.groupTitle == "VTV Quốc Gia" || it.name.startsWith("VTV", ignoreCase = true) || it.name.contains("ANTV") || it.name.contains("QPVN")
+                        it.groupTitle == "VTV Quốc Gia" || (it.name.startsWith("VTV", ignoreCase = true) && !it.name.startsWith("VTVcab", ignoreCase = true)) || it.name.contains("ANTV") || it.name.contains("QPVN")
                     }
                     val thvlChannels = sports.channels.filter {
                         it.groupTitle == "THVL Vĩnh Long" || it.name.contains("THVL", ignoreCase = true) || it.name.contains("Vĩnh Long", ignoreCase = true)
@@ -1151,7 +1159,13 @@ fun HomeScreen(
                     val htvChannels = sports.channels.filter {
                         it.groupTitle == "HTV TP.HCM" || it.name.startsWith("HTV", ignoreCase = true)
                     }
-                    val usedIds = (vtvChannels + thvlChannels + htvChannels).map { it.id }.toSet()
+                    val vtvcabChannels = sports.channels.filter {
+                        it.groupTitle == "Truyền Hình VTVcab" || it.name.startsWith("VTVcab", ignoreCase = true) || it.name.startsWith("ON ", ignoreCase = true)
+                    }
+                    val quocteChannels = sports.channels.filter {
+                        it.groupTitle == "Kênh Quốc Tế VIP"
+                    }
+                    val usedIds = (vtvChannels + thvlChannels + htvChannels + vtvcabChannels + quocteChannels).map { it.id }.toSet()
                     val tinhChannels = sports.channels.filter { it.id !in usedIds }
 
                     if (filteredMatches.isNotEmpty()) {
@@ -1192,12 +1206,16 @@ fun HomeScreen(
                             "vtv" -> listOf("🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV)" to vtvChannels)
                             "thvl" -> listOf("⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels)
                             "htv" -> listOf("📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels)
+                            "vtvcab" -> listOf("🎬 TRUYỀN HÌNH VTVCAB & ON SPORTS (${vtvcabChannels.size} KÊNH)" to vtvcabChannels)
+                            "quocte" -> listOf("🌍 KÊNH QUỐC TẾ VIP (${quocteChannels.size} KÊNH)" to quocteChannels)
                             "tinh" -> listOf("🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH & TỔNG HỢP" to tinhChannels)
                             else -> listOf(
                                 "⭐ KÊNH YÊU THÍCH ĐÃ GHIM (${favChannelList.size} KÊNH)" to favChannelList,
                                 "🔴 ĐÀI TRUYỀN HÌNH QUỐC GIA (VTV1 - VTV9, ANTV, QPVN)" to vtvChannels,
                                 "⭐ ĐÀI TRUYỀN HÌNH VĨNH LONG (THVL1 - THVL5)" to thvlChannels,
                                 "📺 ĐÀI TRUYỀN HÌNH TP. HỒ CHÍ MINH (HTV & HTVC)" to htvChannels,
+                                "🎬 TRUYỀN HÌNH VTVCAB & ON SPORTS (${vtvcabChannels.size} KÊNH)" to vtvcabChannels,
+                                "🌍 KÊNH QUỐC TẾ VIP (${quocteChannels.size} KÊNH)" to quocteChannels,
                                 "🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH & TỔNG HỢP (${tinhChannels.size} KÊNH)" to tinhChannels
                             )
                         }

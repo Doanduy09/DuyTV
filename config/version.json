@@ -1,7 +1,7 @@
 {
-  "versionCode": 29,
-  "versionName": "1.9.4",
+  "versionCode": 30,
+  "versionName": "1.9.5",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "• Ưu tiên 100% luồng truyền hình Full HD 8.5Mbps/1080p lên đầu tiên\n• Tự động loại bỏ link chết, tối ưu 1-chạm mượt mà trên Tablet và Android TV"
+  "releaseNotes": "• Vá triệt để 7 lỗi ẩn: tự động phục hồi phát khi mở khóa màn hình (ON_RESUME), biên dịch JIT/AOT 100% cho PlayerScreen, nút Đóng cảm ứng 1-chạm trên Tablet\n• Tối ưu bộ giải mã MPEG-TS (A3 IPTV 8.5Mbps) và phân nhóm riêng VTVcab & Quốc Tế VIP"
 }
