@@ -49,9 +49,24 @@ async function main() {
     console.log(`  [3] NguonC   : ${sources.nguonc?.api_base || 'N/A'}`);
     console.log(`  [4] CoBePhim : ${sources.cobephim?.api_base || 'N/A'}`);
     console.log(`  [5] Chỉ Build lại APK ngay (không đổi nguồn)`);
+    console.log(`  [6] Dọn sạch các bản Release & APK cũ trên GitHub`);
     console.log('====================================================');
 
-    const choice = (await ask('\n👉 Chọn thao tác [1-5]: ')).trim();
+    const choice = (await ask('\n👉 Chọn thao tác [1-6]: ')).trim();
+
+    if (choice === '6') {
+        const keepInput = (await ask('\n👉 Nhập số bản mới nhất muốn giữ lại trên GitHub (mặc định 1): ')).trim() || '1';
+        try {
+            execSync(`node "${path.join(__dirname, 'clean_old_releases.js')}" ${keepInput}`, {
+                cwd: rootDir,
+                stdio: 'inherit'
+            });
+        } catch (err) {
+            console.error('❌ Lỗi khi dọn dẹp GitHub Releases.');
+        }
+        rl.close();
+        return;
+    }
 
     let targetKey = null;
     let targetName = '';

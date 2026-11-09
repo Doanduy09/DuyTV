@@ -7,6 +7,10 @@ on:
         description: 'Dán đường link file config (hoặc link nguồn mới) vào đây'
         required: false
         default: ''
+      keep_releases:
+        description: 'Số lượng bản Release mới nhất giữ lại trên GitHub (mặc định 1)'
+        required: false
+        default: '1'
   push:
     branches:
       - main
@@ -96,3 +100,11 @@ jobs:
           files: release_apk/DuyTV-Full-Latest.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tự động dọn dẹp các bản Release, Tag & APK cũ trên GitHub
+        if: always()
+        run: node scripts/clean_old_releases.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          KEEP_RELEASES: ${{ github.event.inputs.keep_releases || '1' }}
