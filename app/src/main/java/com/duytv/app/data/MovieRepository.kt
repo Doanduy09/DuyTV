@@ -1294,7 +1294,11 @@ class MovieRepository {
             val res = client.newCall(req).execute()
             if (res.isSuccessful) {
                 res.body?.string()?.let {
-                    val detail = gson.fromJson(it, MovieDetailResponse::class.java)
+                    val rawDetail = gson.fromJson(it, MovieDetailResponse::class.java)
+                    val dedupGroups = rawDetail.episodes?.map { grp ->
+                        grp.copy(serverData = grp.serverData.distinctBy { ep -> ep.name.trim().lowercase() })
+                    }
+                    val detail = rawDetail.copy(episodes = dedupGroups)
                     // If movie has an origin_name or imdb, check for 4K Torrent sources and Vietsub
                     val movieName = detail.movie?.originName ?: detail.movie?.name
                     if (!movieName.isNullOrBlank() && detail.status) {
@@ -1372,7 +1376,12 @@ class MovieRepository {
                             }
                         }
                         if (epItems.isNotEmpty()) {
-                            serverGroups.add(ServerGroupDto(serverName = "🌐 $sName (NguonC)", serverData = epItems))
+                            serverGroups.add(
+                                ServerGroupDto(
+                                    serverName = "🌐 $sName (NguonC)",
+                                    serverData = epItems.distinctBy { ep -> ep.name.trim().lowercase() }
+                                )
+                            )
                         }
                     }
                 }

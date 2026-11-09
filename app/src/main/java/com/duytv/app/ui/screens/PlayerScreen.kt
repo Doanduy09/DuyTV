@@ -348,6 +348,9 @@ private fun PlayerScreenContent(
     var aspectBadgeText by remember { mutableStateOf<String?>(null) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     val currentConfig = LocalConfiguration.current
+    val screenConfig = remember(context, currentConfig.screenWidthDp, currentConfig.screenHeightDp, currentConfig.orientation) {
+        com.duytv.app.util.HardwareOptimizer.detectScreenConfig(context, currentConfig.screenWidthDp, currentConfig.screenHeightDp)
+    }
 
     // Tự động nhận diện mọi thay đổi kích thước/tỷ lệ màn hình (xoay ngang/dọc, gập/mở Z Fold, Tablet, TV)
     // để co giãn tràn 100% diện tích màn hình không bị khúc đen
@@ -571,8 +574,14 @@ private fun PlayerScreenContent(
                     exoPlayer.play()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
-                    exoPlayer.pause()
-                    exoPlayer.playWhenReady = false
+                    val isInPip = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
+                        (context as? Activity)?.isInPictureInPictureMode == true
+                    if (isInPip) {
+                        showControls = false
+                    } else {
+                        exoPlayer.pause()
+                        exoPlayer.playWhenReady = false
+                    }
                 }
                 Lifecycle.Event.ON_STOP -> {
                     val pos = exoPlayer.currentPosition
@@ -659,7 +668,7 @@ private fun PlayerScreenContent(
                     lastRenderedFrames = rendered
                 }
 
-                // #11 Tự nạp trước tập tiếp theo khi còn 45 giây cuối
+                // #11 Tự nạp trước tập tiếp theo khi còn 45 giây cuối (Pre-warm HLS Manifest & khử tập trùng)
                 if (!isLive && preWarmedEpisodeUrl == null && totalDurationMs > 120_000L &&
                     (totalDurationMs - currentPosMs) in 10_000L..45_000L
                 ) {
@@ -668,6 +677,19 @@ private fun PlayerScreenContent(
                         preWarmedEpisodeUrl = nextEp.linkM3u8 ?: nextEp.linkEmbed ?: "ready"
                         aspectBadgeText = "⏭️ Sắp chuyển sang: ${nextEp.name}"
                         scope.launch {
+                            var warmUrl = nextEp.linkM3u8 ?: ""
+                            if (warmUrl.isBlank() && nextEp.slug.startsWith("cobe_ep_") && repository != null) {
+                                val epId = nextEp.slug.split("_").getOrNull(2)?.toLongOrNull()
+                                if (epId != null) {
+                                    warmUrl = try { repository.resolveCoBeEpisode(epId) ?: "" } catch (_: Exception) { "" }
+                                }
+                            }
+                            if (warmUrl.isNotBlank()) {
+                                preWarmedEpisodeUrl = warmUrl
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.duytv.app.util.HlsAdBlockEngine.preWarmStreamManifest(warmUrl)
+                                }
+                            }
                             delay(2500)
                             aspectBadgeText = null
                         }
@@ -762,15 +784,21 @@ private fun PlayerScreenContent(
                     if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
                         stallTimerJob?.cancel()
                         stallTimerJob = scope.launch {
-                            delay(6500L) // Chờ đủ 6.5s trước khi tráo Server dự phòng để không ngắt luồng FHD đang nạp
+                            delay(4500L) // Chờ 4.5s rồi đua song song tìm Server dự phòng phản hồi nhanh nhất
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
                                 AppCacheManager.markStreamFailed(currentStreamUrl)
-                                val nextBackupIdx = (currentBackupIndex + 1) % allUrls.size
+                                val backupCandidates = allUrls.filterNot { it == currentStreamUrl }
+                                val fastestUrl = com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                val nextBackupIdx = if (fastestUrl != null) {
+                                    allUrls.indexOf(fastestUrl).takeIf { it >= 0 } ?: ((currentBackupIndex + 1) % allUrls.size)
+                                } else {
+                                    (currentBackupIndex + 1) % allUrls.size
+                                }
                                 currentBackupIndex = nextBackupIdx
                                 errorMessage = null
                                 channelOsdVisible = false
-                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
+                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server nhanh nhất (${nextBackupIdx + 1}/${allUrls.size})"
                                 loadLiveStreamUrl(allUrls[nextBackupIdx])
                             }
                         }
@@ -838,6 +866,25 @@ private fun PlayerScreenContent(
                     exoPlayer.seekToDefaultPosition()
                     exoPlayer.prepare()
                     exoPlayer.play()
+                    return
+                }
+                if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES
+                ) {
+                    errorMessage = null
+                    val savedPos = maxOf(0L, exoPlayer.currentPosition)
+                    scope.launch {
+                        try {
+                            exoPlayer.stop()
+                            delay(250L)
+                            exoPlayer.prepare()
+                            if (!isLive && savedPos > 0L) {
+                                exoPlayer.seekTo(savedPos)
+                            }
+                            exoPlayer.play()
+                        } catch (_: Exception) {}
+                    }
                     return
                 }
                 val allUrls = getActiveLiveUrls()
@@ -2070,7 +2117,7 @@ private fun PlayerScreenContent(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $currentEpisodeName ${if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0) "(${currentEpisodeIndex + 1}/${availableEpisodes.size})" else ""} • $videoResolution • $selectedQualityMode",
+                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution • ${screenConfig.screenSummaryBadge}" else "Đang phát: $currentEpisodeName ${if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0) "(${currentEpisodeIndex + 1}/${availableEpisodes.size})" else ""} • $videoResolution • ${screenConfig.screenSummaryBadge}",
                                 color = Color(0xFFA0AAB8),
                                 fontSize = if (screenWidthDp < 600) 11.sp else 14.sp,
                                 maxLines = 1

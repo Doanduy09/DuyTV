@@ -16,6 +16,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
 
 /**
  * Engine chặn 100% quảng cáo chèn giữa phim (HLS Mid-Roll / Pre-Roll Ad Injection)
@@ -388,4 +389,69 @@ object HlsAdBlockEngine {
 
         return DefaultDataSource.Factory(context, okHttpFactory)
     }
+
+    fun preWarmStreamManifest(url: String) {
+        if (url.isBlank() || !url.startsWith("http")) return
+        try {
+            val reqB = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0")
+            when {
+                url.contains("cdnfastter") || url.contains("khoga") -> {
+                    reqB.header("Referer", "https://khoga1.live/")
+                    reqB.header("Origin", "https://khoga1.live")
+                }
+                url.contains("livetl") || url.contains("thapcam") -> {
+                    reqB.header("Referer", "https://thapcamtvt1.com/")
+                    reqB.header("Origin", "https://thapcamtvt1.com")
+                }
+            }
+            sharedStreamOkHttpClient.newCall(reqB.build()).execute().use { res ->
+                res.body?.source()?.request(2048)
+            }
+        } catch (_: Exception) {}
+    }
+
+    suspend fun raceFastestHealthyStream(candidates: List<String>, timeoutMs: Long = 1100L): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val valid = candidates.filter { it.startsWith("http") }.distinct().take(3)
+            if (valid.size <= 1) return@withContext valid.firstOrNull()
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+                    val jobs = valid.map { candidateUrl ->
+                        async {
+                            val startNs = System.nanoTime()
+                            try {
+                                val reqB = okhttp3.Request.Builder()
+                                    .url(candidateUrl)
+                                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0")
+                                when {
+                                    candidateUrl.contains("cdnfastter") || candidateUrl.contains("khoga") -> {
+                                        reqB.header("Referer", "https://khoga1.live/")
+                                        reqB.header("Origin", "https://khoga1.live")
+                                    }
+                                    candidateUrl.contains("livetl") || candidateUrl.contains("thapcam") -> {
+                                        reqB.header("Referer", "https://thapcamtvt1.com/")
+                                        reqB.header("Origin", "https://thapcamtvt1.com")
+                                    }
+                                }
+                                sharedStreamOkHttpClient.newCall(reqB.build()).execute().use { res ->
+                                    if (res.isSuccessful) {
+                                        res.body?.source()?.request(512)
+                                        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000L
+                                        Pair(candidateUrl, elapsedMs)
+                                    } else null
+                                }
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                    }
+                    val results = jobs.mapNotNull { it.await() }
+                    results.minByOrNull { it.second }?.first
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
 }

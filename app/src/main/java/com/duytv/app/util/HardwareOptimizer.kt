@@ -220,10 +220,14 @@ object HardwareOptimizer {
     fun isTvDevice(context: Context): Boolean {
         return try {
             val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? android.app.UiModeManager
-            if (uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION) {
-                true
-            } else {
-                context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
+            val pm = context.packageManager
+            when {
+                uiModeManager?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION -> true
+                pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) -> true
+                @Suppress("DEPRECATION")
+                pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION) -> true
+                !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) -> true
+                else -> false
             }
         } catch (_: Exception) {
             false
@@ -231,18 +235,21 @@ object HardwareOptimizer {
     }
 
     enum class ScreenFormFactor(val label: String) {
-        TV_CINEMA("TV / 4K Cinema (16:9)"),
-        TABLET_WIDE("Máy Tính Bảng (16:10 / 3:2)"),
-        FOLDABLE_UNFOLDED("Màn Hình Gập Mở Rộng (6:5)"),
+        TV_CINEMA("TV / Android Box (16:9)"),
+        TABLET_WIDE("Máy Tính Bảng (3:2 / 16:10)"),
+        FOLDABLE_UNFOLDED("Màn Hình Gập Mở Rộng (4:3 / 6:5)"),
         FOLDABLE_COVER("Màn Hình Phụ Gập (23:9)"),
         PHONE_ULTRAWIDE("Điện Thoại Tràn Viền (20:9 / 21:9)"),
-        PHONE_STANDARD("Điện Thoại (16:9 / 18:9)")
+        PHONE_STANDARD("Điện Thoại Chuẩn (16:9 / 18:9)")
     }
 
     data class ResponsiveScreenConfig(
         val formFactor: ScreenFormFactor,
         val isTv: Boolean,
         val aspectRatio: Float,
+        val ratioLabel: String,
+        val resolutionPxLabel: String,
+        val screenSummaryBadge: String,
         val horizontalPaddingDp: Int,
         val verticalPaddingDp: Int,
         val gridMinCardWidthDp: Int
@@ -250,41 +257,79 @@ object HardwareOptimizer {
 
     fun detectScreenConfig(context: Context, screenWidthDp: Int, screenHeightDp: Int): ResponsiveScreenConfig {
         val isTv = isTvDevice(context)
+        val dm = context.resources.displayMetrics
+        val widthPx = dm.widthPixels.coerceAtLeast(320)
+        val heightPx = dm.heightPixels.coerceAtLeast(320)
+        val maxPx = maxOf(widthPx, heightPx).toFloat()
+        val minPx = minOf(widthPx, heightPx).toFloat()
+
         val w = screenWidthDp.coerceAtLeast(320).toFloat()
         val h = screenHeightDp.coerceAtLeast(320).toFloat()
         val maxDim = maxOf(w, h)
         val minDim = minOf(w, h)
-        val ratio = maxDim / minDim
+        val ratio = if (minPx > 0f) (maxPx / minPx) else (maxDim / minDim)
+
+        val ratioLabel = when {
+            ratio >= 2.28f -> "23:9"
+            ratio >= 2.12f -> "21:9"
+            ratio >= 1.96f -> "20:9"
+            ratio >= 1.84f -> "18.5:9"
+            ratio >= 1.70f -> "16:9"
+            ratio >= 1.56f -> "16:10"
+            ratio >= 1.44f -> "3:2"
+            ratio >= 1.28f -> "4:3"
+            else -> "6:5"
+        }
 
         val formFactor = when {
-            isTv || screenWidthDp >= 960 -> ScreenFormFactor.TV_CINEMA
-            minDim >= 580f && ratio <= 1.38f -> ScreenFormFactor.FOLDABLE_UNFOLDED
-            minDim >= 580f -> ScreenFormFactor.TABLET_WIDE
-            ratio >= 2.32f -> ScreenFormFactor.FOLDABLE_COVER
-            ratio >= 1.95f -> ScreenFormFactor.PHONE_ULTRAWIDE
+            isTv -> ScreenFormFactor.TV_CINEMA
+            minDim >= 560f && ratio <= 1.38f -> ScreenFormFactor.FOLDABLE_UNFOLDED
+            minDim >= 560f -> ScreenFormFactor.TABLET_WIDE
+            ratio >= 2.28f -> ScreenFormFactor.FOLDABLE_COVER
+            ratio >= 1.92f -> ScreenFormFactor.PHONE_ULTRAWIDE
             else -> ScreenFormFactor.PHONE_STANDARD
         }
 
+        val resTag = when {
+            maxPx >= 3800f -> "4K"
+            maxPx >= 2800f -> "3.2K"
+            maxPx >= 2200f -> "2.4K+"
+            maxPx >= 1900f -> "1080p"
+            else -> "HD+"
+        }
+        val resolutionPxLabel = "${widthPx}x${heightPx}"
+        val deviceShort = when (formFactor) {
+            ScreenFormFactor.TV_CINEMA -> "📺 TV $resTag ($ratioLabel)"
+            ScreenFormFactor.TABLET_WIDE -> "📱 Tablet $resTag ($ratioLabel)"
+            ScreenFormFactor.FOLDABLE_UNFOLDED -> "📱 Fold Mở $resTag ($ratioLabel)"
+            ScreenFormFactor.FOLDABLE_COVER -> "📱 Fold Gập $resTag ($ratioLabel)"
+            ScreenFormFactor.PHONE_ULTRAWIDE -> "📱 Phone $resTag ($ratioLabel)"
+            ScreenFormFactor.PHONE_STANDARD -> "📱 Phone $resTag ($ratioLabel)"
+        }
+
         val hPad = when {
-            isTv -> 42
-            screenWidthDp >= 900 -> 32
-            screenWidthDp >= 600 -> 20
-            else -> 14
+            isTv -> (screenWidthDp * 0.038f).toInt().coerceIn(32, 48)
+            minDim >= 560f -> (screenWidthDp * 0.026f).toInt().coerceIn(20, 36)
+            else -> (screenWidthDp * 0.022f).toInt().coerceIn(12, 22)
         }
         val vPad = when {
             isTv -> 18
-            screenWidthDp >= 600 -> 14
+            minDim >= 560f -> 14
             else -> 10
         }
         val minCardW = when {
             isTv -> 160
-            screenWidthDp >= 700 -> 150
-            else -> 125
+            minDim >= 560f -> (screenWidthDp / 6).coerceIn(142, 175)
+            screenWidthDp >= 640 -> 135
+            else -> 118
         }
         return ResponsiveScreenConfig(
             formFactor = formFactor,
             isTv = isTv,
             aspectRatio = w / h,
+            ratioLabel = ratioLabel,
+            resolutionPxLabel = resolutionPxLabel,
+            screenSummaryBadge = deviceShort,
             horizontalPaddingDp = hPad,
             verticalPaddingDp = vPad,
             gridMinCardWidthDp = minCardW

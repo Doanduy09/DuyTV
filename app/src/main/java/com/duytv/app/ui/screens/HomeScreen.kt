@@ -350,7 +350,7 @@ fun HomeScreen(
     val config = LocalConfiguration.current
     val screenWidthDp = config.screenWidthDp
     val screenHeightDp = config.screenHeightDp
-    val screenConfig = remember(context, screenWidthDp, screenHeightDp) {
+    val screenConfig = remember(context, screenWidthDp, screenHeightDp, config.orientation) {
         com.duytv.app.util.HardwareOptimizer.detectScreenConfig(context, screenWidthDp, screenHeightDp)
     }
     val isCompactScreen = screenWidthDp < 960
@@ -402,7 +402,7 @@ fun HomeScreen(
                                     .padding(horizontal = 6.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = if (isSilentSyncing || isLoading) "⚡ ĐANG ĐỒNG BỘ..." else "4K CINEMA",
+                                    text = if (isSilentSyncing || isLoading) "⚡ ĐANG ĐỒNG BỘ..." else "4K • ${screenConfig.screenSummaryBadge}",
                                     color = if (isSilentSyncing || isLoading) Color(0xFFFFD600) else Color(0xFF00E676),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold

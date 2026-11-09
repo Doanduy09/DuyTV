@@ -125,6 +125,21 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!com.duytv.app.util.HardwareOptimizer.isTvDevice(this) &&
+            isVideoActivelyPlaying &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+        ) {
+            try {
+                val pipParams = android.app.PictureInPictureParams.Builder()
+                    .setAspectRatio(android.util.Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(pipParams)
+            } catch (_: Exception) {}
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         backgroundedAtMs = 0L
