@@ -73,7 +73,10 @@ object AppUpdateManager {
     // [✅ ĐÃ CHUẨN - CẤM SỬA]: Ưu tiên kiểm tra GitHub Cloud trước để luôn lấy bản mới nhất tức thì,
     // tránh nghẽn 1.5s-4s khi máy chủ LAN (192.168.1.189:8888) đang tắt hoặc chứa bản cũ.
     suspend fun checkForUpdate(): AppVersionInfo? = withContext(Dispatchers.IO) {
-        // 1. Ưu tiên kiểm tra GitHub Cloud (luôn đồng bộ bản mới nhất mọi lúc mọi nơi)
+        var cloudVersion: AppVersionInfo? = null
+        var lanVersion: AppVersionInfo? = null
+
+        // 1. Kiểm tra GitHub Cloud
         try {
             val req = Request.Builder()
                 .url("$CLOUD_VERSION_URL?t=${System.currentTimeMillis()}")
@@ -85,14 +88,14 @@ object AppUpdateManager {
                     if (!body.isNullOrBlank()) {
                         val parsed = gson.fromJson(body, AppVersionInfo::class.java)
                         if (parsed != null && parsed.versionCode > 0) {
-                            return@withContext parsed
+                            cloudVersion = parsed
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        // 2. Fallback sang máy chủ LAN nội bộ nếu mất kết nối Internet ra GitHub
+        // 2. Kiểm tra máy chủ LAN nội bộ (tránh trễ cache CDN 5 phút của GitHub Raw)
         try {
             val req = Request.Builder()
                 .url("$LAN_VERSION_URL?t=${System.currentTimeMillis()}")
@@ -104,14 +107,20 @@ object AppUpdateManager {
                     if (!body.isNullOrBlank()) {
                         val parsed = gson.fromJson(body, AppVersionInfo::class.java)
                         if (parsed != null && parsed.versionCode > 0) {
-                            return@withContext parsed
+                            lanVersion = parsed
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        null
+        // Luôn chọn bản có versionCode cao nhất giữa Cloud và LAN
+        when {
+            lanVersion != null && cloudVersion != null ->
+                if (lanVersion!!.versionCode >= cloudVersion!!.versionCode) lanVersion else cloudVersion
+            lanVersion != null -> lanVersion
+            else -> cloudVersion
+        }
     }
 
     suspend fun downloadAndInstallApk(
