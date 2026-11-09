@@ -110,6 +110,20 @@ enum class VideoAspectMode(val mode: Int, val label: String, val desc: String) {
     FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT, "📺 VỪA VẶN CHUẨN GỐC", "Giữ nguyên tỷ lệ chuẩn điện ảnh gốc")
 }
 
+private class PlayerLaunchParams(
+    val slug: String,
+    val movieTitle: String,
+    val episodeName: String,
+    val streamUrl: String,
+    val posterUrl: String?,
+    val subtitleUrl: String?,
+    val initialPositionMs: Long,
+    val backupUrls: List<String>,
+    val episodes: List<EpisodeItemDto>,
+    val repository: MovieRepository?,
+    val onClose: () -> Unit
+)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
@@ -126,6 +140,42 @@ fun PlayerScreen(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val params = remember(slug, movieTitle, episodeName, streamUrl, posterUrl, subtitleUrl, initialPositionMs, backupUrls, episodes, repository, onClose) {
+        PlayerLaunchParams(
+            slug = slug,
+            movieTitle = movieTitle,
+            episodeName = episodeName,
+            streamUrl = streamUrl,
+            posterUrl = posterUrl,
+            subtitleUrl = subtitleUrl,
+            initialPositionMs = initialPositionMs,
+            backupUrls = backupUrls,
+            episodes = episodes,
+            repository = repository,
+            onClose = onClose
+        )
+    }
+    PlayerScreenContent(params = params, modifier = modifier)
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun PlayerScreenContent(
+    params: PlayerLaunchParams,
+    modifier: Modifier
+) {
+    val slug = params.slug
+    val movieTitle = params.movieTitle
+    val episodeName = params.episodeName
+    val streamUrl = params.streamUrl
+    val posterUrl = params.posterUrl
+    val subtitleUrl = params.subtitleUrl
+    val initialPositionMs = params.initialPositionMs
+    val backupUrls = params.backupUrls
+    val episodes = params.episodes
+    val repository = params.repository
+    val onClose = params.onClose
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val isLive = remember(streamUrl, slug) {
@@ -434,97 +484,7 @@ fun PlayerScreen(
     val isMagnet = streamUrl.startsWith("magnet:?")
 
     val exoPlayer = remember(streamUrl) {
-        if (isMagnet) {
-            null
-        } else {
-            // Universal Multi-SoC Hardware Engine (Qualcomm, Amlogic, Rockchip, Realtek, Exynos, MediaTek, x86_64)
-            val loadControl = com.duytv.app.util.HardwareOptimizer.buildLoadControl(context, isLive)
-            val renderersFactory = com.duytv.app.util.HardwareOptimizer.buildRenderersFactory(context)
-
-            val userAgent = if (streamUrl.contains("hainghia.net")) {
-                "TiviMate/4.7.0"
-            } else {
-                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
-            }
-
-            val headers = mutableMapOf<String, String>()
-            when {
-                streamUrl.contains("cdnfastter") || streamUrl.contains("khoga") -> {
-                    headers["Referer"] = "https://khoga1.live/"
-                    headers["Origin"] = "https://khoga1.live"
-                }
-                streamUrl.contains("livetl") || streamUrl.contains("thapcam") -> {
-                    headers["Referer"] = "https://thapcamtvt1.com/"
-                    headers["Origin"] = "https://thapcamtvt1.com"
-                }
-            }
-
-            val combinedDataSourceFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
-                context = context,
-                userAgent = userAgent,
-                headers = headers
-            )
-
-            val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
-            if (streamUrl.contains("/rtp/") || streamUrl.contains("video/mp2t") || streamUrl.contains("a3iptv.goitoi.co") || streamUrl.contains("r2h-token=") || streamUrl.substringBefore("?").endsWith(".ts")) {
-                mediaItemBuilder.setMimeType(MimeTypes.VIDEO_MP2T)
-            } else if (streamUrl.substringBefore("?").endsWith(".flv")) {
-                mediaItemBuilder.setMimeType(MimeTypes.VIDEO_FLV)
-            } else if (streamUrl.contains(".m3u8") || streamUrl.contains("/hls/")) {
-                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-
-            if (isLive) {
-                mediaItemBuilder.setLiveConfiguration(
-                    MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(4000L)
-                        .setMinOffsetMs(2000L)
-                        .setMaxOffsetMs(10000L)
-                        .setMinPlaybackSpeed(0.97f)
-                        .setMaxPlaybackSpeed(1.04f)
-                        .build()
-                )
-            }
-
-            // Inject Vietnamese Subtitles if available
-            if (!subtitleUrl.isNullOrBlank()) {
-                val subMime = when {
-                    subtitleUrl.startsWith("data:application/x-subrip") -> MimeTypes.APPLICATION_SUBRIP
-                    subtitleUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
-                    else -> MimeTypes.APPLICATION_SUBRIP
-                }
-                val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
-                    .setMimeType(subMime)
-                    .setLanguage("vi")
-                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                    .build()
-                mediaItemBuilder.setSubtitleConfigurations(listOf(subConfig))
-            }
-
-            val mediaItem = mediaItemBuilder.build()
-            val extractorsFactory = DefaultExtractorsFactory()
-                .setTsExtractorFlags(
-                    DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-                )
-            val mediaSourceFactory = DefaultMediaSourceFactory(combinedDataSourceFactory, extractorsFactory)
-            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
-
-            ExoPlayer.Builder(context, renderersFactory)
-                .setLoadControl(loadControl)
-                .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
-                .build()
-                .apply {
-                    setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
-                    setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
-                    setMediaSource(mediaSource)
-                    prepare()
-                    if (initialPositionMs > 0) {
-                        seekTo(initialPositionMs)
-                    }
-                    playWhenReady = true
-                }
-        }
+        if (isMagnet) null else createConfiguredExoPlayer(context, streamUrl, isLive, subtitleUrl, initialPositionMs)
     }
 
     if (isMagnet) {
@@ -642,51 +602,7 @@ fun PlayerScreen(
         val player = exoPlayer ?: return
         currentStreamUrl = url
         try {
-            val userAgent = if (url.contains("hainghia.net")) {
-                "TiviMate/4.7.0"
-            } else {
-                "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
-            }
-            val headers = mutableMapOf<String, String>()
-            when {
-                url.contains("cdnfastter") || url.contains("khoga") -> {
-                    headers["Referer"] = "https://khoga1.live/"
-                    headers["Origin"] = "https://khoga1.live"
-                }
-                url.contains("livetl") || url.contains("thapcam") -> {
-                    headers["Referer"] = "https://thapcamtvt1.com/"
-                    headers["Origin"] = "https://thapcamtvt1.com"
-                }
-            }
-            val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
-                context = context,
-                userAgent = userAgent,
-                headers = headers
-            )
-            val extractorsFactory = DefaultExtractorsFactory()
-                .setTsExtractorFlags(
-                    DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-                )
-            val msFactory = DefaultMediaSourceFactory(dsFactory, extractorsFactory)
-            val mediaItemB = MediaItem.Builder().setUri(url)
-            if (url.contains("/rtp/") || url.contains("video/mp2t") || url.contains("a3iptv.goitoi.co") || url.contains("r2h-token=") || url.substringBefore("?").endsWith(".ts")) {
-                mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
-            } else if (url.substringBefore("?").endsWith(".flv")) {
-                mediaItemB.setMimeType(MimeTypes.VIDEO_FLV)
-            } else if (url.contains(".m3u8") || url.contains("/hls/")) {
-                mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-            mediaItemB.setLiveConfiguration(
-                MediaItem.LiveConfiguration.Builder()
-                    .setTargetOffsetMs(4000L)
-                    .setMinOffsetMs(2000L)
-                    .setMaxOffsetMs(10000L)
-                    .setMinPlaybackSpeed(0.97f)
-                    .setMaxPlaybackSpeed(1.04f)
-                    .build()
-            )
-            val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+            val newMediaSource = buildStreamMediaSource(context, url, isLive = true, subtitleUrl = null)
             errorRetryJob?.cancel()
             player.stop()
             player.clearMediaItems()
@@ -803,31 +719,8 @@ fun PlayerScreen(
             )
 
             try {
-                val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
-                    context = context,
-                    userAgent = "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0",
-                    headers = emptyMap()
-                )
-                val msFactory = DefaultMediaSourceFactory(dsFactory)
-                val mediaItemB = MediaItem.Builder().setUri(nextUrl)
-                if (nextUrl.contains(".m3u8") || nextUrl.contains("/hls/")) {
-                    mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
-                }
                 val currentSub = activeSubtitleData ?: subtitleUrl
-                if (!currentSub.isNullOrBlank()) {
-                    val subMime = when {
-                        currentSub.startsWith("data:application/x-subrip") -> MimeTypes.APPLICATION_SUBRIP
-                        currentSub.endsWith(".vtt") -> MimeTypes.TEXT_VTT
-                        else -> MimeTypes.APPLICATION_SUBRIP
-                    }
-                    val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(currentSub))
-                        .setMimeType(subMime)
-                        .setLanguage("vi")
-                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                        .build()
-                    mediaItemB.setSubtitleConfigurations(listOf(subConfig))
-                }
-                val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
+                val newMediaSource = buildStreamMediaSource(context, nextUrl, isLive = false, subtitleUrl = currentSub)
                 errorRetryJob?.cancel()
                 player.stop()
                 player.clearMediaItems()
@@ -2005,623 +1898,520 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
-            PlayerHudControlsOverlay(
-                hudHorizontalPad = hudHorizontalPad,
-                hudVerticalPad = hudVerticalPad,
-                screenWidthDp = screenWidthDp,
-                currentTitle = currentTitle,
-                isLive = isLive,
-                currentGroupName = currentGroupName,
-                videoResolution = videoResolution,
-                currentEpisodeName = currentEpisodeName,
-                availableEpisodes = availableEpisodes,
-                currentEpisodeIndex = currentEpisodeIndex,
-                selectedQualityMode = selectedQualityMode,
-                isHlsAdBlockEnabled = isHlsAdBlockEnabled,
-                adsBlockedSessionCount = adsBlockedSessionCount,
-                activeSubtitleData = activeSubtitleData,
-                isCurrentChannelFav = isCurrentChannelFav,
-                pendingSeekPosMs = pendingSeekPosMs,
-                seekDeltaText = seekDeltaText,
-                currentPosMs = currentPosMs,
-                totalDurationMs = totalDurationMs,
-                isPlaying = isPlaying,
-                showChannelRibbon = showChannelRibbon,
-                availableChannels = availableChannels,
-                currentChannelIndex = currentChannelIndex,
-                previousVisitedChannelIndex = previousVisitedChannelIndex,
-                activeChannelTotalSources = activeChannelTotalSources,
-                currentBackupIndex = currentBackupIndex,
-                currentAspectMode = currentAspectMode,
-                playbackSpeed = playbackSpeed,
-                onDismissControls = { showControls = false },
-                onClose = onClose,
-                onToggleAdBlock = {
-                    val nextAdState = !isHlsAdBlockEnabled
-                    isHlsAdBlockEnabled = nextAdState
-                    com.duytv.app.util.HlsAdBlockEngine.isEnabled = nextAdState
-                    aspectBadgeText = if (nextAdState) "🛡️ ĐÃ BẬT LÁ CHẮN CHẶN 100% QUẢNG CÁO GIỮA PHIM" else "Đã tắt chặn quảng cáo"
-                    scope.launch {
-                        delay(2200)
-                        aspectBadgeText = null
-                    }
-                },
-                onToggleFav = { toggleCurrentChannelFavorite() },
-                onOpenQuickSheet = { showQuickActionSheet = true },
-                onConfirmPendingSeek = {
-                    seekJob?.cancel()
-                    pendingSeekPosMs?.let { exoPlayer.seekTo(it) }
-                    pendingSeekPosMs = null
-                    seekDeltaText = ""
-                },
-                onTogglePlayPause = { togglePlayPause() },
-                onToggleChannelRibbon = { showChannelRibbon = !showChannelRibbon },
-                onSwitchToChannel = { switchToChannel(it) },
-                onPreviousChannel = { previousChannel() },
-                onNextChannel = { nextChannel() },
-                onSwitchBackupSource = { switchBackupSource() },
-                onCycleAspectMode = { cycleAspectMode() },
-                onPlayVodEpisodeAt = { playVodEpisodeAt(it, isAutoAdvance = false) },
-                onTriggerSeek = { triggerSeek(it) },
-                onCyclePlaybackSpeed = { cyclePlaybackSpeed() },
-                onSliderSeekTo = { newPos ->
-                    currentPosMs = newPos
-                    exoPlayer.seekTo(newPos)
-                    showControls = true
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlayerHudControlsOverlay(
-    hudHorizontalPad: androidx.compose.ui.unit.Dp,
-    hudVerticalPad: androidx.compose.ui.unit.Dp,
-    screenWidthDp: Int,
-    currentTitle: String,
-    isLive: Boolean,
-    currentGroupName: String,
-    videoResolution: String,
-    currentEpisodeName: String,
-    availableEpisodes: List<com.duytv.app.data.EpisodeItemDto>,
-    currentEpisodeIndex: Int,
-    selectedQualityMode: String,
-    isHlsAdBlockEnabled: Boolean,
-    adsBlockedSessionCount: Int,
-    activeSubtitleData: String?,
-    isCurrentChannelFav: Boolean,
-    pendingSeekPosMs: Long?,
-    seekDeltaText: String,
-    currentPosMs: Long,
-    totalDurationMs: Long,
-    isPlaying: Boolean,
-    showChannelRibbon: Boolean,
-    availableChannels: List<com.duytv.app.data.TvChannel>,
-    currentChannelIndex: Int,
-    previousVisitedChannelIndex: Int,
-    activeChannelTotalSources: Int,
-    currentBackupIndex: Int,
-    currentAspectMode: VideoAspectMode,
-    playbackSpeed: Float,
-    onDismissControls: () -> Unit,
-    onClose: () -> Unit,
-    onToggleAdBlock: () -> Unit,
-    onToggleFav: () -> Unit,
-    onOpenQuickSheet: () -> Unit,
-    onConfirmPendingSeek: () -> Unit,
-    onTogglePlayPause: () -> Unit,
-    onToggleChannelRibbon: () -> Unit,
-    onSwitchToChannel: (Int) -> Unit,
-    onPreviousChannel: () -> Unit,
-    onNextChannel: () -> Unit,
-    onSwitchBackupSource: () -> Unit,
-    onCycleAspectMode: () -> Unit,
-    onPlayVodEpisodeAt: (Int) -> Unit,
-    onTriggerSeek: (Int) -> Unit,
-    onCyclePlaybackSpeed: () -> Unit,
-    onSliderSeekTo: (Long) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xCC000000), Color.Transparent, Color(0xCC000000))
-                )
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                onDismissControls()
-            }
-    ) {
-        // Top Header info
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f, fill = false)
-            ) {
-                val exitInter = remember { MutableInteractionSource() }
-                val isExitFoc by exitInter.collectIsFocusedAsState()
-                val isExitPress by exitInter.collectIsPressedAsState()
-                val isExitActive = isExitFoc || isExitPress
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isExitActive) AccentRed else Color(0xFF222938))
-                        .border(
-                            width = if (isExitActive) 1.5.dp else 1.dp,
-                            color = if (isExitActive) Color.White else Color(0x44FFFFFF),
-                            shape = RoundedCornerShape(6.dp)
-                        )
-                        .clickable(interactionSource = exitInter, indication = null, onClick = onClose)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Thoát",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "THOÁT",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
-                    Text(
-                        text = currentTitle,
-                        color = Color.White,
-                        fontSize = if (screenWidthDp < 600) 16.sp else 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $currentEpisodeName ${if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0) "(${currentEpisodeIndex + 1}/${availableEpisodes.size})" else ""} • $videoResolution • $selectedQualityMode",
-                        color = Color(0xFFA0AAB8),
-                        fontSize = if (screenWidthDp < 600) 11.sp else 14.sp,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.horizontalScroll(rememberScrollState())
-            ) {
-                if (!isLive) {
-                    val adInter = remember { MutableInteractionSource() }
-                    val isAdFoc by adInter.collectIsFocusedAsState()
-                    val isAdPress by adInter.collectIsPressedAsState()
-                    val isAdActive = isAdFoc || isAdPress
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isAdActive) AccentRed else if (isHlsAdBlockEnabled) Color(0xFF0D3B2E) else Color(0xFF222938))
-                            .border(1.5.dp, if (isAdActive) Color.White else if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
-                            .clickable(interactionSource = adInter, indication = null) {
-                                onToggleAdBlock()
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = if (isHlsAdBlockEnabled) "🛡️ DIỆT QC${if (adsBlockedSessionCount > 0) " ($adsBlockedSessionCount)" else ": BẬT"}" else "🛡️ DIỆT QC: TẮT",
-                            color = if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                if (!activeSubtitleData.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFF00E676), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = "💬 PHỤ ĐỀ TIẾNG VIỆT",
-                            color = Color.Black,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                }
-
-                if (isLive) {
-                    val favInter = remember { MutableInteractionSource() }
-                    val isFavFoc by favInter.collectIsFocusedAsState()
-                    val isFavPress by favInter.collectIsPressedAsState()
-                    val isFavActive = isFavFoc || isFavPress
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isFavActive) AccentRed else if (isCurrentChannelFav) Color(0xFF3E2723) else Color(0xFF222938))
-                            .border(
-                                width = if (isFavActive || isCurrentChannelFav) 1.5.dp else 0.dp,
-                                color = if (isFavActive) Color.White else if (isCurrentChannelFav) Color(0xFFFFD600) else Color.Transparent,
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .clickable(interactionSource = favInter, indication = null) {
-                                onToggleFav()
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = if (isCurrentChannelFav) "★ ĐÃ GHIM YÊU THÍCH" else "☆ GHIM KÊNH",
-                            color = if (isCurrentChannelFav) Color(0xFFFFD600) else Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                val utilInter = remember { MutableInteractionSource() }
-                val isUtilFoc by utilInter.collectIsFocusedAsState()
-                val isUtilPress by utilInter.collectIsPressedAsState()
-                val isUtilActive = isUtilFoc || isUtilPress
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isUtilActive) AccentRed else Color(0xFF6200EA))
-                        .border(1.5.dp, if (isUtilActive) Color.White else Color(0xFFBB86FC), RoundedCornerShape(6.dp))
-                        .clickable(interactionSource = utilInter, indication = null) {
-                            onOpenQuickSheet()
-                        }
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "⚙️ TIỆN ÍCH",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
-            }
-        }
-
-        // Center Play/Pause indicator or Fast Seeking Bubble
-        if (pendingSeekPosMs != null && seekDeltaText.isNotEmpty()) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xE6101622))
-                    .border(1.5.dp, AccentRed, RoundedCornerShape(16.dp))
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xCC000000), Color.Transparent, Color(0xCC000000))
+                        )
+                    )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
-                        onConfirmPendingSeek()
+                        showControls = false
                     }
-                    .padding(horizontal = 32.dp, vertical = 20.dp),
-                contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (seekDeltaText.startsWith("+")) "⏩ $seekDeltaText" else "⏪ $seekDeltaText",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Tới: ${formatTime(currentPosMs)} / ${formatTime(totalDurationMs)}",
-                        color = Color(0xFF00E676),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "(Bấm OK để xem ngay)",
-                        color = Color(0xFFA0AAB8),
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        } else {
-            Box(
-                modifier = Modifier.align(Alignment.Center),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(72.dp)
-                        .background(Color(0x66000000), RoundedCornerShape(36.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            onTogglePlayPause()
-                        }
-                        .padding(16.dp)
-                )
-            }
-        }
-
-        // Bottom Timeline and D-pad remote guide
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad)
-        ) {
-            if (isLive && showChannelRibbon && availableChannels.isNotEmpty()) {
-                val ribbonState = rememberLazyListState(
-                    initialFirstVisibleItemIndex = currentChannelIndex.coerceAtLeast(0)
-                )
-                LazyRow(
-                    state = ribbonState,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                // Top Header info
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    itemsIndexed(availableChannels) { idx, ch ->
-                        val isCurrentCh = idx == currentChannelIndex
-                        val chInter = remember { MutableInteractionSource() }
-                        val isChFoc by chInter.collectIsFocusedAsState()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        val exitInter = remember { MutableInteractionSource() }
+                        val isExitFoc by exitInter.collectIsFocusedAsState()
+                        val isExitPress by exitInter.collectIsPressedAsState()
+                        val isExitActive = isExitFoc || isExitPress
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    when {
-                                        isChFoc -> AccentRed
-                                        isCurrentCh -> Color(0xFF00C853)
-                                        else -> Color(0xE6161C28)
-                                    }
-                                )
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isExitActive) AccentRed else Color(0xFF222938))
                                 .border(
-                                    width = if (isChFoc || isCurrentCh) 2.dp else 1.dp,
-                                    color = if (isChFoc || isCurrentCh) Color.White else Color(0x33FFFFFF),
-                                    shape = RoundedCornerShape(10.dp)
+                                    width = if (isExitActive) 1.5.dp else 1.dp,
+                                    color = if (isExitActive) Color.White else Color(0x44FFFFFF),
+                                    shape = RoundedCornerShape(6.dp)
                                 )
-                                .clickable(interactionSource = chInter, indication = null) {
-                                    onSwitchToChannel(idx)
-                                }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .clickable(interactionSource = exitInter, indication = null, onClick = onClose)
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Thoát",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "${idx + 1}. ${ch.name}",
-                                color = if (isCurrentCh && !isChFoc) Color.Black else Color.White,
-                                fontSize = 12.sp,
+                                text = "THOÁT",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Text(
+                                text = currentTitle,
+                                color = Color.White,
+                                fontSize = if (screenWidthDp < 600) 16.sp else 22.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isLive) "🔴 TRUYỀN HÌNH TRỰC TIẾP ${if (currentGroupName.isNotBlank()) "• $currentGroupName" else ""} • $videoResolution" else "Đang phát: $currentEpisodeName ${if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0) "(${currentEpisodeIndex + 1}/${availableEpisodes.size})" else ""} • $videoResolution • $selectedQualityMode",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = if (screenWidthDp < 600) 11.sp else 14.sp,
                                 maxLines = 1
                             )
                         }
                     }
-                }
-            }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isLive) {
-                    if (availableChannels.isNotEmpty()) {
-                        QuickSeekPill(
-                            text = if (showChannelRibbon) "🔽 ẨN DANH SÁCH KÊNH" else "📋 DANH SÁCH KÊNH (${availableChannels.size})",
-                            highlight = showChannelRibbon,
-                            onClick = onToggleChannelRibbon
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        if (previousVisitedChannelIndex in availableChannels.indices && previousVisitedChannelIndex != currentChannelIndex) {
-                            QuickSeekPill(
-                                text = "🔁 KÊNH VỪA NÃY (${availableChannels[previousVisitedChannelIndex].name})",
-                                highlight = true,
-                                onClick = { onSwitchToChannel(previousVisitedChannelIndex) }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        if (!isLive) {
+                            val adInter = remember { MutableInteractionSource() }
+                            val isAdFoc by adInter.collectIsFocusedAsState()
+                            val isAdPress by adInter.collectIsPressedAsState()
+                            val isAdActive = isAdFoc || isAdPress
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isAdActive) AccentRed else if (isHlsAdBlockEnabled) Color(0xFF0D3B2E) else Color(0xFF222938))
+                                    .border(1.5.dp, if (isAdActive) Color.White else if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
+                                    .clickable(interactionSource = adInter, indication = null) {
+                                        val nextAdState = !isHlsAdBlockEnabled
+                                        isHlsAdBlockEnabled = nextAdState
+                                        com.duytv.app.util.HlsAdBlockEngine.isEnabled = nextAdState
+                                        aspectBadgeText = if (nextAdState) "🛡️ ĐÃ BẬT LÁ CHẮN CHẶN 100% QUẢNG CÁO GIỮA PHIM" else "Đã tắt chặn quảng cáo"
+                                        scope.launch {
+                                            delay(2200)
+                                            aspectBadgeText = null
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (isHlsAdBlockEnabled) "🛡️ DIỆT QC${if (adsBlockedSessionCount > 0) " ($adsBlockedSessionCount)" else ": BẬT"}" else "🛡️ DIỆT QC: TẮT",
+                                    color = if (isHlsAdBlockEnabled) Color(0xFF00E676) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
-                        QuickSeekPill(text = "⏮ KÊNH TRƯỚC", onClick = onPreviousChannel)
-                        Spacer(modifier = Modifier.width(8.dp))
+
+                        if (!activeSubtitleData.isNullOrBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFF00E676), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = "💬 PHỤ ĐỀ TIẾNG VIỆT",
+                                    color = Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+
+                        if (isLive) {
+                            val favInter = remember { MutableInteractionSource() }
+                            val isFavFoc by favInter.collectIsFocusedAsState()
+                            val isFavPress by favInter.collectIsPressedAsState()
+                            val isFavActive = isFavFoc || isFavPress
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isFavActive) AccentRed else if (isCurrentChannelFav) Color(0xFF3E2723) else Color(0xFF222938))
+                                    .border(
+                                        width = if (isFavActive || isCurrentChannelFav) 1.5.dp else 0.dp,
+                                        color = if (isFavActive) Color.White else if (isCurrentChannelFav) Color(0xFFFFD600) else Color.Transparent,
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .clickable(interactionSource = favInter, indication = null) {
+                                        toggleCurrentChannelFavorite()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = if (isCurrentChannelFav) "★ ĐÃ GHIM YÊU THÍCH" else "☆ GHIM KÊNH",
+                                    color = if (isCurrentChannelFav) Color(0xFFFFD600) else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        val utilInter = remember { MutableInteractionSource() }
+                        val isUtilFoc by utilInter.collectIsFocusedAsState()
+                        val isUtilPress by utilInter.collectIsPressedAsState()
+                        val isUtilActive = isUtilFoc || isUtilPress
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isUtilActive) AccentRed else Color(0xFF6200EA))
+                                .border(1.5.dp, if (isUtilActive) Color.White else Color(0xFFBB86FC), RoundedCornerShape(6.dp))
+                                .clickable(interactionSource = utilInter, indication = null) {
+                                    showQuickActionSheet = true
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "⚙️ TIỆN ÍCH",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
                     }
-                    QuickSeekPill(
-                        text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
-                        highlight = true,
-                        onClick = onTogglePlayPause
-                    )
-                    if (availableChannels.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(text = "⏭ KÊNH TIẾP", onClick = onNextChannel)
-                    }
-                    if (activeChannelTotalSources > 1) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        QuickSeekPill(
-                            text = "🔄 ĐỔI NGUỒN (${currentBackupIndex + 1}/$activeChannelTotalSources)",
-                            highlight = true,
-                            onClick = onSwitchBackupSource
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    QuickSeekPill(
-                        text = when (currentAspectMode) {
-                            VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
-                            VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
-                            VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
-                        },
-                        highlight = (currentAspectMode == VideoAspectMode.ZOOM),
-                        onClick = onCycleAspectMode
-                    )
-                } else {
-                    if (availableEpisodes.size > 1 && currentEpisodeIndex > 0) {
-                        QuickSeekPill(
-                            text = "⏮ TẬP TRƯỚC",
-                            highlight = true,
-                            onClick = { onPlayVodEpisodeAt(currentEpisodeIndex - 1) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    if (currentPosMs < 180_000L && totalDurationMs > 600_000L) {
-                        QuickSeekPill(
-                            text = "⏩ BỎ QUA MỞ ĐẦU (+90s)",
-                            highlight = true,
-                            onClick = { onTriggerSeek(90) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    QuickSeekPill(text = "⏪ -5p", onClick = { onTriggerSeek(-300) })
-                    Spacer(modifier = Modifier.width(8.dp))
-                    QuickSeekPill(text = "⏪ -1p", onClick = { onTriggerSeek(-60) })
-                    Spacer(modifier = Modifier.width(8.dp))
-                    QuickSeekPill(text = "⏪ -10s", onClick = { onTriggerSeek(-10) })
-                    Spacer(modifier = Modifier.width(12.dp))
-                    QuickSeekPill(
-                        text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
-                        highlight = true,
-                        onClick = onTogglePlayPause
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    QuickSeekPill(text = "⏩ +10s", onClick = { onTriggerSeek(10) })
-                    Spacer(modifier = Modifier.width(8.dp))
-                    QuickSeekPill(text = "⏩ +1p", onClick = { onTriggerSeek(60) })
-                    Spacer(modifier = Modifier.width(8.dp))
-                    QuickSeekPill(text = "⏩ +5p", onClick = { onTriggerSeek(300) })
-                    if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < availableEpisodes.size) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        QuickSeekPill(
-                            text = "⏭ TẬP TIẾP (${availableEpisodes[currentEpisodeIndex + 1].name})",
-                            highlight = true,
-                            onClick = { onPlayVodEpisodeAt(currentEpisodeIndex + 1) }
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    QuickSeekPill(
-                        text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
-                        onClick = onCyclePlaybackSpeed
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    QuickSeekPill(
-                        text = when (currentAspectMode) {
-                            VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
-                            VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
-                            VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
-                        },
-                        highlight = (currentAspectMode == VideoAspectMode.ZOOM),
-                        onClick = onCycleAspectMode
-                    )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (isLive) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                ) {
+                // Center Play/Pause indicator or Fast Seeking Bubble
+                if (pendingSeekPosMs != null && seekDeltaText.isNotEmpty()) {
                     Box(
                         modifier = Modifier
-                            .size(10.dp)
-                            .background(Color(0xFFFF1744), CircleShape)
-                    )
-                    Text(
-                        text = "🔴 ĐANG PHÁT TRỰC TIẾP (LIVE STREAM)",
-                        color = Color(0xFFFF5252),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = "TRỰC TIẾP TỰ ĐỘNG CHUẨN FHD",
-                        color = Color(0xFFA0AAB8),
-                        fontSize = 12.sp
-                    )
+                            .align(Alignment.Center)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xE6101622))
+                            .border(1.5.dp, AccentRed, RoundedCornerShape(16.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                seekJob?.cancel()
+                                pendingSeekPosMs?.let { exoPlayer.seekTo(it) }
+                                pendingSeekPosMs = null
+                                seekDeltaText = ""
+                            }
+                            .padding(horizontal = 32.dp, vertical = 20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (seekDeltaText.startsWith("+")) "⏩ $seekDeltaText" else "⏪ $seekDeltaText",
+                                color = Color.White,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Tới: ${formatTime(currentPosMs)} / ${formatTime(totalDurationMs)}",
+                                color = Color(0xFF00E676),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "(Bấm OK để xem ngay)",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier.align(Alignment.Center),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(72.dp)
+                                .background(Color(0x66000000), RoundedCornerShape(36.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    togglePlayPause()
+                                }
+                                .padding(16.dp)
+                        )
+                    }
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatTime(currentPosMs),
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = formatTime(totalDurationMs),
-                        color = Color(0xFFA0AAB8),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                val progress = if (totalDurationMs > 0) {
-                    (currentPosMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
-                } else 0f
-
-                Slider(
-                    value = progress,
-                    onValueChange = { newProg ->
-                        val newPos = (newProg * totalDurationMs).toLong()
-                        onSliderSeekTo(newPos)
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = AccentRed,
-                        activeTrackColor = AccentRed,
-                        inactiveTrackColor = Color(0x66FFFFFF)
-                    ),
+                // Bottom Timeline and D-pad remote guide
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(20.dp)
-                )
-            }
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = hudHorizontalPad, vertical = hudVerticalPad)
+                ) {
+                    if (isLive && showChannelRibbon && availableChannels.isNotEmpty()) {
+                        val ribbonState = rememberLazyListState(
+                            initialFirstVisibleItemIndex = currentChannelIndex.coerceAtLeast(0)
+                        )
+                        LazyRow(
+                            state = ribbonState,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        ) {
+                            itemsIndexed(availableChannels) { idx, ch ->
+                                val isCurrentCh = idx == currentChannelIndex
+                                val chInter = remember { MutableInteractionSource() }
+                                val isChFoc by chInter.collectIsFocusedAsState()
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            when {
+                                                isChFoc -> AccentRed
+                                                isCurrentCh -> Color(0xFF00C853)
+                                                else -> Color(0xE6161C28)
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isChFoc || isCurrentCh) 2.dp else 1.dp,
+                                            color = if (isChFoc || isCurrentCh) Color.White else Color(0x33FFFFFF),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable(interactionSource = chInter, indication = null) {
+                                            switchToChannel(idx)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "${idx + 1}. ${ch.name}",
+                                        color = if (isCurrentCh && !isChFoc) Color.Black else Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isLive) {
+                            if (availableChannels.isNotEmpty()) {
+                                QuickSeekPill(
+                                    text = if (showChannelRibbon) "🔽 ẨN DANH SÁCH KÊNH" else "📋 DANH SÁCH KÊNH (${availableChannels.size})",
+                                    highlight = showChannelRibbon,
+                                    onClick = { showChannelRibbon = !showChannelRibbon }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                if (previousVisitedChannelIndex in availableChannels.indices && previousVisitedChannelIndex != currentChannelIndex) {
+                                    QuickSeekPill(
+                                        text = "🔁 KÊNH VỪA NÃY (${availableChannels[previousVisitedChannelIndex].name})",
+                                        highlight = true,
+                                        onClick = { switchToChannel(previousVisitedChannelIndex) }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                QuickSeekPill(text = "⏮ KÊNH TRƯỚC", onClick = { previousChannel() })
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            QuickSeekPill(
+                                text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
+                                highlight = true,
+                                onClick = { togglePlayPause() }
+                            )
+                            if (availableChannels.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                QuickSeekPill(text = "⏭ KÊNH TIẾP", onClick = { nextChannel() })
+                            }
+                            if (activeChannelTotalSources > 1) {
+                                Spacer(modifier = Modifier.width(12.dp))
+                                QuickSeekPill(
+                                    text = "🔄 ĐỔI NGUỒN (${currentBackupIndex + 1}/$activeChannelTotalSources)",
+                                    highlight = true,
+                                    onClick = { switchBackupSource() }
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            QuickSeekPill(
+                                text = when (currentAspectMode) {
+                                    VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
+                                    VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
+                                    VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
+                                },
+                                highlight = (currentAspectMode == VideoAspectMode.ZOOM),
+                                onClick = { cycleAspectMode() }
+                            )
+                        } else {
+                            if (availableEpisodes.size > 1 && currentEpisodeIndex > 0) {
+                                QuickSeekPill(
+                                    text = "⏮ TẬP TRƯỚC",
+                                    highlight = true,
+                                    onClick = { playVodEpisodeAt(currentEpisodeIndex - 1, isAutoAdvance = false) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            if (currentPosMs < 180_000L && totalDurationMs > 600_000L) {
+                                QuickSeekPill(
+                                    text = "⏩ BỎ QUA MỞ ĐẦU (+90s)",
+                                    highlight = true,
+                                    onClick = { triggerSeek(90) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            QuickSeekPill(text = "⏪ -5p", onClick = { triggerSeek(-300) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏪ -1p", onClick = { triggerSeek(-60) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏪ -10s", onClick = { triggerSeek(-10) })
+                            Spacer(modifier = Modifier.width(12.dp))
+                            QuickSeekPill(
+                                text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
+                                highlight = true,
+                                onClick = { togglePlayPause() }
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            QuickSeekPill(text = "⏩ +10s", onClick = { triggerSeek(10) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏩ +1p", onClick = { triggerSeek(60) })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(text = "⏩ +5p", onClick = { triggerSeek(300) })
+                            if (availableEpisodes.size > 1 && currentEpisodeIndex >= 0 && currentEpisodeIndex + 1 < availableEpisodes.size) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                QuickSeekPill(
+                                    text = "⏭ TẬP TIẾP (${availableEpisodes[currentEpisodeIndex + 1].name})",
+                                    highlight = true,
+                                    onClick = { playVodEpisodeAt(currentEpisodeIndex + 1, isAutoAdvance = false) }
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(
+                                text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
+                                onClick = { cyclePlaybackSpeed() }
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            QuickSeekPill(
+                                text = when (currentAspectMode) {
+                                    VideoAspectMode.ZOOM -> "🌟 TRÀN MÀN HÌNH (100%)"
+                                    VideoAspectMode.FILL -> "↔️ CO GIÃN (FILL)"
+                                    VideoAspectMode.FIT -> "📺 CHUẨN GỐC (FIT)"
+                                },
+                                highlight = (currentAspectMode == VideoAspectMode.ZOOM),
+                                onClick = { cycleAspectMode() }
+                            )
+                        }
+                    }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                GuideItem(key = "OK / PLAY", desc = "Tạm dừng / Phát")
-                Spacer(modifier = Modifier.width(12.dp))
-                if (isLive) {
-                    GuideItem(key = "▲ / ▼", desc = "Chuyển kênh siêu tốc")
-                } else {
-                    GuideItem(key = "◄ / ►", desc = "Tua tăng tốc (10s - 1p - 5p)")
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (isLive) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(Color(0xFFFF1744), CircleShape)
+                            )
+                            Text(
+                                text = "🔴 ĐANG PHÁT TRỰC TIẾP (LIVE STREAM)",
+                                color = Color(0xFFFF5252),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text = "TRỰC TIẾP TỰ ĐỘNG CHUẨN FHD",
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatTime(currentPosMs),
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = formatTime(totalDurationMs),
+                                color = Color(0xFFA0AAB8),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        val progress = if (totalDurationMs > 0) {
+                            (currentPosMs.toFloat() / totalDurationMs.toFloat()).coerceIn(0f, 1f)
+                        } else 0f
+
+                        Slider(
+                            value = progress,
+                            onValueChange = { newProg ->
+                                val newPos = (newProg * totalDurationMs).toLong()
+                                currentPosMs = newPos
+                                exoPlayer.seekTo(newPos)
+                                showControls = true
+                            },
+                            colors = SliderDefaults.colors(
+                                thumbColor = AccentRed,
+                                activeTrackColor = AccentRed,
+                                inactiveTrackColor = Color(0x66FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GuideItem(key = "OK / PLAY", desc = "Tạm dừng / Phát")
+                        Spacer(modifier = Modifier.width(12.dp))
+                        if (isLive) {
+                            GuideItem(key = "▲ / ▼", desc = "Chuyển kênh siêu tốc")
+                        } else {
+                            GuideItem(key = "◄ / ►", desc = "Tua tăng tốc (10s - 1p - 5p)")
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GuideItem(key = "🌟 TỶ LỆ", desc = "Tràn viền (100%)")
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GuideItem(key = "MENU", desc = "Băng thông (4K/12K)")
+                        Spacer(modifier = Modifier.width(12.dp))
+                        GuideItem(key = "BACK", desc = "Thoát")
+                    }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                GuideItem(key = "🌟 TỶ LỆ", desc = "Tràn viền (100%)")
-                Spacer(modifier = Modifier.width(12.dp))
-                GuideItem(key = "MENU", desc = "Băng thông (4K/12K)")
-                Spacer(modifier = Modifier.width(12.dp))
-                GuideItem(key = "BACK", desc = "Thoát")
             }
         }
     }
@@ -3157,4 +2947,100 @@ private fun adjustPlayerTouchBrightnessOrVolume(
         val pct = ((nextVol.toFloat() / maxVol.toFloat()) * 100).toInt()
         return "🔊 ÂM LƯỢNG HỆ THỐNG: $pct%"
     }
+}
+
+@OptIn(UnstableApi::class)
+private fun buildStreamMediaSource(
+    context: Context,
+    url: String,
+    isLive: Boolean,
+    subtitleUrl: String?
+): androidx.media3.exoplayer.source.MediaSource {
+    val userAgent = if (url.contains("hainghia.net")) {
+        "TiviMate/4.7.0"
+    } else {
+        "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0"
+    }
+    val headers = mutableMapOf<String, String>()
+    when {
+        url.contains("cdnfastter") || url.contains("khoga") -> {
+            headers["Referer"] = "https://khoga1.live/"
+            headers["Origin"] = "https://khoga1.live"
+        }
+        url.contains("livetl") || url.contains("thapcam") -> {
+            headers["Referer"] = "https://thapcamtvt1.com/"
+            headers["Origin"] = "https://thapcamtvt1.com"
+        }
+    }
+    val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+        context = context,
+        userAgent = userAgent,
+        headers = headers
+    )
+    val extractorsFactory = DefaultExtractorsFactory()
+        .setTsExtractorFlags(
+            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+            DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+        )
+    val msFactory = DefaultMediaSourceFactory(dsFactory, extractorsFactory)
+    val mediaItemB = MediaItem.Builder().setUri(url)
+    if (url.contains("/rtp/") || url.contains("video/mp2t") || url.contains("a3iptv.goitoi.co") || url.contains("r2h-token=") || url.substringBefore("?").endsWith(".ts")) {
+        mediaItemB.setMimeType(MimeTypes.VIDEO_MP2T)
+    } else if (url.substringBefore("?").endsWith(".flv")) {
+        mediaItemB.setMimeType(MimeTypes.VIDEO_FLV)
+    } else if (url.contains(".m3u8") || url.contains("/hls/")) {
+        mediaItemB.setMimeType(MimeTypes.APPLICATION_M3U8)
+    }
+    if (isLive) {
+        mediaItemB.setLiveConfiguration(
+            MediaItem.LiveConfiguration.Builder()
+                .setTargetOffsetMs(4000L)
+                .setMinOffsetMs(2000L)
+                .setMaxOffsetMs(10000L)
+                .setMinPlaybackSpeed(0.97f)
+                .setMaxPlaybackSpeed(1.04f)
+                .build()
+        )
+    }
+    if (!subtitleUrl.isNullOrBlank()) {
+        val subMime = when {
+            subtitleUrl.startsWith("data:application/x-subrip") -> MimeTypes.APPLICATION_SUBRIP
+            subtitleUrl.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+            else -> MimeTypes.APPLICATION_SUBRIP
+        }
+        val subConfig = MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitleUrl))
+            .setMimeType(subMime)
+            .setLanguage("vi")
+            .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+            .build()
+        mediaItemB.setSubtitleConfigurations(listOf(subConfig))
+    }
+    return msFactory.createMediaSource(mediaItemB.build())
+}
+
+@OptIn(UnstableApi::class)
+private fun createConfiguredExoPlayer(
+    context: Context,
+    streamUrl: String,
+    isLive: Boolean,
+    subtitleUrl: String?,
+    initialPositionMs: Long
+): ExoPlayer {
+    val loadControl = com.duytv.app.util.HardwareOptimizer.buildLoadControl(context, isLive)
+    val renderersFactory = com.duytv.app.util.HardwareOptimizer.buildRenderersFactory(context)
+    val mediaSource = buildStreamMediaSource(context, streamUrl, isLive, subtitleUrl)
+    return ExoPlayer.Builder(context, renderersFactory)
+        .setLoadControl(loadControl)
+        .setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+        .build()
+        .apply {
+            setSeekParameters(androidx.media3.exoplayer.SeekParameters.CLOSEST_SYNC)
+            setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
+            setMediaSource(mediaSource)
+            prepare()
+            if (initialPositionMs > 0) {
+                seekTo(initialPositionMs)
+            }
+            playWhenReady = true
+        }
 }
