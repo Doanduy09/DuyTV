@@ -22,6 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.duytv.app.data.*
 import com.duytv.app.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -366,6 +369,8 @@ fun MovieDetailScreen(
                     val episodes = currentServer?.serverData ?: emptyList()
                     val isTorrentServer = currentServer?.serverName?.contains("Torrent") == true
                     val episodeRowState = rememberLazyListState()
+                    val primaryActionFocusRequester = remember { FocusRequester() }
+                    val isTv = remember(context) { com.duytv.app.util.HardwareOptimizer.isTvDevice(context) }
 
                     LaunchedEffect(episodes, savedHistory?.episodeName) {
                         val watchedName = savedHistory?.episodeName
@@ -374,6 +379,10 @@ fun MovieDetailScreen(
                             if (idx > 0) {
                                 episodeRowState.scrollToItem(maxOf(0, idx - 1))
                             }
+                        }
+                        if (isTv && episodes.isNotEmpty()) {
+                            delay(120)
+                            try { primaryActionFocusRequester.requestFocus() } catch (_: Exception) {}
                         }
                     }
 
@@ -386,6 +395,7 @@ fun MovieDetailScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
+                                    .focusRequester(primaryActionFocusRequester)
                                     .padding(bottom = 16.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isResumeFoc) AccentRed else Color(0xFF00C853))
@@ -519,10 +529,12 @@ fun MovieDetailScreen(
                         ) {
                             items(visibleEpisodes) { ep ->
                                 val isCurrentWatched = savedHistory?.episodeName?.equals(ep.name, ignoreCase = true) == true
+                                val isFirstEpisode = (savedHistory == null || isTorrentServer) && ep == visibleEpisodes.firstOrNull()
                                 EpisodeButton(
                                     name = ep.name,
                                     isQualityBadge = isTorrentServer,
                                     isCurrentlyWatched = isCurrentWatched,
+                                    modifier = if (isFirstEpisode) Modifier.focusRequester(primaryActionFocusRequester) else Modifier,
                                     onClick = {
                                         scope.launch {
                                             var streamUrl = ep.linkM3u8 ?: ""
@@ -603,6 +615,7 @@ fun EpisodeButton(
     name: String,
     isQualityBadge: Boolean = false,
     isCurrentlyWatched: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -610,7 +623,7 @@ fun EpisodeButton(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
+        modifier = modifier
             .defaultMinSize(minWidth = if (isQualityBadge) 160.dp else 80.dp)
             .height(48.dp)
             .clip(RoundedCornerShape(6.dp))

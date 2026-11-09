@@ -6,11 +6,14 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import android.content.Context
+import okhttp3.ConnectionPool
+import okhttp3.Dns
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -28,6 +31,21 @@ import java.util.concurrent.atomic.AtomicInteger
  * 4. Cắt bỏ hoàn toàn phân đoạn quảng cáo và nối liền mạch các phân đoạn phim gốc để phát liên tục không khựng hình.
  */
 object HlsAdBlockEngine {
+
+    val ipv4PreferredDns: Dns = object : Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            return Dns.SYSTEM.lookup(hostname).sortedWith(compareBy { addr ->
+                when {
+                    addr is Inet4Address -> 0
+                    addr.isLinkLocalAddress || addr.isSiteLocalAddress -> 2
+                    addr.hostAddress?.lowercase()?.let { it.startsWith("fd") || it.startsWith("fc") } == true -> 2
+                    else -> 1
+                }
+            })
+        }
+    }
+
+    private val sharedConnectionPool = ConnectionPool(8, 30, TimeUnit.SECONDS)
 
     @Volatile
     var isEnabled: Boolean = true
@@ -192,42 +210,46 @@ object HlsAdBlockEngine {
         return out.toString()
     }
 
+    private val adBlockInterceptor = Interceptor { chain ->
+        val req = chain.request()
+        val res = chain.proceed(req)
+        val urlStr = req.url.toString()
+        val contentTypeStr = res.header("Content-Type")?.lowercase() ?: ""
+
+        val isM3u8 = urlStr.contains(".m3u8") ||
+            contentTypeStr.contains("mpegurl") ||
+            contentTypeStr.contains("x-mpegurl")
+
+        if (isEnabled && res.isSuccessful && isM3u8) {
+            val body = res.body ?: return@Interceptor res
+            val rawText = body.string()
+            val cleanedText = sanitizeM3u8Manifest(rawText, urlStr)
+            val newBody = cleanedText.toResponseBody(body.contentType() ?: "application/vnd.apple.mpegurl".toMediaTypeOrNull())
+            res.newBuilder().body(newBody).build()
+        } else {
+            res
+        }
+    }
+
+    private val sharedStreamOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .dns(ipv4PreferredDns)
+            .connectionPool(sharedConnectionPool)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .addInterceptor(adBlockInterceptor)
+            .build()
+    }
+
     @OptIn(UnstableApi::class)
     fun buildAdBlockingDataSourceFactory(
         context: Context,
         userAgent: String,
         headers: Map<String, String>
     ): DataSource.Factory {
-        val interceptor = Interceptor { chain ->
-            val req = chain.request()
-            val res = chain.proceed(req)
-            val urlStr = req.url.toString()
-            val contentTypeStr = res.header("Content-Type")?.lowercase() ?: ""
-
-            val isM3u8 = urlStr.contains(".m3u8") ||
-                contentTypeStr.contains("mpegurl") ||
-                contentTypeStr.contains("x-mpegurl")
-
-            if (isEnabled && res.isSuccessful && isM3u8) {
-                val body = res.body ?: return@Interceptor res
-                val rawText = body.string()
-                val cleanedText = sanitizeM3u8Manifest(rawText, urlStr)
-                val newBody = cleanedText.toResponseBody(body.contentType() ?: "application/vnd.apple.mpegurl".toMediaTypeOrNull())
-                res.newBuilder().body(newBody).build()
-            } else {
-                res
-            }
-        }
-
-        val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(18, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .addInterceptor(interceptor)
-            .build()
-
-        val okHttpFactory = OkHttpDataSource.Factory(okHttpClient)
+        val okHttpFactory = OkHttpDataSource.Factory(sharedStreamOkHttpClient)
             .setUserAgent(userAgent)
             .setDefaultRequestProperties(headers)
 

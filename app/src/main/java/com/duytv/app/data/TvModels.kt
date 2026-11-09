@@ -25,6 +25,7 @@ data class FootballMatchGroup(
     val kickoffTime: String,
     val tournament: String,
     val logo: String? = null,
+    val awayLogo: String? = null,
     val streams: List<MatchStreamItem> = emptyList()
 )
 

@@ -35,6 +35,7 @@ object AppUpdateManager {
         .build()
 
     private val cloudClient = OkHttpClient.Builder()
+        .dns(HlsAdBlockEngine.ipv4PreferredDns)
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .followRedirects(true)
@@ -42,6 +43,7 @@ object AppUpdateManager {
         .build()
 
     private val downloadClient = OkHttpClient.Builder()
+        .dns(HlsAdBlockEngine.ipv4PreferredDns)
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)

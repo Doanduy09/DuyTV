@@ -18,8 +18,9 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
 
     override fun newImageLoader(): ImageLoader {
         val imageHttpClient = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
+            .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val req = chain.request().newBuilder()
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36")

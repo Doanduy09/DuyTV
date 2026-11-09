@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 
 class MovieRepository {
     private val client = OkHttpClient.Builder()
+        .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
@@ -902,6 +903,7 @@ class MovieRepository {
                     val awayTeam = if (obj.has("away_team_name") && !obj.get("away_team_name").isJsonNull) obj.get("away_team_name").asString.trim() else continue
                     val tournament = if (obj.has("tournament_name") && !obj.get("tournament_name").isJsonNull) obj.get("tournament_name").asString.trim() else "Trực Tiếp Bóng Đá"
                     val homeLogo = if (obj.has("home_team_logo") && !obj.get("home_team_logo").isJsonNull) obj.get("home_team_logo").asString.trim() else null
+                    val awayLogo = if (obj.has("away_team_logo") && !obj.get("away_team_logo").isJsonNull) obj.get("away_team_logo").asString.trim() else null
                     val startTimeRaw = if (obj.has("start_time") && !obj.get("start_time").isJsonNull) obj.get("start_time").asString.trim() else ""
 
                     var startEpoch = 0L
@@ -945,9 +947,10 @@ class MovieRepository {
                         for (cElem in commArr) {
                             if (!cElem.isJsonObject) continue
                             val cObj = cElem.asJsonObject
-                            val blv = if (cObj.has("commentator_name") && !cObj.get("commentator_name").isJsonNull) {
-                                cObj.get("commentator_name").asString.trim().ifBlank { "BLV Kho Gà" }
-                            } else "BLV Kho Gà"
+                            val rawBlv = if (cObj.has("commentator_name") && !cObj.get("commentator_name").isJsonNull) {
+                                cObj.get("commentator_name").asString.trim().ifBlank { "Kho Gà" }
+                            } else "Kho Gà"
+                            val blv = rawBlv.replace(Regex("^(?:BLV\\s+)+", RegexOption.IGNORE_CASE), "").trim().ifBlank { "Kho Gà" }
                             val hlsUrl = if (cObj.has("stream_url") && !cObj.get("stream_url").isJsonNull) cObj.get("stream_url").asString.trim() else ""
                             val flvUrl = if (cObj.has("flv_stream_url") && !cObj.get("flv_stream_url").isJsonNull) cObj.get("flv_stream_url").asString.trim() else ""
 
@@ -955,7 +958,7 @@ class MovieRepository {
                                 streams.add(
                                     MatchStreamItem(
                                         title = "$homeTeam vs $awayTeam (Server Kho Gà HLS)",
-                                        commentator = "🎙️ BLV $blv • HLS Mượt",
+                                        commentator = "BLV $blv • HLS Mượt",
                                         streamUrl = hlsUrl
                                     )
                                 )
@@ -991,6 +994,7 @@ class MovieRepository {
                                 kickoffTime = kickoffHHmm,
                                 tournament = tournament,
                                 logo = homeLogo,
+                                awayLogo = awayLogo,
                                 streams = distinctStreams
                             )
                         )
@@ -1027,7 +1031,8 @@ class MovieRepository {
                 val away: String,
                 val timeHHmm: String,
                 val league: String,
-                val logo: String?
+                val logo: String?,
+                val awayLogo: String?
             )
             val candidates = mutableListOf<CandidateMatch>()
 
@@ -1048,9 +1053,11 @@ class MovieRepository {
                 val teamsMatch = Regex("team--home[\\s\\S]*?team__name[^>]*>\\s*([^<]+)[\\s\\S]*?team--away[\\s\\S]*?team__name[^>]*>\\s*([^<]+)").find(block)
                 val home = teamsMatch?.groupValues?.getOrNull(1)?.trim() ?: continue
                 val away = teamsMatch.groupValues.getOrNull(2)?.trim() ?: continue
-                val logo = Regex("team__logo[^>]*src=\"([^\"]+)\"").find(block)?.groupValues?.getOrNull(1)
+                val logos = Regex("team__logo[^>]*src=\"([^\"]+)\"").findAll(block).map { it.groupValues[1] }.toList()
+                val logo = logos.getOrNull(0)
+                val awayLogo = logos.getOrNull(1)
 
-                candidates.add(CandidateMatch(href, home, away, timeHHmm, league, logo))
+                candidates.add(CandidateMatch(href, home, away, timeHHmm, league, logo, awayLogo))
                 if (candidates.size >= 10) break
             }
 
@@ -1101,6 +1108,7 @@ class MovieRepository {
                                 kickoffTime = cand.timeHHmm,
                                 tournament = cand.league,
                                 logo = cand.logo,
+                                awayLogo = cand.awayLogo,
                                 streams = streams.distinctBy { it.streamUrl }
                             )
                         } else null

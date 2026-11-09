@@ -390,21 +390,21 @@ fun HomeScreen(
                                 fontSize = 28.sp,
                                 fontWeight = FontWeight.Black
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Box(
                                 modifier = Modifier
                                     .background(CardBg, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .padding(horizontal = 6.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = if (isSilentSyncing || isLoading) "⚡ ĐANG ĐỒNG BỘ..." else "ĐA NGUỒN • 4K CINEMA",
+                                    text = if (isSilentSyncing || isLoading) "⚡ ĐANG ĐỒNG BỘ..." else "4K CINEMA",
                                     color = if (isSilentSyncing || isLoading) Color(0xFFFFD600) else Color(0xFF00E676),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // Search Button
                             val searchInter = remember { MutableInteractionSource() }
@@ -423,7 +423,7 @@ fun HomeScreen(
                                         shape = RoundedCornerShape(6.dp)
                                     )
                                     .clickable(interactionSource = searchInter, indication = null, onClick = onOpenSearch)
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
@@ -431,7 +431,7 @@ fun HomeScreen(
                                     tint = Color.White,
                                     modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "TÌM KIẾM",
                                     color = Color.White,
@@ -440,7 +440,7 @@ fun HomeScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
                             // Nút 1-Chạm Mở Nhanh Kênh Truyền Hình Vừa Xem (#16)
                             val lastWatchedChName = AppCacheManager.lastWatchedChannelName
@@ -459,6 +459,7 @@ fun HomeScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
+                                        .widthIn(max = 175.dp)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (lastChActive) AccentRed else Color(0xFF065F46))
                                         .border(
@@ -471,16 +472,18 @@ fun HomeScreen(
                                             val primary = ranked.firstOrNull() ?: lastWatchedChObj.streamUrl
                                             onPlayLiveStream(lastWatchedChObj.name, primary, lastWatchedChObj.logoUrl, ranked.drop(1))
                                         }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = "📺 XEM TIẾP: ${lastWatchedChObj.name}",
+                                        text = "📺 ${lastWatchedChObj.name}",
                                         color = Color.White,
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                             }
 
                             // Manual Refresh New Movies & Football Button (Cập nhật phim mới thủ công)
@@ -510,17 +513,17 @@ fun HomeScreen(
                                         lastAutoSyncMillis = System.currentTimeMillis()
                                         reloadAllMovies(silent = true, forceRefreshSports = true, showSuccessToast = true)
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = if (isRefreshingNow) "⏳ ĐANG CẬP NHẬT..." else "🔄 CẬP NHẬT PHIM",
+                                    text = if (isRefreshingNow) "⏳ ĐANG TẢI..." else "🔄 LÀM MỚI",
                                     color = if (refreshMoviesActive) Color.White else Color(0xFF00E676),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
                             // Source Settings Button
                             val sourceInter = remember { MutableInteractionSource() }
@@ -541,15 +544,15 @@ fun HomeScreen(
                                     .clickable(interactionSource = sourceInter, indication = null) {
                                         showSourceSettingsDialog = true
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = "Cài đặt nguồn",
                                     tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "NGUỒN PHIM",
                                     color = Color.White,
@@ -558,7 +561,7 @@ fun HomeScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
                             // Sports Source Settings Button
                             val sportsSourceInter = remember { MutableInteractionSource() }
@@ -579,24 +582,24 @@ fun HomeScreen(
                                     .clickable(interactionSource = sportsSourceInter, indication = null) {
                                         showSportsSourceDialog = true
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Thêm nguồn bóng đá",
                                     tint = Color(0xFF00E676),
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "NGUỒN BÓNG ĐÁ",
+                                    text = "BÓNG ĐÁ",
                                     color = Color.White,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
                             // 🚀 In-App OTA Self-Update Button (Cập nhật trực tiếp ngay trên App)
                             val updateInter = remember { MutableInteractionSource() }

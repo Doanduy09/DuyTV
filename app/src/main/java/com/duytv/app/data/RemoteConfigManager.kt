@@ -12,6 +12,7 @@ object RemoteConfigManager {
     private const val RAW_DOT_CONFIG_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/.config"
 
     private val httpClient = OkHttpClient.Builder()
+        .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS)
         .build()

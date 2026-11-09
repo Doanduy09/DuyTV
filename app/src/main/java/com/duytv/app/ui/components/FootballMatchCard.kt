@@ -200,9 +200,9 @@ fun FootballMatchCard(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (!match.logo.isNullOrBlank()) {
+                    if (!match.awayLogo.isNullOrBlank()) {
                         AsyncImage(
-                            model = match.logo,
+                            model = match.awayLogo,
                             contentDescription = match.awayTeam,
                             modifier = Modifier.size(36.dp),
                             contentScale = ContentScale.Fit
@@ -237,9 +237,10 @@ fun FootballMatchCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val blv = match.streams.firstOrNull()?.commentator ?: "Tiếng Việt"
+                val rawBlv = match.streams.firstOrNull()?.commentator ?: "Tiếng Việt"
+                val cleanBlv = rawBlv.removePrefix("🎙️").trim().replace(Regex("^(?:BLV\\s+)+", RegexOption.IGNORE_CASE), "BLV ")
                 Text(
-                    text = "🎙️ $blv",
+                    text = "🎙️ $cleanBlv",
                     color = Color(0xFFA0AAB8),
                     fontSize = 10.sp,
                     maxLines = 1,

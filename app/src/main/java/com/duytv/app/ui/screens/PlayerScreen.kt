@@ -298,7 +298,7 @@ private fun PlayerScreenContent(
     var isAmbilightEnabled by remember { mutableStateOf(false) }
     var isDrcVoiceEnabled by remember { mutableStateOf(false) }
     var zeroStallFailoverEnabled by remember { mutableStateOf(true) }
-    var autoSkipIntroEnabled by remember { mutableStateOf(true) }
+    var autoSkipIntroEnabled by remember { mutableStateOf(false) }
     var isHlsAdBlockEnabled by remember { mutableStateOf(com.duytv.app.util.HlsAdBlockEngine.isEnabled) }
     var adsBlockedSessionCount by remember { mutableIntStateOf(com.duytv.app.util.HlsAdBlockEngine.totalAdsBlocked.get()) }
     var activeSubtitleData by remember(subtitleUrl) { mutableStateOf(subtitleUrl) }
@@ -752,7 +752,7 @@ private fun PlayerScreenContent(
                     if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
                         stallTimerJob?.cancel()
                         stallTimerJob = scope.launch {
-                            delay(4000L) // #4 Rút ngắn phản ứng chống treo xuống 4.0s
+                            delay(6500L) // Chờ đủ 6.5s trước khi tráo Server dự phòng để không ngắt luồng FHD đang nạp
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
                                 AppCacheManager.markStreamFailed(currentStreamUrl)
@@ -777,6 +777,14 @@ private fun PlayerScreenContent(
                         hasSkippedIntroForEpisode = true
                         if (exoPlayer.currentPosition < 10_000L && totalDurationMs > 600_000L) {
                             exoPlayer.seekTo(85_000L)
+                            channelOsdName = currentTitle
+                            channelOsdSub = "⏭️ Đã tự động bỏ qua mở đầu 85s"
+                            channelOsdLogo = currentPosterUrl
+                            channelOsdVisible = true
+                            scope.launch {
+                                delay(2500L)
+                                channelOsdVisible = false
+                            }
                         }
                     }
                 } else if (playbackState == Player.STATE_ENDED && !isLive) {
@@ -951,22 +959,6 @@ private fun PlayerScreenContent(
                     le.enabled = false
                 }
             } catch (_: Exception) {}
-        }
-    }
-
-    // Tự động bỏ qua mở đầu (Auto-Skip Intro 85s cho phim bộ)
-    LaunchedEffect(currentStreamUrl, exoPlayer) {
-        if (autoSkipIntroEnabled && !isLive && availableEpisodes.size > 1 && exoPlayer != null) {
-            delay(1200L)
-            if (currentPosMs < 10_000L && totalDurationMs > 600_000L) {
-                exoPlayer.seekTo(85_000L)
-                channelOsdName = currentTitle
-                channelOsdSub = "⏭️ Đã tự động bỏ qua mở đầu 85s"
-                channelOsdLogo = currentPosterUrl
-                channelOsdVisible = true
-                delay(2500L)
-                channelOsdVisible = false
-            }
         }
     }
 
@@ -1197,9 +1189,12 @@ private fun PlayerScreenContent(
     val currentShowQualityMenu by rememberUpdatedState(showQualityMenu)
     val currentShowQuickActionSheet by rememberUpdatedState(showQuickActionSheet)
     val currentShowChannelRibbon by rememberUpdatedState(showChannelRibbon)
+    val currentShowControls by rememberUpdatedState(showControls)
     val currentIsTouchLocked by rememberUpdatedState(isTouchLocked)
     val currentPendingSeekPosMs by rememberUpdatedState(pendingSeekPosMs)
     val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val osdPlayPauseFocusRequester = remember { FocusRequester() }
+    val sheetCloseFocusRequester = remember { FocusRequester() }
 
     // Bắt toàn diện 100% phím bấm phần cứng từ Remote Sharp TV ở cấp độ Activity
     DisposableEffect(exoPlayer) {
@@ -1213,6 +1208,56 @@ private fun PlayerScreenContent(
                     showControls = true
                 }
                 return@listener true
+            }
+
+            // Khi Bảng Tiện Ích, Menu Chất Lượng hoặc Thanh Chọn Kênh đang mở:
+            // Nhường toàn quyền D-Pad (Lên/Xuống/Trái/Phải/OK) cho Compose Focus để điều khiển TV chọn nút mượt mà!
+            val isModalOrRibbonOpen = currentShowQuickActionSheet || currentShowQualityMenu || currentShowChannelRibbon
+            if (isModalOrRibbonOpen) {
+                if (keyCode == KeyEvent.KEYCODE_MENU) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        showQuickActionSheet = !showQuickActionSheet
+                    }
+                    return@listener true
+                }
+                if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        when {
+                            currentShowQuickActionSheet -> showQuickActionSheet = false
+                            currentShowQualityMenu -> showQualityMenu = false
+                            currentShowChannelRibbon -> showChannelRibbon = false
+                        }
+                    }
+                    return@listener true
+                }
+                return@listener false
+            }
+
+            // Khi thanh điều khiển OSD đang hiển thị (và người dùng không đang giữ tua nhanh):
+            // Nhường D-Pad cho các nút bấm trên OSD (Tập tiếp, Tạm dừng, Tiện ích, Tràn màn hình, Đổi nguồn...)
+            if (currentShowControls && currentPendingSeekPosMs == null) {
+                if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        showControls = false
+                    }
+                    return@listener true
+                }
+                if (keyCode == KeyEvent.KEYCODE_MENU) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        showQuickActionSheet = true
+                    }
+                    return@listener true
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                    keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                    keyCode == KeyEvent.KEYCODE_ENTER ||
+                    keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+                ) {
+                    return@listener false
+                }
             }
 
             val digitPressed = when (keyCode) {
@@ -1385,6 +1430,19 @@ private fun PlayerScreenContent(
         focusRequester.requestFocus()
     }
 
+    LaunchedEffect(showControls, showQuickActionSheet, showQualityMenu) {
+        if (showQuickActionSheet) {
+            delay(80)
+            try { sheetCloseFocusRequester.requestFocus() } catch (_: Exception) {}
+        } else if (showControls && !showQualityMenu && pendingSeekPosMs == null) {
+            delay(80)
+            try { osdPlayPauseFocusRequester.requestFocus() } catch (_: Exception) {}
+        } else if (!showControls && !showQualityMenu) {
+            delay(50)
+            try { focusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -1447,6 +1505,22 @@ private fun PlayerScreenContent(
                 }
             }
             .onKeyEvent { event ->
+                if (showQuickActionSheet || showQualityMenu || showChannelRibbon) {
+                    return@onKeyEvent false
+                }
+                if (showControls && pendingSeekPosMs == null) {
+                    val kc = event.nativeKeyEvent.keyCode
+                    if (kc == KeyEvent.KEYCODE_DPAD_LEFT ||
+                        kc == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                        kc == KeyEvent.KEYCODE_DPAD_UP ||
+                        kc == KeyEvent.KEYCODE_DPAD_DOWN ||
+                        kc == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        kc == KeyEvent.KEYCODE_ENTER ||
+                        kc == KeyEvent.KEYCODE_NUMPAD_ENTER
+                    ) {
+                        return@onKeyEvent false
+                    }
+                }
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_CENTER,
@@ -1789,6 +1863,7 @@ private fun PlayerScreenContent(
                     showControls = false
                     showUnlockPill = true
                 },
+                closeFocusRequester = sheetCloseFocusRequester,
                 onCloseSheet = { showQuickActionSheet = false }
             )
         }
@@ -2232,6 +2307,7 @@ private fun PlayerScreenContent(
                             QuickSeekPill(
                                 text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
                                 highlight = true,
+                                modifier = Modifier.focusRequester(osdPlayPauseFocusRequester),
                                 onClick = { togglePlayPause() }
                             )
                             if (availableChannels.isNotEmpty()) {
@@ -2282,6 +2358,7 @@ private fun PlayerScreenContent(
                             QuickSeekPill(
                                 text = if (isPlaying) "⏸️ TẠM DỪNG" else "▶️ PHÁT",
                                 highlight = true,
+                                modifier = Modifier.focusRequester(osdPlayPauseFocusRequester),
                                 onClick = { togglePlayPause() }
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -2452,6 +2529,7 @@ private fun PlayerQuickActionSheet(
     currentBackupIndex: Int,
     onSwitchBackupSource: () -> Unit,
     onActivateTouchLock: () -> Unit,
+    closeFocusRequester: FocusRequester,
     onCloseSheet: () -> Unit
 ) {
     Box(
@@ -2501,6 +2579,7 @@ private fun PlayerQuickActionSheet(
                 val isClosePress by closeInter.collectIsPressedAsState()
                 Box(
                     modifier = Modifier
+                        .focusRequester(closeFocusRequester)
                         .clip(RoundedCornerShape(6.dp))
                         .background(if (isCloseFoc || isClosePress) AccentRed else Color(0xFF252E40))
                         .border(1.dp, if (isCloseFoc || isClosePress) Color.White else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
@@ -2817,6 +2896,7 @@ private fun PlayerQuickActionSheet(
 private fun QuickSeekPill(
     text: String,
     highlight: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val inter = remember { MutableInteractionSource() }
@@ -2825,7 +2905,7 @@ private fun QuickSeekPill(
     val isHighlighted = isFoc || isPress
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(6.dp))
             .background(if (isHighlighted) AccentRed else if (highlight) Color(0xFF222938) else Color(0x33FFFFFF))
             .border(
