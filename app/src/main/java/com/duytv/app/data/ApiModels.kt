@@ -115,5 +115,6 @@ data class EpisodeItemDto(
     @SerializedName("slug") val slug: String = "",
     @SerializedName("filename") val filename: String? = null,
     @SerializedName("link_embed") val linkEmbed: String? = null,
-    @SerializedName("link_m3u8") val linkM3u8: String? = null
+    @SerializedName("link_m3u8") val linkM3u8: String? = null,
+    val backupStreams: List<String> = emptyList()
 )

@@ -205,12 +205,14 @@ private fun PlayerScreenContent(
 
     // Danh sách tập phim để tự động nhảy tập tiếp theo khi hết tập (Auto-Next Episode)
     var availableEpisodes by remember(episodes) {
-        mutableStateOf(episodes.distinctBy { it.name.trim().lowercase() })
+        mutableStateOf(MovieRepository.mergeAndGroupEpisodes(episodes))
     }
     val currentEpisodeIndex = remember(availableEpisodes, currentEpisodeName, currentStreamUrl) {
+        val normCurrent = MovieRepository.normalizeEpisodeKey(currentEpisodeName)
         availableEpisodes.indexOfFirst {
-            it.name.equals(currentEpisodeName, ignoreCase = true) ||
-                (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl)
+            MovieRepository.normalizeEpisodeKey(it.name) == normCurrent ||
+                (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl) ||
+                it.backupStreams.contains(currentStreamUrl)
         }
     }
 
@@ -222,7 +224,7 @@ private fun PlayerScreenContent(
                 val detail = repository.getMovieDetail(slug)
                 val serverEps = detail?.episodes?.firstOrNull()?.serverData ?: emptyList()
                 if (serverEps.isNotEmpty()) {
-                    availableEpisodes = serverEps
+                    availableEpisodes = MovieRepository.mergeAndGroupEpisodes(serverEps, detail?.episodes.orEmpty())
                 }
             } catch (_: Exception) {}
         }
@@ -255,7 +257,17 @@ private fun PlayerScreenContent(
     var errorRetryJob by remember { mutableStateOf<Job?>(null) }
 
     fun getActiveLiveUrls(): List<String> {
-        if (!isLive) return listOf(currentStreamUrl)
+        if (!isLive) {
+            val ep = availableEpisodes.getOrNull(currentEpisodeIndex)
+            val rawVod = buildList {
+                ep?.linkM3u8?.let { add(it) }
+                if (ep != null && ep.slug.startsWith("cobe_ep_")) add(ep.slug)
+                ep?.backupStreams?.let { addAll(it) }
+                add(currentStreamUrl)
+                addAll(backupUrls)
+            }.filter { MovieRepository.isPlayableVodStreamOrToken(it) }.distinct()
+            return rawVod.ifEmpty { listOf(currentStreamUrl) }
+        }
         val ch = availableChannels.getOrNull(currentChannelIndex)
         val rawUrls = if (ch != null) {
             (ch.allStreamUrls() + backupUrls).filter { it.isNotBlank() }.distinct()
@@ -621,16 +633,56 @@ private fun PlayerScreenContent(
 
     fun loadLiveStreamUrl(url: String) {
         val player = exoPlayer ?: return
-        currentStreamUrl = url
-        try {
-            val newMediaSource = buildStreamMediaSource(context, url, isLive = true, subtitleUrl = null)
-            errorRetryJob?.cancel()
-            player.stop()
-            player.clearMediaItems()
-            player.setMediaSource(newMediaSource)
-            player.prepare()
-            player.play()
-        } catch (_: Exception) {}
+        if (isLive) {
+            currentStreamUrl = url
+            try {
+                val newMediaSource = buildStreamMediaSource(context, url, isLive = true, subtitleUrl = null)
+                errorRetryJob?.cancel()
+                player.stop()
+                player.clearMediaItems()
+                player.setMediaSource(newMediaSource)
+                player.prepare()
+                player.play()
+            } catch (_: Exception) {}
+        } else {
+            val savedPos = maxOf(0L, player.currentPosition, currentPosMs)
+            scope.launch {
+                val allVodCands = getActiveLiveUrls()
+                var resolvedUrl: String? = null
+                val startIdx = allVodCands.indexOf(url).takeIf { it >= 0 } ?: currentBackupIndex
+                for (offset in allVodCands.indices) {
+                    val idx = (startIdx + offset) % allVodCands.size
+                    val cand = allVodCands[idx]
+                    val res = if (cand.startsWith("cobe_ep_") && repository != null) {
+                        repository.resolveAnyVodCandidate(cand)
+                    } else if (MovieRepository.isPlayableVodStreamOrToken(cand)) {
+                        cand
+                    } else null
+                    if (!res.isNullOrBlank() && res != currentStreamUrl) {
+                        resolvedUrl = res
+                        currentBackupIndex = idx
+                        break
+                    } else if (!res.isNullOrBlank() && resolvedUrl == null) {
+                        resolvedUrl = res
+                    }
+                }
+                val targetUrl = resolvedUrl ?: return@launch
+                currentStreamUrl = targetUrl
+                try {
+                    val currentSub = activeSubtitleData ?: subtitleUrl
+                    val newMediaSource = buildStreamMediaSource(context, targetUrl, isLive = false, subtitleUrl = currentSub)
+                    errorRetryJob?.cancel()
+                    player.stop()
+                    player.clearMediaItems()
+                    player.setMediaSource(newMediaSource)
+                    player.prepare()
+                    if (savedPos > 1000L) {
+                        player.seekTo(savedPos)
+                    }
+                    player.play()
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     // Track playback position, Save history mỗi 10s, Frozen Frame Watchdog (#7) & Pre-warm Next Episode (#11)
@@ -650,8 +702,8 @@ private fun PlayerScreenContent(
                     totalDurationMs = liveDur
                 }
 
-                // #7 Cảm biến phát hiện "Đứng hình ngầm" 6s khi xem IPTV / Bóng đá
-                if (isLive && zeroStallFailoverEnabled && exoPlayer.playbackState == Player.STATE_READY) {
+                // #7 Cảm biến phát hiện "Đứng hình ngầm" 6s khi xem IPTV / Bóng đá / Phim VOD
+                if (zeroStallFailoverEnabled && exoPlayer.playbackState == Player.STATE_READY) {
                     val rendered = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
                     if (rendered > 0 && rendered == lastRenderedFrames) {
                         frozenTicks++
@@ -659,9 +711,11 @@ private fun PlayerScreenContent(
                             frozenTicks = 0
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
-                                AppCacheManager.markStreamFailed(currentStreamUrl)
+                                if (isLive) AppCacheManager.markStreamFailed(currentStreamUrl)
                                 val backupCandidates = allUrls.filterNot { it == currentStreamUrl }
-                                val fastestUrl = com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                val fastestUrl = if (isLive) {
+                                    com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                } else null
                                 val nextIdx = if (fastestUrl != null) {
                                     allUrls.indexOf(fastestUrl).takeIf { it >= 0 } ?: ((currentBackupIndex + 1) % allUrls.size)
                                 } else {
@@ -674,7 +728,7 @@ private fun PlayerScreenContent(
                         }
                     } else {
                         frozenTicks = 0
-                        if (rendered > 0 && tickCount % 8 == 0) {
+                        if (isLive && rendered > 0 && tickCount % 8 == 0) {
                             AppCacheManager.markStreamSuccess(currentTitle, currentStreamUrl)
                         }
                     }
@@ -731,20 +785,24 @@ private fun PlayerScreenContent(
         val player = exoPlayer ?: return
 
         scope.launch {
-            var nextUrl = ep.linkM3u8 ?: ""
-            if (nextUrl.isBlank() && ep.slug.startsWith("cobe_ep_") && repository != null) {
-                val epId = ep.slug.split("_").getOrNull(2)?.toLongOrNull()
-                if (epId != null) {
-                    nextUrl = try { repository.resolveCoBeEpisode(epId) ?: "" } catch (_: Exception) { "" }
+            val rawCandidates = buildList {
+                ep.linkM3u8?.let { add(it) }
+                if (ep.slug.startsWith("cobe_ep_")) add(ep.slug)
+                addAll(ep.backupStreams)
+            }.filter { it.isNotBlank() }.distinct()
+            var nextUrl = ""
+            for (cand in rawCandidates) {
+                val resolved = if (repository != null) repository.resolveAnyVodCandidate(cand) else cand
+                if (!resolved.isNullOrBlank()) {
+                    nextUrl = resolved
+                    break
                 }
-            }
-            if (nextUrl.isBlank()) {
-                nextUrl = ep.linkEmbed ?: ""
             }
             if (nextUrl.isBlank()) return@launch
 
             currentEpisodeName = ep.name
             currentStreamUrl = nextUrl
+            currentBackupIndex = 0
             currentPosMs = 0L
             pendingSeekPosMs = null
             seekDeltaText = ""
@@ -794,15 +852,17 @@ private fun PlayerScreenContent(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_BUFFERING) {
-                    if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
+                    if (zeroStallFailoverEnabled && getActiveLiveUrls().size > 1) {
                         stallTimerJob?.cancel()
                         stallTimerJob = scope.launch {
-                            delay(4500L) // Chờ 4.5s rồi đua song song tìm Server dự phòng phản hồi nhanh nhất
+                            delay(if (isLive) 4500L else 5500L) // Chờ 4.5s (Live) / 5.5s (Phim) rồi tự động đổi sang Server dự phòng
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
-                                AppCacheManager.markStreamFailed(currentStreamUrl)
+                                if (isLive) AppCacheManager.markStreamFailed(currentStreamUrl)
                                 val backupCandidates = allUrls.filterNot { it == currentStreamUrl }
-                                val fastestUrl = com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                val fastestUrl = if (isLive) {
+                                    com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
+                                } else null
                                 val nextBackupIdx = if (fastestUrl != null) {
                                     allUrls.indexOf(fastestUrl).takeIf { it >= 0 } ?: ((currentBackupIndex + 1) % allUrls.size)
                                 } else {
@@ -811,7 +871,7 @@ private fun PlayerScreenContent(
                                 currentBackupIndex = nextBackupIdx
                                 errorMessage = null
                                 channelOsdVisible = false
-                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server nhanh nhất (${nextBackupIdx + 1}/${allUrls.size})"
+                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
                                 loadLiveStreamUrl(allUrls[nextBackupIdx])
                             }
                         }
@@ -839,9 +899,11 @@ private fun PlayerScreenContent(
                         }
                     }
                 } else if (playbackState == Player.STATE_ENDED && !isLive) {
+                    val normEp = MovieRepository.normalizeEpisodeKey(currentEpisodeName)
                     val activeIdx = availableEpisodes.indexOfFirst {
-                        it.name.equals(currentEpisodeName, ignoreCase = true) ||
-                            (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl)
+                        MovieRepository.normalizeEpisodeKey(it.name) == normEp ||
+                            (!it.linkM3u8.isNullOrBlank() && it.linkM3u8 == currentStreamUrl) ||
+                            it.backupStreams.contains(currentStreamUrl)
                     }
                     if (activeIdx >= 0 && activeIdx + 1 < availableEpisodes.size) {
                         playVodEpisodeAt(activeIdx + 1, isAutoAdvance = true)
@@ -905,7 +967,7 @@ private fun PlayerScreenContent(
                     AppCacheManager.markStreamFailed(currentStreamUrl)
                 }
 
-                if (isLive && currentBackupIndex + 1 < allUrls.size) {
+                if (currentBackupIndex + 1 < allUrls.size) {
                     val nextBackupIdx = currentBackupIndex + 1
                     currentBackupIndex = nextBackupIdx
                     errorMessage = null
@@ -1248,20 +1310,19 @@ private fun PlayerScreenContent(
     }
 
     fun switchBackupSource() {
-        if (!isLive) return
         val allUrls = getActiveLiveUrls()
         if (allUrls.size <= 1) return
         val nextIdx = (currentBackupIndex + 1) % allUrls.size
         currentBackupIndex = nextIdx
         errorMessage = null
         loadLiveStreamUrl(allUrls[nextIdx])
-        val ch = availableChannels.getOrNull(currentChannelIndex)
+        val ch = if (isLive) availableChannels.getOrNull(currentChannelIndex) else null
         if (ch != null) {
             showChannelOsd(ch, currentChannelIndex, availableChannels.size, sourceIdx = nextIdx)
         } else {
             showControls = false
-            channelOsdName = currentTitle
-            channelOsdSub = "⚡ Đã chuyển sang Đường truyền ${nextIdx + 1}/${allUrls.size}"
+            channelOsdName = if (isLive) currentTitle else "$currentTitle • $currentEpisodeName"
+            channelOsdSub = "⚡ Đã chuyển sang Đường truyền dự phòng ${nextIdx + 1}/${allUrls.size}"
             channelOsdLogo = currentPosterUrl
             channelOsdVisible = true
             channelOsdJob?.cancel()
@@ -1894,7 +1955,7 @@ private fun PlayerScreenContent(
             }
         }
 
-        val activeChannelTotalSources = if (isLive) getActiveLiveUrls().size else 1
+        val activeChannelTotalSources = getActiveLiveUrls().size.coerceAtLeast(1)
         // ⚙️ BẢNG ĐIỀU KHIỂN TIỆN ÍCH HỢP NHẤT (UNIFIED QUICK-ACTION SHEET)
         if (showQuickActionSheet) {
             PlayerQuickActionSheet(
@@ -2461,6 +2522,14 @@ private fun PlayerScreenContent(
                                     onClick = { playVodEpisodeAt(currentEpisodeIndex + 1, isAutoAdvance = false) }
                                 )
                             }
+                            if (activeChannelTotalSources > 1) {
+                                Spacer(modifier = Modifier.width(12.dp))
+                                QuickSeekPill(
+                                    text = "🔄 ĐỔI NGUỒN (${currentBackupIndex + 1}/$activeChannelTotalSources)",
+                                    highlight = true,
+                                    onClick = { switchBackupSource() }
+                                )
+                            }
                             Spacer(modifier = Modifier.width(16.dp))
                             QuickSeekPill(
                                 text = "⚡ ${if (playbackSpeed == 1.0f) "1.0x" else "${playbackSpeed}x"}",
@@ -2926,8 +2995,8 @@ private fun PlayerQuickActionSheet(
                             )
                         }
 
-                        if (isLive && activeChannelTotalSources > 1) {
-                            SettingSectionHeader("🔄 ĐỔI SERVER TRUYỀN HÌNH THỦ CÔNG")
+                        if (activeChannelTotalSources > 1) {
+                            SettingSectionHeader("🔄 ĐỔI SERVER PHÁT DỰ PHÒNG THỦ CÔNG")
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 SettingChoicePill(
                                     title = "🔄 TRÁO SANG SERVER DỰ PHÒNG (${currentBackupIndex + 1}/$activeChannelTotalSources)",

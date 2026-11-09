@@ -370,8 +370,12 @@ fun MovieDetailScreen(
 
                 // Episode List or Torrent Stream Qualities
                 item {
-                    val episodes = remember(currentServer) {
-                        currentServer?.serverData?.distinctBy { it.name.trim().lowercase() } ?: emptyList()
+                    val episodes = remember(currentServer, serverGroups) {
+                        MovieRepository.mergeAndGroupEpisodes(
+                            currentServer?.serverData ?: emptyList(),
+                            serverGroups,
+                            currentServer?.serverName ?: ""
+                        )
                     }
                     val isTorrentServer = currentServer?.serverName?.contains("Torrent") == true
                     val episodeRowState = rememberLazyListState()
@@ -381,7 +385,8 @@ fun MovieDetailScreen(
                     LaunchedEffect(episodes, savedHistory?.episodeName) {
                         val watchedName = savedHistory?.episodeName
                         if (!watchedName.isNullOrBlank() && episodes.isNotEmpty()) {
-                            val idx = episodes.indexOfFirst { it.name.equals(watchedName, ignoreCase = true) }
+                            val watchedKey = MovieRepository.normalizeEpisodeKey(watchedName)
+                            val idx = episodes.indexOfFirst { MovieRepository.normalizeEpisodeKey(it.name) == watchedKey }
                             if (idx > 0) {
                                 episodeRowState.scrollToItem(maxOf(0, idx - 1))
                             }
@@ -411,25 +416,30 @@ fun MovieDetailScreen(
                                         shape = RoundedCornerShape(8.dp)
                                     )
                                     .clickable(interactionSource = resumeInter, indication = null) {
+                                        val watchedKey = MovieRepository.normalizeEpisodeKey(savedHistory.episodeName)
                                         val matchedEp = episodes.firstOrNull {
-                                            it.name.equals(savedHistory.episodeName, ignoreCase = true)
+                                            MovieRepository.normalizeEpisodeKey(it.name) == watchedKey
                                         }
                                         scope.launch {
-                                            var streamUrl = matchedEp?.linkM3u8 ?: savedHistory.streamUrl
-                                            if (streamUrl.isBlank() && matchedEp != null && matchedEp.slug.startsWith("cobe_ep_")) {
-                                                val epId = matchedEp.slug.split("_").getOrNull(2)?.toLongOrNull()
-                                                if (epId != null) {
-                                                    streamUrl = repository.resolveCoBeEpisode(epId) ?: ""
+                                            val rawCandidates = buildList {
+                                                matchedEp?.linkM3u8?.let { add(it) }
+                                                if (matchedEp != null && matchedEp.slug.startsWith("cobe_ep_")) add(matchedEp.slug)
+                                                matchedEp?.backupStreams?.let { addAll(it) }
+                                                add(savedHistory.streamUrl)
+                                            }.filter { it.isNotBlank() }.distinct()
+                                            var streamUrl = ""
+                                            for (cand in rawCandidates) {
+                                                val resolved = repository.resolveAnyVodCandidate(cand)
+                                                if (!resolved.isNullOrBlank()) {
+                                                    streamUrl = resolved
+                                                    break
                                                 }
-                                            }
-                                            if (streamUrl.isBlank()) {
-                                                streamUrl = matchedEp?.linkEmbed ?: savedHistory.streamUrl
                                             }
                                             if (streamUrl.isNotBlank()) {
                                                 onPlayEpisode(
                                                     slug,
                                                     movie.name,
-                                                    savedHistory.episodeName,
+                                                    matchedEp?.name ?: savedHistory.episodeName,
                                                     streamUrl,
                                                     backdropUrl,
                                                     vietnameseSubtitleUrl,
@@ -449,7 +459,7 @@ fun MovieDetailScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "TIẾP TỤC XEM: ${savedHistory.episodeName.uppercase()} (TỪ $resumePosLabel)",
+                                    text = "TIẾP TỤC XEM: ${MovieRepository.formatCanonicalEpisodeName(savedHistory.episodeName).uppercase()} (TỪ $resumePosLabel)",
                                     color = if (isResumeFoc) Color.White else Color.Black,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Black
@@ -470,7 +480,8 @@ fun MovieDetailScreen(
                         val initialChunkIdx = remember(episodes, savedHistory?.episodeName) {
                             val watchedName = savedHistory?.episodeName
                             val watchedIdx = if (!watchedName.isNullOrBlank()) {
-                                episodes.indexOfFirst { it.name.equals(watchedName, ignoreCase = true) }
+                                val watchedKey = MovieRepository.normalizeEpisodeKey(watchedName)
+                                episodes.indexOfFirst { MovieRepository.normalizeEpisodeKey(it.name) == watchedKey }
                             } else -1
                             if (watchedIdx >= 0) watchedIdx / chunkSize else 0
                         }
@@ -534,7 +545,9 @@ fun MovieDetailScreen(
                             contentPadding = PaddingValues(end = 40.dp)
                         ) {
                             items(visibleEpisodes) { ep ->
-                                val isCurrentWatched = savedHistory?.episodeName?.equals(ep.name, ignoreCase = true) == true
+                                val isCurrentWatched = savedHistory?.episodeName?.let {
+                                    MovieRepository.normalizeEpisodeKey(it) == MovieRepository.normalizeEpisodeKey(ep.name)
+                                } == true
                                 val isFirstEpisode = (savedHistory == null || isTorrentServer) && ep == visibleEpisodes.firstOrNull()
                                 EpisodeButton(
                                     name = ep.name,
@@ -543,15 +556,18 @@ fun MovieDetailScreen(
                                     modifier = if (isFirstEpisode) Modifier.focusRequester(primaryActionFocusRequester) else Modifier,
                                     onClick = {
                                         scope.launch {
-                                            var streamUrl = ep.linkM3u8 ?: ""
-                                            if (streamUrl.isBlank() && ep.slug.startsWith("cobe_ep_")) {
-                                                val epId = ep.slug.split("_").getOrNull(2)?.toLongOrNull()
-                                                if (epId != null) {
-                                                    streamUrl = repository.resolveCoBeEpisode(epId) ?: ""
+                                            val rawCandidates = buildList {
+                                                ep.linkM3u8?.let { add(it) }
+                                                if (ep.slug.startsWith("cobe_ep_")) add(ep.slug)
+                                                addAll(ep.backupStreams)
+                                            }.filter { it.isNotBlank() }.distinct()
+                                            var streamUrl = ""
+                                            for (cand in rawCandidates) {
+                                                val resolved = repository.resolveAnyVodCandidate(cand)
+                                                if (!resolved.isNullOrBlank()) {
+                                                    streamUrl = resolved
+                                                    break
                                                 }
-                                            }
-                                            if (streamUrl.isBlank()) {
-                                                streamUrl = ep.linkEmbed ?: ""
                                             }
                                             if (streamUrl.isNotBlank()) {
                                                 val resumePos = if (isCurrentWatched && savedHistory != null &&

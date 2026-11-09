@@ -1,7 +1,7 @@
 {
-  "versionCode": 39,
-  "versionName": "2.0.4",
+  "versionCode": 40,
+  "versionName": "2.0.5",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản chính thức v2.0.4 (Build #39): Tối ưu hiệu năng 144Hz/60fps toàn diện theo đánh giá Hội đồng Chuyên gia — giảm 98% tải CPU nền khi phát video, tự động chia cột danh mục theo mọi màn hình, lưu đệm 588 kênh truyền hình 0ms và mở rộng RAM Cache 64MB cho Tablet/Fold"
+  "releaseNotes": "Bản chính thức v2.0.5 (Build #40): Tự động gom sạch các tập phim trùng lặp thành 1 nút Tập duy nhất, tổng hợp đa nguồn phim dự phòng (KKPhim VIP + CoBePhim Multi-CDN + NguonC) và tự động đổi nguồn chống lag khi xem phim giữ nguyên vị trí phát"
 }

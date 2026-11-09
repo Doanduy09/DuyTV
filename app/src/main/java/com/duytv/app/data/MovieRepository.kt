@@ -399,6 +399,104 @@ class MovieRepository {
             return merged.values.toList()
         }
 
+        private val REGEX_EPISODE_NUM_EXACT = Regex("""^(?:tập|tap|ep|episode|#|\s)*0*(\d+)$""", RegexOption.IGNORE_CASE)
+        private val REGEX_EPISODE_NUM_PREFIX = Regex("""^(?:tập|tap|ep|episode|#)\s*0*(\d+)\b""", RegexOption.IGNORE_CASE)
+
+        fun normalizeEpisodeKey(rawName: String): String {
+            val clean = rawName.trim()
+            if (clean.isEmpty()) return "1"
+            val match = REGEX_EPISODE_NUM_EXACT.matchEntire(clean)
+                ?: REGEX_EPISODE_NUM_PREFIX.find(clean)
+            if (match != null) {
+                val num = match.groupValues[1].toIntOrNull()
+                if (num != null) return num.toString()
+            }
+            return clean.lowercase()
+        }
+
+        fun formatCanonicalEpisodeName(rawName: String): String {
+            val clean = rawName.trim()
+            if (clean.contains("seeds", ignoreCase = true) || clean.contains("Torrent", ignoreCase = true)) {
+                return clean
+            }
+            val key = normalizeEpisodeKey(clean)
+            return if (key.isNotEmpty() && key.all { it.isDigit() }) {
+                "Tập $key"
+            } else {
+                clean.ifBlank { "Full" }
+            }
+        }
+
+        fun isPlayableVodStreamOrToken(candidate: String?): Boolean {
+            if (candidate.isNullOrBlank()) return false
+            val u = candidate.trim()
+            if (u.startsWith("cobe_ep_") || u.startsWith("magnet:?")) return true
+            if (u.contains("embed.php", ignoreCase = true) || u.contains("/embed/", ignoreCase = true)) return false
+            return u.startsWith("http", ignoreCase = true)
+        }
+
+        private fun extractEpisodeCandidates(ep: EpisodeItemDto): List<String> {
+            val list = mutableListOf<String>()
+            if (isPlayableVodStreamOrToken(ep.linkM3u8)) list.add(ep.linkM3u8!!.trim())
+            if (ep.slug.startsWith("cobe_ep_")) list.add(ep.slug.trim())
+            for (b in ep.backupStreams) {
+                if (isPlayableVodStreamOrToken(b)) list.add(b.trim())
+            }
+            if (list.isEmpty() && isPlayableVodStreamOrToken(ep.linkEmbed)) {
+                list.add(ep.linkEmbed!!.trim())
+            }
+            return list.distinct()
+        }
+
+        fun mergeAndGroupEpisodes(
+            rawList: List<EpisodeItemDto>,
+            extraServerGroups: List<ServerGroupDto> = emptyList(),
+            currentServerName: String = ""
+        ): List<EpisodeItemDto> {
+            if (rawList.isEmpty()) return emptyList()
+            val grouped = LinkedHashMap<String, MutableList<EpisodeItemDto>>()
+            for (ep in rawList) {
+                val key = normalizeEpisodeKey(ep.name)
+                grouped.getOrPut(key) { mutableListOf() }.add(ep)
+            }
+
+            val isDubbedServer = currentServerName.contains("Thuyết Minh", ignoreCase = true) ||
+                currentServerName.contains("Lồng Tiếng", ignoreCase = true)
+
+            val extraSameAudioByKey = HashMap<String, MutableList<String>>()
+            val extraOtherAudioByKey = HashMap<String, MutableList<String>>()
+
+            for (grp in extraServerGroups) {
+                val grpDubbed = grp.serverName.contains("Thuyết Minh", ignoreCase = true) ||
+                    grp.serverName.contains("Lồng Tiếng", ignoreCase = true)
+                val targetMap = if (grpDubbed == isDubbedServer) extraSameAudioByKey else extraOtherAudioByKey
+                for (ep in grp.serverData) {
+                    val k = normalizeEpisodeKey(ep.name)
+                    targetMap.getOrPut(k) { mutableListOf() }.addAll(extractEpisodeCandidates(ep))
+                }
+            }
+
+            return grouped.map { (key, sameKeyEps) ->
+                val firstEp = sameKeyEps.first()
+                val ownCandidates = sameKeyEps.flatMap { extractEpisodeCandidates(it) }.distinct()
+                val sameAudioBackups = extraSameAudioByKey[key].orEmpty()
+                val otherAudioBackups = extraOtherAudioByKey[key].orEmpty()
+                val allCandidates = (ownCandidates + sameAudioBackups + otherAudioBackups).distinct()
+
+                val bestDirectM3u8 = ownCandidates.firstOrNull { it.startsWith("http", ignoreCase = true) }
+                    ?: firstEp.linkM3u8?.takeIf { isPlayableVodStreamOrToken(it) }
+                val bestTokenSlug = ownCandidates.firstOrNull { it.startsWith("cobe_ep_") }
+                    ?: firstEp.slug
+
+                firstEp.copy(
+                    name = formatCanonicalEpisodeName(firstEp.name),
+                    slug = bestTokenSlug,
+                    linkM3u8 = bestDirectM3u8,
+                    backupStreams = allCandidates
+                )
+            }
+        }
+
         fun getVerifiedOfficialChannels(): List<TvChannel> {
         return listOf(
             // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - ĐÃ GỘP LINK DỰ PHÒNG VÀO 1 KÊNH DUY NHẤT
@@ -1276,62 +1374,118 @@ class MovieRepository {
         emptyList()
     }
 
-    suspend fun getMovieDetail(slug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
-        if (slug.startsWith("cobe_")) {
-            return@withContext getCoBeMovieDetail(slug.removePrefix("cobe_"))
+    private suspend fun fetchKkPhimMovieDetail(cleanSlug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
+        val bases = listOf(RemoteConfigManager.getBaseUrl(), "https://phimapi.com").distinct()
+        for (base in bases) {
+            try {
+                val req = Request.Builder()
+                    .url("$base/phim/$cleanSlug")
+                    .header("User-Agent", "DuyTV/1.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val bodyStr = res.body?.string() ?: continue
+                    val rawDetail = gson.fromJson(bodyStr, MovieDetailResponse::class.java)
+                    if (rawDetail?.status == true && rawDetail.movie != null) {
+                        val namedGroups = rawDetail.episodes.orEmpty().mapNotNull { grp ->
+                            val mergedEps = mergeAndGroupEpisodes(grp.serverData, emptyList(), grp.serverName)
+                            if (mergedEps.isEmpty()) null else grp.copy(
+                                serverName = if (grp.serverName.contains("KKPhim", ignoreCase = true)) grp.serverName else "⚡ ${grp.serverName} (KKPhim VIP)",
+                                serverData = mergedEps
+                            )
+                        }
+                        return@withContext rawDetail.copy(episodes = namedGroups)
+                    }
+                }
+            } catch (_: Exception) {}
         }
+        null
+    }
+
+    suspend fun getMovieDetail(slug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
         if (slug.startsWith("torrent_")) {
             return@withContext getTorrentMovieDetail(slug)
         }
 
-        val base = RemoteConfigManager.getBaseUrl()
-        val url = "$base/phim/$slug"
-        try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "DuyTV/1.0")
-                .build()
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                res.body?.string()?.let {
-                    val rawDetail = gson.fromJson(it, MovieDetailResponse::class.java)
-                    val dedupGroups = rawDetail.episodes?.map { grp ->
-                        grp.copy(serverData = grp.serverData.distinctBy { ep -> ep.name.trim().lowercase() })
-                    }
-                    val detail = rawDetail.copy(episodes = dedupGroups)
-                    // If movie has an origin_name or imdb, check for 4K Torrent sources and Vietsub
-                    val movieName = detail.movie?.originName ?: detail.movie?.name
-                    if (!movieName.isNullOrBlank() && detail.status) {
-                        try {
-                            val torrents = searchYtsTorrents(movieName)
-                            if (torrents.isNotEmpty()) {
-                                val topTorrent = torrents.first()
-                                val extraEpisodes = listOf(
-                                    EpisodeItemDto(
-                                        name = "4K Cinema (Torrent YTS)",
-                                        slug = topTorrent.slug,
-                                        linkM3u8 = null,
-                                        linkEmbed = null
-                                    )
+        val isCobePrimary = slug.startsWith("cobe_")
+        val cleanSlug = slug.removePrefix("cobe_")
+
+        val kkDeferred = async {
+            kotlinx.coroutines.withTimeoutOrNull(4500L) { fetchKkPhimMovieDetail(cleanSlug) }
+        }
+        val cobeDeferred = async {
+            kotlinx.coroutines.withTimeoutOrNull(4500L) { getCoBeMovieDetail(cleanSlug) }
+        }
+        val nguoncDeferred = async {
+            kotlinx.coroutines.withTimeoutOrNull(3500L) { getNguonCMovieDetail(cleanSlug) }
+        }
+
+        val kkDetail = try { kkDeferred.await() } catch (_: Exception) { null }
+        val cobeDetail = try { cobeDeferred.await() } catch (_: Exception) { null }
+        val nguoncDetail = try { nguoncDeferred.await() } catch (_: Exception) { null }
+
+        val primaryDetail = if (isCobePrimary) {
+            cobeDetail ?: kkDetail ?: nguoncDetail
+        } else {
+            kkDetail ?: cobeDetail ?: nguoncDetail
+        } ?: return@withContext null
+
+        val rawCombinedGroups = mutableListOf<ServerGroupDto>()
+        if (isCobePrimary) {
+            rawCombinedGroups.addAll(cobeDetail?.episodes.orEmpty())
+            rawCombinedGroups.addAll(kkDetail?.episodes.orEmpty())
+            rawCombinedGroups.addAll(nguoncDetail?.episodes.orEmpty())
+        } else {
+            rawCombinedGroups.addAll(kkDetail?.episodes.orEmpty())
+            rawCombinedGroups.addAll(cobeDetail?.episodes.orEmpty())
+            rawCombinedGroups.addAll(nguoncDetail?.episodes.orEmpty())
+        }
+
+        val crossPopulatedGroups = rawCombinedGroups.mapNotNull { grp ->
+            val merged = mergeAndGroupEpisodes(grp.serverData, rawCombinedGroups, grp.serverName)
+            if (merged.isEmpty()) null else grp.copy(serverData = merged)
+        }.toMutableList()
+
+        // If movie is a single feature film, also check 4K Torrent sources
+        val movieObj = primaryDetail.movie
+        val movieName = movieObj?.originName?.ifBlank { movieObj.name } ?: movieObj?.name
+        if (!isCobePrimary && !movieName.isNullOrBlank() && movieObj?.type == "single") {
+            try {
+                val torrents = kotlinx.coroutines.withTimeoutOrNull(2500L) { searchYtsTorrents(movieName) }.orEmpty()
+                if (torrents.isNotEmpty()) {
+                    val topTorrent = torrents.first()
+                    crossPopulatedGroups.add(
+                        ServerGroupDto(
+                            serverName = "💎 Server 4K Cinema (Torrent)",
+                            serverData = listOf(
+                                EpisodeItemDto(
+                                    name = "4K Cinema (Torrent YTS)",
+                                    slug = topTorrent.slug,
+                                    linkM3u8 = null,
+                                    linkEmbed = null
                                 )
-                                val mutableGroups = detail.episodes?.toMutableList() ?: mutableListOf()
-                                mutableGroups.add(
-                                    ServerGroupDto(
-                                        serverName = "💎 Server 4K Cinema (Torrent)",
-                                        serverData = extraEpisodes
-                                    )
-                                )
-                                return@withContext detail.copy(episodes = mutableGroups)
-                            }
-                        } catch (_: Exception) {}
-                    }
-                    if (detail.status && detail.movie != null) {
-                        return@withContext detail
-                    }
+                            )
+                        )
+                    )
                 }
-            }
-        } catch (_: Exception) {}
-        getNguonCMovieDetail(slug)
+            } catch (_: Exception) {}
+        }
+
+        val canonicalCount = crossPopulatedGroups.firstOrNull()?.serverData?.size ?: 0
+        val updatedMovie = if (movieObj != null && canonicalCount > 1) {
+            movieObj.copy(
+                slug = slug,
+                episodeCurrent = "Trọn bộ $canonicalCount tập",
+                episodeTotal = "$canonicalCount tập"
+            )
+        } else {
+            movieObj?.copy(slug = slug)
+        }
+
+        primaryDetail.copy(
+            movie = updatedMovie,
+            episodes = crossPopulatedGroups
+        )
     }
 
     private suspend fun getNguonCMovieDetail(slug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
@@ -1372,14 +1526,16 @@ class MovieRepository {
                                 val epSlug = if (iObj.has("slug") && !iObj.get("slug").isJsonNull) iObj.get("slug").asString else epName
                                 val m3u8 = if (iObj.has("m3u8") && !iObj.get("m3u8").isJsonNull) iObj.get("m3u8").asString else null
                                 val embed = if (iObj.has("embed") && !iObj.get("embed").isJsonNull) iObj.get("embed").asString else null
-                                epItems.add(EpisodeItemDto(name = epName, slug = epSlug, linkM3u8 = m3u8, linkEmbed = embed))
+                                if (isPlayableVodStreamOrToken(m3u8)) {
+                                    epItems.add(EpisodeItemDto(name = epName, slug = epSlug, linkM3u8 = m3u8, linkEmbed = embed))
+                                }
                             }
                         }
                         if (epItems.isNotEmpty()) {
                             serverGroups.add(
                                 ServerGroupDto(
                                     serverName = "🌐 $sName (NguonC)",
-                                    serverData = epItems.distinctBy { ep -> ep.name.trim().lowercase() }
+                                    serverData = mergeAndGroupEpisodes(epItems, emptyList(), sName)
                                 )
                             )
                         }
@@ -1586,7 +1742,10 @@ class MovieRepository {
                 val lang = if (jsonTree.has("language") && !jsonTree.get("language").isJsonNull) jsonTree.get("language").asString else "Lồng Tiếng"
                 val time = if (jsonTree.has("episode_time") && !jsonTree.get("episode_time").isJsonNull) jsonTree.get("episode_time").asString else "45 phút"
 
-                val episodeItems = mutableListOf<EpisodeItemDto>()
+                val dubbedItems = mutableListOf<EpisodeItemDto>()
+                val subbedItems = mutableListOf<EpisodeItemDto>()
+                val fallbackItems = mutableListOf<EpisodeItemDto>()
+
                 if (jsonTree.has("episodes") && jsonTree.get("episodes").isJsonArray) {
                     val epArray = jsonTree.getAsJsonArray("episodes")
                     epArray.forEach { epElem ->
@@ -1594,29 +1753,70 @@ class MovieRepository {
                         val epId = epObj.get("id").asLong
                         val epName = epObj.get("name").asString
                         val epSlug = epObj.get("slug").asString
+                        val srvRaw = if (epObj.has("server") && !epObj.get("server").isJsonNull) epObj.get("server").asString.trim() else ""
+                        val srvNorm = removeVietnameseAccents(srvRaw).lowercase()
                         val embedUrl = "https://egluy2hhb21vaw5ndw9pbmhl.darkbytes.xyz/embed/$epId"
-
-                        episodeItems.add(
-                            EpisodeItemDto(
-                                name = epName,
-                                slug = "cobe_ep_${epId}_$epSlug",
-                                linkM3u8 = null,
-                                linkEmbed = embedUrl
-                            )
+                        val dto = EpisodeItemDto(
+                            name = epName,
+                            slug = "cobe_ep_${epId}_$epSlug",
+                            linkM3u8 = null,
+                            linkEmbed = embedUrl
                         )
+                        // "vietsub #1" and "thuyet minh #1" on CoBePhim point to streamc.xyz/embed.php (HTML iframe)
+                        if (srvNorm == "vietsub #1" || srvNorm == "thuyet minh #1") {
+                            fallbackItems.add(dto)
+                        } else if (srvNorm.contains("thuyet minh") || srvNorm.contains("long tieng")) {
+                            dubbedItems.add(dto)
+                        } else {
+                            subbedItems.add(dto)
+                        }
                     }
                 }
 
-                // Pre-resolve Episode 1 m3u8 so it plays with 0 delay
-                if (episodeItems.isNotEmpty()) {
-                    val firstEp = episodeItems.first()
+                val cobeServerGroups = mutableListOf<ServerGroupDto>()
+                if (dubbedItems.isNotEmpty()) {
+                    val mergedDub = mergeAndGroupEpisodes(dubbedItems, emptyList(), "Thuyết Minh").toMutableList()
+                    val firstEp = mergedDub.first()
                     val epId = firstEp.slug.split("_").getOrNull(2)?.toLongOrNull()
-                    if (epId != null) {
-                        val m3u8 = resolveCoBeEpisode(epId)
-                        if (m3u8 != null) {
-                            episodeItems[0] = firstEp.copy(linkM3u8 = m3u8)
-                        }
+                    val resolvedM3u8 = if (epId != null) resolveCoBeEpisode(epId) else null
+                    if (resolvedM3u8 != null) {
+                        mergedDub[0] = firstEp.copy(
+                            linkM3u8 = resolvedM3u8,
+                            backupStreams = (listOf(resolvedM3u8) + firstEp.backupStreams).distinct()
+                        )
                     }
+                    cobeServerGroups.add(
+                        ServerGroupDto(
+                            serverName = "🌸 Server CoBePhim (Lồng Tiếng / Thuyết Minh)",
+                            serverData = mergedDub
+                        )
+                    )
+                }
+                if (subbedItems.isNotEmpty()) {
+                    val mergedSub = mergeAndGroupEpisodes(subbedItems, emptyList(), "Vietsub").toMutableList()
+                    val firstEp = mergedSub.first()
+                    val epId = firstEp.slug.split("_").getOrNull(2)?.toLongOrNull()
+                    val resolvedM3u8 = if (epId != null) resolveCoBeEpisode(epId) else null
+                    if (resolvedM3u8 != null) {
+                        mergedSub[0] = firstEp.copy(
+                            linkM3u8 = resolvedM3u8,
+                            backupStreams = (listOf(resolvedM3u8) + firstEp.backupStreams).distinct()
+                        )
+                    }
+                    cobeServerGroups.add(
+                        ServerGroupDto(
+                            serverName = "🌸 Server CoBePhim (Vietsub / Song Ngữ)",
+                            serverData = mergedSub
+                        )
+                    )
+                }
+                if (cobeServerGroups.isEmpty() && fallbackItems.isNotEmpty()) {
+                    cobeServerGroups.add(
+                        ServerGroupDto(
+                            serverName = "🌸 Server CoBePhim (HD)",
+                            serverData = mergeAndGroupEpisodes(fallbackItems, emptyList(), "Vietsub")
+                        )
+                    )
                 }
 
                 val movieDetail = MovieDetailDto(
@@ -1641,12 +1841,7 @@ class MovieRepository {
                     status = true,
                     msg = "OK",
                     movie = movieDetail,
-                    episodes = listOf(
-                        ServerGroupDto(
-                            serverName = "🌸 Server CoBePhim (Lồng Tiếng HD)",
-                            serverData = episodeItems
-                        )
-                    )
+                    episodes = cobeServerGroups
                 )
             }
         } catch (_: Exception) {}
@@ -1679,13 +1874,24 @@ class MovieRepository {
                 val match = Regex("\"encrypted_url\"\\s*:\\s*\"([^\"]+)\"").find(html)
                 if (match != null) {
                     val encrypted = match.groupValues[1]
-                    val decrypted = hexXorDecrypt(encrypted, "mySecretKey2024")
-                    if (decrypted.startsWith("http")) {
+                    val decrypted = hexXorDecrypt(encrypted, "mySecretKey2024").trim()
+                    if (isPlayableVodStreamOrToken(decrypted) && decrypted.startsWith("http", ignoreCase = true)) {
                         return@withContext decrypted
                     }
                 }
             }
         } catch (_: Exception) {}
+        null
+    }
+
+    suspend fun resolveAnyVodCandidate(candidate: String): String? = withContext(Dispatchers.IO) {
+        val clean = candidate.trim()
+        if (clean.isBlank()) return@withContext null
+        if (clean.startsWith("cobe_ep_")) {
+            val epId = clean.split("_").getOrNull(2)?.toLongOrNull() ?: return@withContext null
+            return@withContext resolveCoBeEpisode(epId)
+        }
+        if (isPlayableVodStreamOrToken(clean)) return@withContext clean
         null
     }
 
