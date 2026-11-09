@@ -531,7 +531,6 @@ fun PlayerScreen(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isBackFoc) AccentRed else Color(0xFF222938))
-                        .focusable(interactionSource = backInter)
                         .clickable(interactionSource = backInter, indication = null, onClick = onClose)
                         .padding(horizontal = 24.dp, vertical = 12.dp)
                 ) {
@@ -2119,7 +2118,6 @@ fun PlayerScreen(
                                             color = if (isChFoc || isCurrentCh) Color.White else Color(0x33FFFFFF),
                                             shape = RoundedCornerShape(10.dp)
                                         )
-                                        .focusable(interactionSource = chInter)
                                         .clickable(interactionSource = chInter, indication = null) {
                                             switchToChannel(idx)
                                         }
@@ -2445,7 +2443,6 @@ private fun PlayerQuickActionSheet(
                         .clip(RoundedCornerShape(6.dp))
                         .background(if (isCloseFoc || isClosePress) AccentRed else Color(0xFF252E40))
                         .border(1.dp, if (isCloseFoc || isClosePress) Color.White else Color(0x44FFFFFF), RoundedCornerShape(6.dp))
-                        .focusable(interactionSource = closeInter)
                         .clickable(interactionSource = closeInter, indication = null, onClick = onCloseSheet)
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
@@ -2484,7 +2481,6 @@ private fun PlayerQuickActionSheet(
                                 color = if (isTFoc) Color.White else if (isSelected) Color(0xFF00E676) else Color.Transparent,
                                 shape = RoundedCornerShape(8.dp)
                             )
-                            .focusable(interactionSource = tInter)
                             .clickable(interactionSource = tInter, indication = null) {
                                 onSelectTab(idx)
                             }

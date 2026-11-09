@@ -173,7 +173,6 @@ fun MovieDetailScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (backFocused) AccentRed else CardBg)
-                                .focusable(interactionSource = backInteraction)
                                 .clickable(interactionSource = backInteraction, indication = null) {
                                     onBack()
                                 }
@@ -205,7 +204,6 @@ fun MovieDetailScreen(
                                     color = if (favFocused) Color.White else if (isFavMovie) Color(0xFFFFD600) else Color.Transparent,
                                     shape = RoundedCornerShape(6.dp)
                                 )
-                                .focusable(interactionSource = favInteraction)
                                 .clickable(interactionSource = favInteraction, indication = null) {
                                     val dto = MovieItemDto(
                                         id = movie.id ?: slug,
@@ -328,7 +326,6 @@ fun MovieDetailScreen(
                                                 color = if (isFoc) Color.White else if (isSelected) AccentRed else Color.Transparent,
                                                 shape = RoundedCornerShape(6.dp)
                                             )
-                                            .focusable(interactionSource = sInter)
                                             .clickable(interactionSource = sInter, indication = null) {
                                                 selectedServerIndex = idx
                                             }
@@ -380,7 +377,6 @@ fun MovieDetailScreen(
                                         color = Color.White,
                                         shape = RoundedCornerShape(8.dp)
                                     )
-                                    .focusable(interactionSource = resumeInter)
                                     .clickable(interactionSource = resumeInter, indication = null) {
                                         val matchedEp = episodes.firstOrNull {
                                             it.name.equals(savedHistory.episodeName, ignoreCase = true)
@@ -475,7 +471,6 @@ fun MovieDetailScreen(
                                                 color = if (isCFoc || isChunkSel) Color.White else Color(0x33FFFFFF),
                                                 shape = RoundedCornerShape(6.dp)
                                             )
-                                            .focusable(interactionSource = cInter)
                                             .clickable(interactionSource = cInter, indication = null) {
                                                 selectedChunkIdx = cIdx
                                             }
@@ -618,7 +613,6 @@ fun EpisodeButton(
                 },
                 shape = RoundedCornerShape(6.dp)
             )
-            .focusable(interactionSource = interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {

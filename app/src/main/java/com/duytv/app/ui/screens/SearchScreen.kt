@@ -123,7 +123,7 @@ fun SearchScreen(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (backFoc) AccentRed else CardBg)
-                    .focusable(interactionSource = backInter)
+                    // 1-tap clickable
                     .clickable(interactionSource = backInter, indication = null, onClick = onBack)
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
@@ -196,7 +196,7 @@ fun SearchScreen(
                             color = Color.White,
                             shape = RoundedCornerShape(6.dp)
                         )
-                        .focusable(interactionSource = tagInter)
+                        // 1-tap clickable
                         .clickable(interactionSource = tagInter, indication = null) {
                             query = tag
                             performSearch(tag)
@@ -234,7 +234,7 @@ fun SearchScreen(
                                 color = Color.White,
                                 shape = RoundedCornerShape(4.dp)
                             )
-                            .focusable(interactionSource = fInter)
+                            // 1-tap clickable
                             .clickable(interactionSource = fInter, indication = null) {
                                 selectedSourceFilter = id
                             }

@@ -696,7 +696,6 @@ fun HomeScreen(
                                                     color = if (isFoc) AccentRed else Color.Transparent,
                                                     shape = RoundedCornerShape(8.dp)
                                                 )
-                                                .focusable(interactionSource = itemInter)
                                                 .clickable(interactionSource = itemInter, indication = null) {
                                                     onResumePlayback(item)
                                                 }
@@ -839,7 +838,6 @@ fun HomeScreen(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(if (seeAllFoc) AccentRed else Color.Transparent)
-                                            .focusable(interactionSource = seeAllInter)
                                             .clickable(interactionSource = seeAllInter, indication = null) {
                                                 switchCategory(NAV_CATEGORIES.first { it.id == "tv-live" })
                                             }
@@ -1035,7 +1033,6 @@ fun HomeScreen(
                                             color = if (addSportsFoc) Color.White else Color(0xFF00E676),
                                             shape = RoundedCornerShape(8.dp)
                                         )
-                                        .focusable(interactionSource = addSportsInter)
                                         .clickable(interactionSource = addSportsInter, indication = null) {
                                             showSportsSourceDialog = true
                                         }
@@ -1111,7 +1108,6 @@ fun HomeScreen(
                                                 color = if (fFoc) Color.White else if (isFiltSel) AccentRed else Color.Transparent,
                                                 shape = RoundedCornerShape(16.dp)
                                             )
-                                            .focusable(interactionSource = fInter)
                                             .clickable(interactionSource = fInter, indication = null) {
                                                 tvSubFilter = key
                                             }
@@ -1345,7 +1341,6 @@ fun HomeScreen(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .focusable(interactionSource = loadMoreInter)
                                 .clickable(interactionSource = loadMoreInter, indication = null) {
                                     loadMoreCategoryMovies()
                                 },
@@ -1918,7 +1913,6 @@ fun MovieSwimlaneWithMore(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
-                    .focusable(interactionSource = seeAllInter)
                     .clickable(interactionSource = seeAllInter, indication = null, onClick = onSeeAllClick)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
@@ -1951,7 +1945,6 @@ fun MovieSwimlaneWithMore(
                             color = if (isMoreFoc) Color.White else Color(0x33FFFFFF),
                             shape = RoundedCornerShape(8.dp)
                         )
-                        .focusable(interactionSource = moreInter)
                         .clickable(interactionSource = moreInter, indication = null, onClick = onSeeAllClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2056,7 +2049,6 @@ fun SourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(6.dp)
                                 )
-                                .focusable(interactionSource = closeInter)
                                 .clickable(interactionSource = closeInter, indication = null) { onDismiss() }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -2133,7 +2125,6 @@ fun SourceSettingsDialog(
                                         color = if (pFoc) Color.White else Color(0xFF333A4D),
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = pInter)
                                     .clickable(interactionSource = pInter, indication = null) {
                                         inputUrl = url
                                     }
@@ -2171,7 +2162,6 @@ fun SourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .focusable(interactionSource = saveInter)
                                 .clickable(interactionSource = saveInter, indication = null) {
                                     if (inputUrl.isNotBlank()) {
                                         val saved = RemoteConfigManager.saveCustomSource(context, inputUrl)
@@ -2207,7 +2197,6 @@ fun SourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .focusable(interactionSource = resetInter)
                                 .clickable(interactionSource = resetInter, indication = null) {
                                     RemoteConfigManager.resetToDefaults(context)
                                     Toast.makeText(context, "🔄 Đã đặt lại nguồn phim mặc định!", Toast.LENGTH_SHORT).show()
@@ -2357,7 +2346,6 @@ fun SportsSourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(6.dp)
                                 )
-                                .focusable(interactionSource = closeInter)
                                 .clickable(interactionSource = closeInter, indication = null) { onDismiss() }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -2439,7 +2427,6 @@ fun SportsSourceSettingsDialog(
                                         color = if (pFoc) Color.White else Color(0xFF333A4D),
                                         shape = RoundedCornerShape(6.dp)
                                     )
-                                    .focusable(interactionSource = pInter)
                                     .clickable(interactionSource = pInter, indication = null) {
                                         inputUrl = url
                                     }
@@ -2477,7 +2464,6 @@ fun SportsSourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .focusable(interactionSource = saveInter)
                                 .clickable(interactionSource = saveInter, indication = null) {
                                     if (inputUrl.isNotBlank()) {
                                         val saved = RemoteConfigManager.saveCustomSportsSource(context, inputUrl)
@@ -2514,7 +2500,6 @@ fun SportsSourceSettingsDialog(
                                     color = Color.White,
                                     shape = RoundedCornerShape(8.dp)
                                 )
-                                .focusable(interactionSource = resetInter)
                                 .clickable(interactionSource = resetInter, indication = null) {
                                     RemoteConfigManager.resetSportsSourcesToDefaults(context)
                                     refreshKey++
@@ -2569,7 +2554,6 @@ fun SportsSourceSettingsDialog(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(if (delFoc) AccentRed else Color(0xFF2D3748))
-                                            .focusable(interactionSource = delInter)
                                             .clickable(interactionSource = delInter, indication = null) {
                                                 RemoteConfigManager.removeCustomSportsSource(context, url)
                                                 refreshKey++
