@@ -216,6 +216,20 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = AppScreen.Detail(slug)
                             },
                             onBack = { currentScreen = AppScreen.Home },
+                            onPlayLiveChannel = { ch ->
+                                val allUrls = ch.allStreamUrls()
+                                val primary = allUrls.firstOrNull() ?: ch.streamUrl
+                                currentScreen = AppScreen.Player(
+                                    slug = "live_${ch.id}",
+                                    movieTitle = ch.name,
+                                    episodeName = "TRỰC TIẾP",
+                                    streamUrl = primary,
+                                    posterUrl = ch.logoUrl,
+                                    subtitleUrl = null,
+                                    initialPositionMs = 0L,
+                                    backupUrls = allUrls.drop(1)
+                                )
+                            },
                             modifier = Modifier.fillMaxSize()
                         )
                     }

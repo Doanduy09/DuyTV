@@ -14,7 +14,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import android.content.Context
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -203,11 +205,12 @@ fun PlayerScreen(
     fun getActiveLiveUrls(): List<String> {
         if (!isLive) return listOf(currentStreamUrl)
         val ch = availableChannels.getOrNull(currentChannelIndex)
-        return if (ch != null) {
+        val rawUrls = if (ch != null) {
             (ch.allStreamUrls() + backupUrls).filter { it.isNotBlank() }.distinct()
         } else {
             (listOf(streamUrl) + backupUrls).filter { it.isNotBlank() }.distinct()
         }
+        return AppCacheManager.rankHealthyStreams(ch?.name ?: currentTitle, rawUrls)
     }
 
     LaunchedEffect(currentChannelIndex, availableChannels) {
@@ -234,13 +237,13 @@ fun PlayerScreen(
     var isTouchLocked by remember { mutableStateOf(false) }
     var showUnlockPill by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
-    var audioBoostPercent by remember { mutableIntStateOf(100) }
+    var audioBoostPercent by remember { mutableIntStateOf(AppCacheManager.getPreferredAudioBoost(context)) }
     var loudnessEnhancer by remember { mutableStateOf<LoudnessEnhancer?>(null) }
     var numberInputBuffer by remember { mutableStateOf("") }
     var numberInputJob by remember { mutableStateOf<Job?>(null) }
     var previousVisitedChannelIndex by remember { mutableIntStateOf(-1) }
     var isScreenOffAudioMode by remember { mutableStateOf(false) }
-    var isNightWarmMode by remember { mutableStateOf(false) }
+    var isNightWarmMode by remember { mutableStateOf(AppCacheManager.getPreferredNightMode(context)) }
     var cinematicFilter by remember { mutableStateOf(CinematicFilter.OFF) }
     var isAmbilightEnabled by remember { mutableStateOf(false) }
     var isDrcVoiceEnabled by remember { mutableStateOf(false) }
@@ -286,10 +289,18 @@ fun PlayerScreen(
 
     
 
-    // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) xóa sổ viền đen trên Tablet & TV
-    var currentAspectMode by remember { mutableStateOf(VideoAspectMode.ZOOM) }
+    // Mặc định tự động TRÀN VIỀN 100% (AUTO FULL) hoặc khôi phục chế độ người dùng đã chọn (#5)
+    var currentAspectMode by remember {
+        val savedName = AppCacheManager.getPreferredAspectModeName(context)
+        val mode = VideoAspectMode.values().firstOrNull { it.name == savedName } ?: VideoAspectMode.ZOOM
+        mutableStateOf(mode)
+    }
     var aspectBadgeText by remember { mutableStateOf<String?>(null) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
+
+    LaunchedEffect(isNightWarmMode) {
+        AppCacheManager.savePreferredNightMode(context, isNightWarmMode)
+    }
 
     fun cycleSleepTimer() {
         sleepTimerMinutes = when (sleepTimerMinutes) {
@@ -310,6 +321,7 @@ fun PlayerScreen(
         val modes = VideoAspectMode.values()
         val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
         currentAspectMode = modes[nextIdx]
+        AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
         aspectBadgeText = currentAspectMode.label
         scope.launch {
             delay(2200)
@@ -317,9 +329,22 @@ fun PlayerScreen(
         }
     }
 
-    // Keep screen awake & Immersive Sticky Fullscreen (Ẩn 100% thanh điều hướng và thanh trạng thái)
+    // Keep screen awake, Low-Latency Wi-Fi Lock (#14) & Immersive Sticky Fullscreen
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
+        val wifiLock = try {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wm?.createWifiLock(mode, "DuyTV:LiveStreamLock")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (_: Exception) { null }
         if (window != null) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -362,6 +387,9 @@ fun PlayerScreen(
             }
         }
         onDispose {
+            try {
+                if (wifiLock?.isHeld == true) wifiLock.release()
+            } catch (_: Exception) {}
             if (window != null) {
                 @Suppress("DEPRECATION")
                 window.decorView.setOnSystemUiVisibilityChangeListener(null)
@@ -452,6 +480,8 @@ fun PlayerScreen(
                         .setTargetOffsetMs(4000L)
                         .setMinOffsetMs(2000L)
                         .setMaxOffsetMs(10000L)
+                        .setMinPlaybackSpeed(0.97f)
+                        .setMaxPlaybackSpeed(1.04f)
                         .build()
                 )
             }
@@ -543,30 +573,8 @@ fun PlayerScreen(
 
     if (exoPlayer == null) return
 
-    // Track playback position & Save history mỗi 10s (bỏ qua nếu đang xem luồng trực tiếp / TV)
-    LaunchedEffect(exoPlayer) {
-        var tickCount = 0
-        while (true) {
-            delay(1000)
-            if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
-                currentPosMs = exoPlayer.currentPosition
-                totalDurationMs = maxOf(1L, exoPlayer.duration)
-                tickCount++
-                if (!isLive && tickCount % 10 == 0) {
-                    WatchHistoryManager.saveProgress(
-                        context = context,
-                        slug = slug,
-                        movieTitle = currentTitle,
-                        episodeName = currentEpisodeName,
-                        streamUrl = currentStreamUrl,
-                        posterUrl = currentPosterUrl,
-                        positionMs = currentPosMs,
-                        durationMs = totalDurationMs
-                    )
-                }
-            }
-        }
-    }
+    var preWarmedEpisodeUrl by remember(currentEpisodeName) { mutableStateOf<String?>(null) }
+    var hasSkippedIntroForEpisode by remember(currentStreamUrl) { mutableStateOf(false) }
 
     fun togglePlayPause() {
         if (exoPlayer.isPlaying) {
@@ -674,6 +682,8 @@ fun PlayerScreen(
                     .setTargetOffsetMs(4000L)
                     .setMinOffsetMs(2000L)
                     .setMaxOffsetMs(10000L)
+                    .setMinPlaybackSpeed(0.97f)
+                    .setMaxPlaybackSpeed(1.04f)
                     .build()
             )
             val newMediaSource = msFactory.createMediaSource(mediaItemB.build())
@@ -684,6 +694,74 @@ fun PlayerScreen(
             player.prepare()
             player.play()
         } catch (_: Exception) {}
+    }
+
+    // Track playback position, Save history mỗi 10s, Frozen Frame Watchdog (#7) & Pre-warm Next Episode (#11)
+    LaunchedEffect(exoPlayer) {
+        var tickCount = 0
+        var lastRenderedFrames = -1
+        var frozenTicks = 0
+        while (true) {
+            delay(1000)
+            if (exoPlayer.isPlaying && pendingSeekPosMs == null) {
+                currentPosMs = exoPlayer.currentPosition
+                totalDurationMs = maxOf(1L, exoPlayer.duration)
+                tickCount++
+
+                // #7 Cảm biến phát hiện "Đứng hình ngầm" 6s khi xem IPTV / Bóng đá
+                if (isLive && zeroStallFailoverEnabled && exoPlayer.playbackState == Player.STATE_READY) {
+                    val rendered = exoPlayer.videoDecoderCounters?.renderedOutputBufferCount ?: -1
+                    if (rendered > 0 && rendered == lastRenderedFrames) {
+                        frozenTicks++
+                        if (frozenTicks >= 6) {
+                            frozenTicks = 0
+                            val allUrls = getActiveLiveUrls()
+                            if (allUrls.size > 1) {
+                                AppCacheManager.markStreamFailed(currentStreamUrl)
+                                val nextIdx = (currentBackupIndex + 1) % allUrls.size
+                                currentBackupIndex = nextIdx
+                                aspectBadgeText = "🛡️ Phát hiện đứng hình: Tự đổi sang Nguồn ${nextIdx + 1}/${allUrls.size}"
+                                loadLiveStreamUrl(allUrls[nextIdx])
+                            }
+                        }
+                    } else {
+                        frozenTicks = 0
+                        if (rendered > 0 && tickCount % 8 == 0) {
+                            AppCacheManager.markStreamSuccess(currentTitle, currentStreamUrl)
+                        }
+                    }
+                    lastRenderedFrames = rendered
+                }
+
+                // #11 Tự nạp trước tập tiếp theo khi còn 45 giây cuối
+                if (!isLive && preWarmedEpisodeUrl == null && totalDurationMs > 120_000L &&
+                    (totalDurationMs - currentPosMs) in 10_000L..45_000L
+                ) {
+                    val nextEp = availableEpisodes.getOrNull(currentEpisodeIndex + 1)
+                    if (nextEp != null) {
+                        preWarmedEpisodeUrl = nextEp.linkM3u8 ?: nextEp.linkEmbed ?: "ready"
+                        aspectBadgeText = "⏭️ Sắp chuyển sang: ${nextEp.name}"
+                        scope.launch {
+                            delay(2500)
+                            aspectBadgeText = null
+                        }
+                    }
+                }
+
+                if (!isLive && tickCount % 10 == 0) {
+                    WatchHistoryManager.saveProgress(
+                        context = context,
+                        slug = slug,
+                        movieTitle = currentTitle,
+                        episodeName = currentEpisodeName,
+                        streamUrl = currentStreamUrl,
+                        posterUrl = currentPosterUrl,
+                        positionMs = currentPosMs,
+                        durationMs = totalDurationMs
+                    )
+                }
+            }
+        }
     }
 
     fun playVodEpisodeAt(targetIndex: Int, isAutoAdvance: Boolean = false) {
@@ -766,15 +844,25 @@ fun PlayerScreen(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
+                    try {
+                        loudnessEnhancer?.release()
+                        loudnessEnhancer = LoudnessEnhancer(audioSessionId)
+                    } catch (_: Exception) {}
+                }
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_BUFFERING) {
                     if (zeroStallFailoverEnabled && isLive && getActiveLiveUrls().size > 1) {
                         stallTimerJob?.cancel()
                         stallTimerJob = scope.launch {
-                            delay(6500L)
+                            delay(4000L) // #4 Rút ngắn phản ứng chống treo xuống 4.0s
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
+                                AppCacheManager.markStreamFailed(currentStreamUrl)
                                 val nextBackupIdx = (currentBackupIndex + 1) % allUrls.size
                                 currentBackupIndex = nextBackupIdx
                                 errorMessage = null
@@ -789,6 +877,15 @@ fun PlayerScreen(
                     errorRetryJob?.cancel()
                     errorMessage = null
                     totalDurationMs = maxOf(1L, exoPlayer.duration)
+                    if (isLive) {
+                        AppCacheManager.markStreamSuccess(currentTitle, currentStreamUrl)
+                    } else if (autoSkipIntroEnabled && !hasSkippedIntroForEpisode && availableEpisodes.size > 1) {
+                        // #12 Smart Auto-Skip Intro Guard ngay khi tập phim vừa STATE_READY lần đầu
+                        hasSkippedIntroForEpisode = true
+                        if (exoPlayer.currentPosition < 10_000L && totalDurationMs > 600_000L) {
+                            exoPlayer.seekTo(85_000L)
+                        }
+                    }
                 } else if (playbackState == Player.STATE_ENDED && !isLive) {
                     val activeIdx = availableEpisodes.indexOfFirst {
                         it.name.equals(currentEpisodeName, ignoreCase = true) ||
@@ -825,6 +922,9 @@ fun PlayerScreen(
 
             override fun onPlayerError(error: PlaybackException) {
                 val allUrls = getActiveLiveUrls()
+                if (isLive) {
+                    AppCacheManager.markStreamFailed(currentStreamUrl)
+                }
 
                 if (isLive && currentBackupIndex + 1 < allUrls.size) {
                     val nextBackupIdx = currentBackupIndex + 1
@@ -835,17 +935,56 @@ fun PlayerScreen(
                     loadLiveStreamUrl(allUrls[nextBackupIdx])
                 } else {
                     if (!isLive) {
-                        errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động kết nối lại..."
+                        errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động đổi Server / kết nối lại..."
                     }
                     errorRetryJob?.cancel()
                     errorRetryJob = scope.launch {
-                        delay(2500)
-                        if (isLive && allUrls.isNotEmpty()) {
-                            currentBackupIndex = 0
-                            loadLiveStreamUrl(allUrls.first())
-                        } else {
-                            exoPlayer.prepare()
-                            exoPlayer.play()
+                        // #3 Smart VOD Server Failover: Tìm link tập hiện tại từ Server dự phòng nếu có
+                        if (!isLive && repository != null) {
+                            val altEpUrl = try {
+                                val detail = AppCacheManager.getCachedMovieDetail(slug) ?: repository.getMovieDetail(slug)
+                                detail?.episodes?.asSequence()
+                                    ?.flatMap { it.serverData.asSequence() }
+                                    ?.firstOrNull {
+                                        it.name.equals(currentEpisodeName, ignoreCase = true) &&
+                                            !it.linkM3u8.isNullOrBlank() &&
+                                            it.linkM3u8 != currentStreamUrl
+                                    }?.linkM3u8
+                            } catch (_: Exception) { null }
+                            if (!altEpUrl.isNullOrBlank()) {
+                                val savedPos = maxOf(0L, currentPosMs)
+                                errorMessage = null
+                                aspectBadgeText = "🛡️ Tự động chuyển sang Server phim dự phòng (giữ nguyên vị trí)"
+                                currentStreamUrl = altEpUrl
+                                val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+                                    context = context,
+                                    userAgent = "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0",
+                                    headers = emptyMap()
+                                )
+                                val newMedia = DefaultMediaSourceFactory(dsFactory)
+                                    .createMediaSource(MediaItem.Builder().setUri(altEpUrl).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+                                exoPlayer.stop()
+                                exoPlayer.setMediaSource(newMedia)
+                                exoPlayer.prepare()
+                                if (savedPos > 1000L) exoPlayer.seekTo(savedPos)
+                                exoPlayer.play()
+                                return@launch
+                            }
+                        }
+
+                        // #8 Multi-Wave Auto-Reconnect (5 nhịp liên hoàn khi rớt Wi-Fi tạm thời)
+                        val backoffDelays = listOf(2500L, 4000L, 6000L, 8000L, 10000L)
+                        for (waitMs in backoffDelays) {
+                            delay(waitMs)
+                            if (exoPlayer.playbackState == Player.STATE_READY && exoPlayer.isPlaying) break
+                            if (isLive && allUrls.isNotEmpty()) {
+                                currentBackupIndex = 0
+                                loadLiveStreamUrl(getActiveLiveUrls().firstOrNull() ?: allUrls.first())
+                            } else {
+                                exoPlayer.prepare()
+                                if (currentPosMs > 1000L) exoPlayer.seekTo(currentPosMs)
+                                exoPlayer.play()
+                            }
                         }
                     }
                 }
@@ -877,6 +1016,7 @@ fun PlayerScreen(
             else -> 100
         }
         audioBoostPercent = nextBoost
+        AppCacheManager.savePreferredAudioBoost(context, nextBoost)
         try {
             val sessionId = exoPlayer.audioSessionId
             if (sessionId != C.AUDIO_SESSION_ID_UNSET && sessionId != 0) {
@@ -1093,7 +1233,8 @@ fun PlayerScreen(
         currentPosterUrl = ch.logoUrl
         currentGroupName = ch.groupTitle
 
-        loadLiveStreamUrl(ch.streamUrl)
+        val bestUrl = AppCacheManager.rankHealthyStreams(ch.name, ch.allStreamUrls()).firstOrNull() ?: ch.streamUrl
+        loadLiveStreamUrl(bestUrl)
         showChannelOsd(ch, safeIndex, channels.size, sourceIdx = 0)
     }
 
@@ -1109,6 +1250,11 @@ fun PlayerScreen(
 
     fun handleNumberKeyInput(digit: Int) {
         if (!isLive || availableChannels.isEmpty()) return
+        // #10 Phím số 0 trên Remote TV: Đảo nhanh về kênh vừa xem trước đó (Last Channel Quick Recall)
+        if (digit == 0 && numberInputBuffer.isEmpty() && previousVisitedChannelIndex in availableChannels.indices) {
+            switchToChannel(previousVisitedChannelIndex)
+            return
+        }
         val nextBuf = if (numberInputBuffer.length >= 3) "$digit" else "$numberInputBuffer$digit"
         numberInputBuffer = nextBuf
         val chNum = nextBuf.toIntOrNull() ?: return
@@ -1354,17 +1500,24 @@ fun PlayerScreen(
             .focusable()
             .pointerInput(isTouchLocked, isLive) {
                 detectTapGestures(
-                    onDoubleTap = if (!isLive) { offset ->
+                    onDoubleTap = { offset ->
                         if (isTouchLocked) {
                             showUnlockPill = true
                             return@detectTapGestures
                         }
                         val widthPx = size.width.toFloat().coerceAtLeast(1f)
                         val ratioX = offset.x / widthPx
-                        if (ratioX < 0.32f) triggerSeek(-10)
-                        else if (ratioX > 0.68f) triggerSeek(10)
-                        else cycleAspectMode()
-                    } else null,
+                        if (isLive) {
+                            // #6 Chạm đúp thông minh khi xem Live TV / Bóng đá trên Tablet Xiaomi
+                            if (ratioX < 0.32f) previousChannel()
+                            else if (ratioX > 0.68f) nextChannel()
+                            else cycleAspectMode()
+                        } else {
+                            if (ratioX < 0.32f) triggerSeek(-10)
+                            else if (ratioX > 0.68f) triggerSeek(10)
+                            else cycleAspectMode()
+                        }
+                    },
                     onTap = {
                         if (isTouchLocked) {
                             showUnlockPill = !showUnlockPill
@@ -1373,6 +1526,32 @@ fun PlayerScreen(
                         }
                     }
                 )
+            }
+            .pointerInput(isTouchLocked) {
+                if (!isTouchLocked) {
+                    var dragStartX = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { startOffset -> dragStartX = startOffset.x },
+                        onVerticalDrag = { change, dragAmount ->
+                            if (kotlin.math.abs(dragAmount) > 4f) {
+                                change.consume()
+                                val isLeft = dragStartX < (size.width * 0.5f)
+                                aspectBadgeText = adjustPlayerTouchBrightnessOrVolume(
+                                    context = context,
+                                    isLeftHalf = isLeft,
+                                    dragDeltaY = dragAmount,
+                                    screenHeightPx = size.height.toFloat().coerceAtLeast(400f)
+                                )
+                            }
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                delay(1200)
+                                aspectBadgeText = null
+                            }
+                        }
+                    )
+                }
             }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
@@ -2855,5 +3034,35 @@ fun SettingChoicePill(
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1
         )
+    }
+}
+
+private fun adjustPlayerTouchBrightnessOrVolume(
+    context: Context,
+    isLeftHalf: Boolean,
+    dragDeltaY: Float,
+    screenHeightPx: Float
+): String {
+    val stepRatio = (-dragDeltaY / screenHeightPx) * 1.35f
+    if (isLeftHalf) {
+        val window = (context as? Activity)?.window ?: return "☀️ ĐỘ SÁNG"
+        val lp = window.attributes
+        val currentB = if (lp.screenBrightness < 0f) 0.65f else lp.screenBrightness
+        val nextB = (currentB + stepRatio).coerceIn(0.05f, 1.0f)
+        lp.screenBrightness = nextB
+        window.attributes = lp
+        val pct = (nextB * 100).toInt()
+        return "☀️ ĐỘ SÁNG MÀN HÌNH: $pct%"
+    } else {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return "🔊 ÂM LƯỢNG"
+        val maxVol = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val curVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        val deltaVol = if (dragDeltaY < -10f) 1 else if (dragDeltaY > 10f) -1 else 0
+        val nextVol = (curVol + deltaVol).coerceIn(0, maxVol)
+        if (nextVol != curVol) {
+            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, nextVol, 0)
+        }
+        val pct = ((nextVol.toFloat() / maxVol.toFloat()) * 100).toInt()
+        return "🔊 ÂM LƯỢNG HỆ THỐNG: $pct%"
     }
 }

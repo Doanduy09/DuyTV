@@ -47,16 +47,20 @@ fun SearchScreen(
     repository: MovieRepository,
     onMovieSelected: (String) -> Unit,
     onBack: () -> Unit,
+    onPlayLiveChannel: (com.duytv.app.data.TvChannel) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var allResults by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
+    var matchedChannels by remember { mutableStateOf<List<com.duytv.app.data.TvChannel>>(emptyList()) }
+    var recentSearches by remember { mutableStateOf(com.duytv.app.data.AppCacheManager.getRecentSearches(context)) }
     var selectedSourceFilter by remember { mutableStateOf("ALL") }
     var isSearching by remember { mutableStateOf(false) }
     var searchJob by remember { mutableStateOf<Job?>(null) }
 
-    val popularKeywords = listOf(
+    val defaultKeywords = listOf(
         "Đắc Kỷ Trụ Vương",
         "Bao Thanh Thiên",
         "Thiên Long Bát Bộ",
@@ -72,18 +76,35 @@ fun SearchScreen(
         "Kinh dị",
         "Hoạt hình"
     )
+    val popularKeywords = remember(recentSearches) {
+        (recentSearches.map { "🕒 $it" } + defaultKeywords).distinct()
+    }
+
+    fun stripAccents(input: String): String {
+        val norm = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFD)
+        return norm.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            .replace('đ', 'd').replace('Đ', 'D').lowercase()
+    }
 
     fun performSearch(text: String) {
-        if (text.isBlank()) {
+        val cleanText = text.removePrefix("🕒 ").trim()
+        if (cleanText.isBlank()) {
             allResults = emptyList()
+            matchedChannels = emptyList()
             isSearching = false
             return
         }
+        val normQuery = stripAccents(cleanText)
+        matchedChannels = com.duytv.app.data.AppCacheManager.activeChannels.filter { ch ->
+            stripAccents(ch.name).contains(normQuery) || stripAccents(ch.groupTitle).contains(normQuery)
+        }.take(12)
         searchJob?.cancel()
         searchJob = scope.launch {
             isSearching = true
             delay(350)
-            val res = repository.searchAllSources(text)
+            com.duytv.app.data.AppCacheManager.saveRecentSearch(context, cleanText)
+            recentSearches = com.duytv.app.data.AppCacheManager.getRecentSearches(context)
+            val res = repository.searchAllSources(cleanText)
             allResults = res
             isSearching = false
         }
@@ -198,8 +219,9 @@ fun SearchScreen(
                         )
                         // 1-tap clickable
                         .clickable(interactionSource = tagInter, indication = null) {
-                            query = tag
-                            performSearch(tag)
+                            val cleanTag = tag.removePrefix("🕒 ").trim()
+                            query = cleanTag
+                            performSearch(cleanTag)
                         }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
@@ -251,7 +273,28 @@ fun SearchScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (matchedChannels.isNotEmpty()) {
+            Text(
+                text = "📺 KÊNH TRUYỀN HÌNH TRỰC TIẾP (${matchedChannels.size} kênh):",
+                color = Color(0xFF00E676),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(bottom = 14.dp)
+            ) {
+                items(matchedChannels, key = { it.id + "_" + it.name }) { ch ->
+                    com.duytv.app.ui.components.TvChannelCard(
+                        channel = ch,
+                        onClick = { onPlayLiveChannel(ch) }
+                    )
+                }
+            }
+        }
 
         // Results Grid
         if (isSearching) {
@@ -262,7 +305,7 @@ fun SearchScreen(
                     Text("Đang tìm kiếm đồng thời trên tất cả nguồn phim...", color = TextDim, fontSize = 13.sp)
                 }
             }
-        } else if (allResults.isEmpty() && query.isNotBlank()) {
+        } else if (allResults.isEmpty() && matchedChannels.isEmpty() && query.isNotBlank()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Không tìm thấy kết quả cho \"$query\" trên bất kỳ nguồn phim nào.", color = TextDim, fontSize = 14.sp)
             }

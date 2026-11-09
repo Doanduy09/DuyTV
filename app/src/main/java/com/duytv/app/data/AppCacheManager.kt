@@ -204,4 +204,92 @@ object AppCacheManager {
             file.writer().use { gson.toJson(obj, it) }
         } catch (_: Exception) {}
     }
+
+    // =========================================================================
+    // 20 SMART UPGRADES (v1.9.8): Stream Health Memory, Player Prefs, L1 Detail Cache, Recent Searches
+    // =========================================================================
+    private val workingStreamByChannel = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val failedStreamUntilMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val movieDetailL1Cache = java.util.concurrent.ConcurrentHashMap<String, MovieDetailResponse>()
+
+    fun markStreamSuccess(channelName: String, url: String) {
+        if (channelName.isNotBlank() && url.isNotBlank()) {
+            workingStreamByChannel[channelName.trim().uppercase()] = url
+            failedStreamUntilMillis.remove(url)
+        }
+    }
+
+    fun markStreamFailed(url: String) {
+        if (url.isNotBlank()) {
+            failedStreamUntilMillis[url] = System.currentTimeMillis() + 15 * 60_000L // Cách ly 15 phút
+        }
+    }
+
+    fun rankHealthyStreams(channelName: String, urls: List<String>): List<String> {
+        val distinctUrls = urls.filter { it.isNotBlank() }.distinct()
+        if (distinctUrls.size <= 1) return distinctUrls
+        val now = System.currentTimeMillis()
+        val bestUrl = workingStreamByChannel[channelName.trim().uppercase()]
+        val healthy = distinctUrls.filter { url ->
+            val until = failedStreamUntilMillis[url] ?: 0L
+            until <= now
+        }
+        val baseList = healthy.ifEmpty { distinctUrls }
+        return if (bestUrl != null && baseList.contains(bestUrl)) {
+            listOf(bestUrl) + baseList.filterNot { it == bestUrl }
+        } else {
+            baseList
+        }
+    }
+
+    fun getCachedMovieDetail(slug: String): MovieDetailResponse? = movieDetailL1Cache[slug]
+
+    fun putCachedMovieDetail(slug: String, detail: MovieDetailResponse) {
+        if (movieDetailL1Cache.size > 40) movieDetailL1Cache.clear()
+        movieDetailL1Cache[slug] = detail
+    }
+
+    fun getPreferredAspectModeName(context: Context): String {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getString("pref_aspect_mode", "ZOOM") ?: "ZOOM"
+    }
+
+    fun savePreferredAspectModeName(context: Context, modeName: String) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putString("pref_aspect_mode", modeName).apply()
+    }
+
+    fun getPreferredAudioBoost(context: Context): Int {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getInt("pref_audio_boost", 100)
+    }
+
+    fun savePreferredAudioBoost(context: Context, boost: Int) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putInt("pref_audio_boost", boost).apply()
+    }
+
+    fun getPreferredNightMode(context: Context): Boolean {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getBoolean("pref_night_warm", false)
+    }
+
+    fun savePreferredNightMode(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("pref_night_warm", enabled).apply()
+    }
+
+    fun getRecentSearches(context: Context): List<String> {
+        val raw = context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getString("recent_search_keywords", "") ?: ""
+        return raw.split("|||").map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    fun saveRecentSearch(context: Context, keyword: String) {
+        val clean = keyword.trim()
+        if (clean.length < 2) return
+        val updated = (listOf(clean) + getRecentSearches(context).filterNot { it.equals(clean, ignoreCase = true) }).take(8)
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putString("recent_search_keywords", updated.joinToString("|||")).apply()
+    }
 }

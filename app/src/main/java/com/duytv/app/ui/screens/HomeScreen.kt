@@ -442,6 +442,47 @@ fun HomeScreen(
 
                             Spacer(modifier = Modifier.width(8.dp))
 
+                            // Nút 1-Chạm Mở Nhanh Kênh Truyền Hình Vừa Xem (#16)
+                            val lastWatchedChName = AppCacheManager.lastWatchedChannelName
+                            val lastWatchedChObj = remember(lastWatchedChName, tvSportsData) {
+                                if (lastWatchedChName.isBlank()) null
+                                else AppCacheManager.activeChannels.firstOrNull {
+                                    it.name.equals(lastWatchedChName, ignoreCase = true)
+                                }
+                            }
+                            if (lastWatchedChObj != null) {
+                                val lastChInter = remember { MutableInteractionSource() }
+                                val lastChFoc by lastChInter.collectIsFocusedAsState()
+                                val lastChPress by lastChInter.collectIsPressedAsState()
+                                val lastChActive = lastChFoc || lastChPress
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (lastChActive) AccentRed else Color(0xFF065F46))
+                                        .border(
+                                            width = if (lastChActive) 1.5.dp else 1.dp,
+                                            color = if (lastChActive) Color.White else Color(0xFF10B981),
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable(interactionSource = lastChInter, indication = null) {
+                                            val ranked = AppCacheManager.rankHealthyStreams(lastWatchedChObj.name, lastWatchedChObj.allStreamUrls())
+                                            val primary = ranked.firstOrNull() ?: lastWatchedChObj.streamUrl
+                                            onPlayLiveStream(lastWatchedChObj.name, primary, lastWatchedChObj.logoUrl, ranked.drop(1))
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "📺 XEM TIẾP: ${lastWatchedChObj.name}",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+
                             // Manual Refresh New Movies & Football Button (Cập nhật phim mới thủ công)
                             val refreshMoviesInter = remember { MutableInteractionSource() }
                             val refreshMoviesFoc by refreshMoviesInter.collectIsFocusedAsState()

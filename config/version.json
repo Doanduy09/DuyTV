@@ -1,7 +1,7 @@
 {
-  "versionCode": 32,
-  "versionName": "1.9.7",
+  "versionCode": 33,
+  "versionName": "1.9.8",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản chuẩn v1.9.7: Khóa chuẩn 20/20 module & Nguồn FHD"
+  "releaseNotes": "Bản chuẩn v1.9.8: 20 nâng cấp thông minh, mở kênh 0.6s"
 }

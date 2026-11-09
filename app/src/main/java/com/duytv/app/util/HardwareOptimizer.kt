@@ -180,8 +180,8 @@ object HardwareOptimizer {
                 .setBufferDurationsMs(
                     profile.liveMinBufferMs,
                     profile.liveMaxBufferMs,
-                    1_800,
-                    3_500
+                    800,
+                    1_800
                 )
                 .setTargetBufferBytes(profile.liveTargetBufferBytes)
                 .setPrioritizeTimeOverSizeThresholds(true)

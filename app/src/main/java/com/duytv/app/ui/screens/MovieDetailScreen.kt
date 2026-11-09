@@ -56,16 +56,21 @@ fun MovieDetailScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var isLoading by remember { mutableStateOf(true) }
-    var detailResponse by remember { mutableStateOf<MovieDetailResponse?>(null) }
+    val cachedDetail = remember(slug) { AppCacheManager.getCachedMovieDetail(slug) }
+    var isLoading by remember(slug) { mutableStateOf(cachedDetail == null) }
+    var detailResponse by remember(slug) { mutableStateOf<MovieDetailResponse?>(cachedDetail) }
     var selectedServerIndex by remember { mutableStateOf(0) }
     var vietnameseSubtitleUrl by remember { mutableStateOf<String?>(null) }
-    val savedHistory = remember(slug) { WatchHistoryManager.getHistoryForMovie(context, slug) }
+    var savedHistoryState by remember(slug) { mutableStateOf(WatchHistoryManager.getHistoryForMovie(context, slug)) }
+    val savedHistory = savedHistoryState
     var isFavMovie by remember(slug) { mutableStateOf(AppCacheManager.isFavoriteMovie(slug)) }
 
     LaunchedEffect(slug) {
+        savedHistoryState = WatchHistoryManager.getHistoryForMovie(context, slug)
         scope.launch {
-            val res = repository.getMovieDetail(slug)
+            val res = cachedDetail ?: repository.getMovieDetail(slug)?.also {
+                AppCacheManager.putCachedMovieDetail(slug, it)
+            }
             detailResponse = res
             isLoading = false
 
