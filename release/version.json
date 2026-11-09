@@ -1,7 +1,7 @@
 {
-  "versionCode": 40,
-  "versionName": "2.0.5",
+  "versionCode": 41,
+  "versionName": "2.0.6",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản chính thức v2.0.5 (Build #40): Tự động gom sạch các tập phim trùng lặp thành 1 nút Tập duy nhất, tổng hợp đa nguồn phim dự phòng (KKPhim VIP + CoBePhim Multi-CDN + NguonC) và tự động đổi nguồn chống lag khi xem phim giữ nguyên vị trí phát"
+  "releaseNotes": "Bản v2.0.6 (Build #41): Chuyển nguồn dự phòng chống lag ngầm hoàn toàn thông minh (Silent Zero-Stall Failover), ẩn thông báo che màn hình, tối ưu độ mượt tối đa"
 }

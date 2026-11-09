@@ -1,4 +1,4 @@
-# SỔ CÁI KHÓA MÃ NGUỒN ĐÃ CHUẨN (VERIFIED CODE LEDGER - DUYTV v2.0.5 BUILD #40)
+# SỔ CÁI KHÓA MÃ NGUỒN ĐÃ CHUẨN (VERIFIED CODE LEDGER - DUYTV v2.0.6 BUILD #41)
 
 > **QUY TẮC BẤT BIẾN (MANDATORY INVARIANT)**:
 > Mọi khối mã và tệp tin được đánh dấu `[✅ ĐÃ CHUẨN - CẤM SỬA]` trong sổ cái này đã được kiểm chứng thực tế trên **3 phần cứng thực tế**:

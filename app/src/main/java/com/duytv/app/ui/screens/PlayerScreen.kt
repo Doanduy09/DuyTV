@@ -722,7 +722,6 @@ private fun PlayerScreenContent(
                                     (currentBackupIndex + 1) % allUrls.size
                                 }
                                 currentBackupIndex = nextIdx
-                                aspectBadgeText = "🛡️ Phát hiện đứng hình: Tự đổi sang Nguồn nhanh nhất (${nextIdx + 1}/${allUrls.size})"
                                 loadLiveStreamUrl(allUrls[nextIdx])
                             }
                         }
@@ -871,7 +870,6 @@ private fun PlayerScreenContent(
                                 currentBackupIndex = nextBackupIdx
                                 errorMessage = null
                                 channelOsdVisible = false
-                                aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
                                 loadLiveStreamUrl(allUrls[nextBackupIdx])
                             }
                         }
@@ -972,7 +970,6 @@ private fun PlayerScreenContent(
                     currentBackupIndex = nextBackupIdx
                     errorMessage = null
                     channelOsdVisible = false
-                    aspectBadgeText = "🛡️ Chống lag: Đã tự động đổi sang Server dự phòng (${nextBackupIdx + 1}/${allUrls.size})"
                     loadLiveStreamUrl(allUrls[nextBackupIdx])
                 } else {
                     if (!isLive) {
@@ -995,7 +992,6 @@ private fun PlayerScreenContent(
                             if (!altEpUrl.isNullOrBlank()) {
                                 val savedPos = maxOf(0L, currentPosMs)
                                 errorMessage = null
-                                aspectBadgeText = "🛡️ Tự động chuyển sang Server phim dự phòng (giữ nguyên vị trí)"
                                 currentStreamUrl = altEpUrl
                                 val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
                                     context = context,
@@ -1923,12 +1919,14 @@ private fun PlayerScreenContent(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = currentAspectMode.desc,
-                        color = Color(0xFFA0AAB8),
-                        fontSize = 11.sp
-                    )
+                    if (aspectBadgeText == currentAspectMode.label) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = currentAspectMode.desc,
+                            color = Color(0xFFA0AAB8),
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }
