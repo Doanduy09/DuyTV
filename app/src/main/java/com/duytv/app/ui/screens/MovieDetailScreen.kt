@@ -370,7 +370,9 @@ fun MovieDetailScreen(
 
                 // Episode List or Torrent Stream Qualities
                 item {
-                    val episodes = currentServer?.serverData ?: emptyList()
+                    val episodes = remember(currentServer) {
+                        currentServer?.serverData?.distinctBy { it.name.trim().lowercase() } ?: emptyList()
+                    }
                     val isTorrentServer = currentServer?.serverName?.contains("Torrent") == true
                     val episodeRowState = rememberLazyListState()
                     val primaryActionFocusRequester = remember { FocusRequester() }

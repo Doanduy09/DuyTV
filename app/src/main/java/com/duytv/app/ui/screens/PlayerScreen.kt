@@ -204,7 +204,9 @@ private fun PlayerScreenContent(
     var currentGroupName by remember { mutableStateOf("") }
 
     // Danh sách tập phim để tự động nhảy tập tiếp theo khi hết tập (Auto-Next Episode)
-    var availableEpisodes by remember(episodes) { mutableStateOf(episodes) }
+    var availableEpisodes by remember(episodes) {
+        mutableStateOf(episodes.distinctBy { it.name.trim().lowercase() })
+    }
     val currentEpisodeIndex = remember(availableEpisodes, currentEpisodeName, currentStreamUrl) {
         availableEpisodes.indexOfFirst {
             it.name.equals(currentEpisodeName, ignoreCase = true) ||
