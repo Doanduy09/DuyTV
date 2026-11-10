@@ -194,7 +194,7 @@ class VoiceAssistantManager(
                 Log.w(TAG, "RecognitionListener onError: $error")
                 mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
-                if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER) {
                     try {
                         speechRecognizer?.destroy()
                     } catch (_: Exception) {}
@@ -231,6 +231,19 @@ class VoiceAssistantManager(
                 val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 if (!partial.isNullOrBlank()) {
                     _state.value = VoiceState.Processing(partial)
+
+                    // Zero-Latency Ear-Trigger: Khớp khẩu lệnh nhanh dứt khoát -> Kích hoạt ngay 0ms!
+                    if (VoiceCommandParser.isQuickTriggerCommand(partial)) {
+                        Log.d(TAG, "Quick command matched onPartialResults: $partial -> Fast execute 0ms!")
+                        mainHandler.removeCallbacks(silenceWatchdog)
+                        isListening = false
+                        try {
+                            speechRecognizer?.stopListening()
+                        } catch (_: Exception) {}
+                        this@VoiceAssistantManager.onResult(partial)
+                        return
+                    }
+
                     // Tự động chốt lệnh sau 850ms nếu người dùng ngừng nói, phản hồi tức thì mà không cần chờ 15s!
                     mainHandler.removeCallbacks(silenceWatchdog)
                     mainHandler.postDelayed(silenceWatchdog, 850L)

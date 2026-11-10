@@ -17,6 +17,13 @@ sealed class VoiceCommand {
     data class OpenMovie(val query: String) : VoiceCommand()
     data class BrowseCategory(val categoryId: String, val categoryName: String) : VoiceCommand()
     
+    // 🎬 Điều khiển video chuyên sâu (Deep Playback NLP)
+    data class SeekTo(val positionMs: Long, val label: String) : VoiceCommand()
+    data class SeekDelta(val deltaSeconds: Int, val label: String) : VoiceCommand()
+    data class SwitchEpisode(val episodeNumber: Int) : VoiceCommand()
+    object NextEpisode : VoiceCommand()
+    object PreviousEpisode : VoiceCommand()
+
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
     enum class SettingType { WIFI, BLUETOOTH, SOUND, DISPLAY, APPS, SYSTEM, DATE }
@@ -144,27 +151,57 @@ object VoiceCommandParser {
     fun normalizeQuery(raw: String): String {
         var text = raw.lowercase().trim()
 
-        // 1. Thay thế phiên âm đài tiếng Việt (vê tê vê -> vtv, hát tê vê -> htv...)
+        // 1. Tự động sửa lỗi phát âm và nhận diện sai của SpeechRecognizer (Phonetic Auto-Correction)
+        val corrections = listOf(
+            "than tóc đỏ" to "thanh tóc đỏ",
+            "than tóc" to "thanh tóc",
+            "em hải mở" to "em hãy mở",
+            "hải mở" to "hãy mở",
+            "phim long bát bộ" to "thiên long bát bộ",
+            "thiên long bát bộc" to "thiên long bát bộ",
+            "thiên long bát bộ của" to "thiên long bát bộ"
+        )
+        for ((wrong, right) in corrections) {
+            text = text.replace(wrong, right)
+        }
+
+        // 2. Thay thế phiên âm đài tiếng Việt (vê tê vê -> vtv, hát tê vê -> htv...)
         for ((phonetic, standard) in PHONETIC_ALIASES) {
             text = text.replace(phonetic, standard)
         }
 
-        // 2. Chuyển đổi chữ số tiếng Việt sang số (chín -> 9, một -> 1, hai -> 2...)
+        // 3. Chuyển đổi chữ số tiếng Việt sang số (chín -> 9, một -> 1, hai -> 2...)
         for ((word, digit) in VIETNAMESE_NUMBERS) {
             text = text.replace(Regex("\\b$word\\b"), digit)
         }
 
-        // 3. Gom chữ viết tắt đài với chữ số liền nhau ("htv 9" -> "htv9", "vtv 1" -> "vtv1")
+        // 4. Gom chữ viết tắt đài với chữ số liền nhau ("htv 9" -> "htv9", "vtv 1" -> "vtv1")
         text = text.replace(Regex("([a-z]+)\\s+(\\d+)"), "$1$2")
 
-        // 4. Chuẩn hóa tên ứng dụng thông dụng
+        // 5. Chuẩn hóa tên ứng dụng thông dụng
         text = text.replace("you tube", "youtube")
-            .replace("du tu be", "youtube")
             .replace("du tu be", "youtube")
             .replace("chplay", "ch play")
             .replace("x plore", "xplore")
 
         return text.trim()
+    }
+
+    /**
+     * Kiểm tra xem câu nói có phải là khẩu lệnh ngắn cần kích hoạt tức thì (0ms Zero-Latency Ear-Trigger) hay không.
+     */
+    fun isQuickTriggerCommand(raw: String): Boolean {
+        val t = normalizeQuery(raw).trim()
+        return t == "dừng" || t == "tạm dừng" || t == "pause" ||
+               t == "tiếp tục" || t == "phát tiếp" || t == "play" || t == "phát" ||
+               t.startsWith("tăng âm") || t.startsWith("tăng loa") || t == "to hơn" || t == "to lên" || t == "lớn hơn" ||
+               t.startsWith("giảm âm") || t.startsWith("giảm loa") || t == "nhỏ hơn" || t == "nhỏ lại" || t == "nhỏ xuống" ||
+               t == "tắt tiếng" || t == "bật tiếng" || t == "câm tiếng" || t == "mute" ||
+               t == "kênh tiếp" || t == "tiếp theo" || t == "kênh sau" ||
+               t == "kênh trước" || t == "kênh lùi" ||
+               t == "tập tiếp" || t == "tập tiếp theo" || t == "tập trước" ||
+               t == "tràn viền" || t == "toàn màn hình" ||
+               t == "quay lại" || t == "thoát"
     }
 
     fun parse(rawText: String, availableChannels: List<TvChannel>): VoiceCommand {
@@ -224,6 +261,53 @@ object VoiceCommandParser {
             }
             core.contains("tràn viền") || core.contains("toàn màn hình") || core.contains("tỷ lệ") || core.contains("co giãn") -> {
                 return VoiceCommand.ToggleStretch
+            }
+        }
+
+        // III.B. LỆNH ĐIỀU KHIỂN VIDEO CHUYÊN SÂU (Tua thời gian & Chọn tập phim)
+        if (core.contains("tập tiếp") || core.contains("tập sau") || core.contains("qua tập mới")) {
+            return VoiceCommand.NextEpisode
+        }
+        if (core.contains("tập trước") || core.contains("lùi tập") || core.contains("tập vừa rồi")) {
+            return VoiceCommand.PreviousEpisode
+        }
+
+        val epMatch = Regex("(?:mở\\s+tập|xem\\s+tập|phát\\s+tập|chuyển\\s+tập|tập\\s+số|tập)\\s+(\\d+)").find(core)
+        if (epMatch != null) {
+            val epNum = epMatch.groupValues[1].toIntOrNull()
+            if (epNum != null && epNum > 0) {
+                return VoiceCommand.SwitchEpisode(epNum)
+            }
+        }
+
+        val seekToMatch = Regex("(?:tua\\s+(?:tới|đến|qua)|nhảy\\s+(?:tới|đến))\\s*(?:(\\d+)\\s*(?:giờ|tiếng))?\\s*(\\d+)?\\s*(?:phút|p)?").find(core)
+        if (seekToMatch != null && (core.contains("phút") || core.contains("giờ") || core.contains("tiếng"))) {
+            val hours = seekToMatch.groupValues[1].toIntOrNull() ?: 0
+            val minutes = seekToMatch.groupValues[2].toIntOrNull() ?: 0
+            if (hours > 0 || minutes > 0) {
+                val totalMs = (hours * 3600L + minutes * 60L) * 1000L
+                val label = if (hours > 0) "${hours}h${minutes}p" else "phút thứ $minutes"
+                return VoiceCommand.SeekTo(totalMs, label)
+            }
+        }
+
+        val seekForwardMatch = Regex("(?:tua\\s+(?:qua|nhanh|tới|thêm|đi)?|nhanh)\\s+(\\d+)\\s*(giây|s|phút|p)?").find(core)
+        if (seekForwardMatch != null && (core.contains("tua") || core.contains("nhanh"))) {
+            val num = seekForwardMatch.groupValues[1].toIntOrNull()
+            val unit = seekForwardMatch.groupValues[2]
+            if (num != null && num > 0) {
+                val sec = if (unit == "phút" || unit == "p") num * 60 else num
+                return VoiceCommand.SeekDelta(sec, "+${sec}s")
+            }
+        }
+
+        val seekBackMatch = Regex("(?:tua\\s+lại|lùi\\s+lại|lùi|xem\\s+lại|quay\\s+lại)\\s+(\\d+)\\s*(giây|s|phút|p)?").find(core)
+        if (seekBackMatch != null) {
+            val num = seekBackMatch.groupValues[1].toIntOrNull()
+            val unit = seekBackMatch.groupValues[2]
+            if (num != null && num > 0) {
+                val sec = if (unit == "phút" || unit == "p") num * 60 else num
+                return VoiceCommand.SeekDelta(-sec, "-${sec}s")
             }
         }
 
@@ -489,17 +573,10 @@ object VoiceCommandParser {
                 return VoiceCommand.SwitchChannel(directKeyMatchIdx, availableChannels[directKeyMatchIdx])
             }
 
-            // C. Khớp theo chuỗi con rút gọn không dấu, không khoảng trắng (SO KHỚP AN TOÀN CHỐNG NHẦM ĐÀI)
+            // C. Khớp mờ theo khoảng cách ngữ âm Levenshtein & Substring
             val compactTarget = cleanedTarget.replace(Regex("[^a-z0-9]"), "")
             if (compactTarget.isNotBlank()) {
-                val fuzzyIdx = availableChannels.indexOfFirst { ch ->
-                    val cleanCh = MovieRepository.normalizeChannelKey(ch.name).replace(Regex("[^a-z0-9]"), "")
-                    if (cleanCh.isBlank()) return@indexOfFirst false
-                    if (cleanCh == compactTarget) return@indexOfFirst true
-                    if (compactTarget.length >= 3 && cleanCh.contains(compactTarget)) return@indexOfFirst true
-                    if (cleanCh.length >= 4 && compactTarget.contains(cleanCh)) return@indexOfFirst true
-                    false
-                }
+                val fuzzyIdx = fuzzyMatchChannel(compactTarget, availableChannels)
                 if (fuzzyIdx >= 0) {
                     return VoiceCommand.SwitchChannel(fuzzyIdx, availableChannels[fuzzyIdx])
                 }
@@ -536,6 +613,51 @@ object VoiceCommandParser {
         }
 
         return VoiceCommand.Unknown(rawText)
+    }
+
+    fun levenshteinDistance(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+        for (i in 0..s1.length) dp[i][0] = i
+        for (j in 0..s2.length) dp[0][j] = j
+        for (i in 1..s1.length) {
+            for (j in 1..s2.length) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + cost
+                )
+            }
+        }
+        return dp[s1.length][s2.length]
+    }
+
+    fun fuzzyMatchChannel(query: String, channels: List<TvChannel>): Int {
+        val cleanQuery = removeAccents(query).replace(Regex("[^a-z0-9]"), "")
+        if (cleanQuery.length < 3) return -1
+        
+        var bestIdx = -1
+        var bestDistance = Int.MAX_VALUE
+        
+        for (i in channels.indices) {
+            val cleanCh = MovieRepository.normalizeChannelKey(channels[i].name).replace(Regex("[^a-z0-9]"), "")
+            if (cleanCh.isBlank()) continue
+            if (cleanCh == cleanQuery) return i
+            if (cleanQuery.length >= 3 && cleanCh.contains(cleanQuery)) return i
+            if (cleanCh.length >= 4 && cleanQuery.contains(cleanCh)) return i
+            
+            val dist = levenshteinDistance(cleanQuery, cleanCh)
+            val maxAllowedDist = when {
+                cleanQuery.length <= 4 -> 1
+                cleanQuery.length <= 7 -> 2
+                else -> 3
+            }
+            if (dist <= maxAllowedDist && dist < bestDistance) {
+                bestDistance = dist
+                bestIdx = i
+            }
+        }
+        return bestIdx
     }
 
     private fun removeAccents(text: String): String {

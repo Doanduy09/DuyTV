@@ -1,7 +1,7 @@
 {
-  "versionCode": 47,
-  "versionName": "2.1.2",
+  "versionCode": 48,
+  "versionName": "2.1.3",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản v2.1.2 (Build #47): Trợ lý giọng nói tiếng Việt toàn năng - Nhận diện trọn vẹn văn phong giao tiếp tự nhiên ('Em ơi hãy...', 'Em hãy kiểm tra...', 'em mở phim...'), mở và phát trực tiếp phim VOD ('mở phim Thiên Long Bát Bộ'), tra cứu danh mục ('kiểm tra phim mới', 'phim lẻ', 'phim bộ', 'hoạt hình'), tìm phát nhạc YouTube chuyên sâu và điều khiển cài đặt toàn hệ thống TV"
+  "releaseNotes": "Bản v2.1.3 (Build #48): Trợ lý giọng nói thông minh toàn năng - Phản hồi tiếng Việt tự nhiên Voice TTS Ducking, kích hoạt tức thì 0ms (Zero-Latency Ear-Trigger), tua video ('tua qua 30s', 'tua tới phút 15') & chọn tập ('mở tập 5', 'tập tiếp') bằng giọng nói, thuật toán sửa lỗi đồng âm Trigram/Levenshtein"
 }

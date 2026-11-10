@@ -8,6 +8,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import com.duytv.app.util.VoiceAssistantManager
+import com.duytv.app.util.VoiceTtsFeedback
 import com.duytv.app.util.VoiceState
 import com.duytv.app.util.VoiceCommandParser
 import com.duytv.app.util.VoiceCommand
@@ -1352,37 +1353,55 @@ private fun PlayerScreenContent(
     val osdPlayPauseFocusRequester = remember { FocusRequester() }
     val sheetCloseFocusRequester = remember { FocusRequester() }
 
+    val ttsAssistant = remember { VoiceTtsFeedback(context) }
+
     val voiceManager = remember {
         VoiceAssistantManager(context) { recognizedText ->
+            fun speakAndReport(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
+                reportSuccess(message)
+                exoPlayer.volume = 0.05f
+                ttsAssistant.speak(
+                    text = ttsPhrase,
+                    onStart = {
+                        exoPlayer.volume = 0.05f
+                    },
+                    onDone = {
+                        exoPlayer.volume = 1.0f
+                        onDone?.invoke()
+                    }
+                )
+            }
+
             val cmd = VoiceCommandParser.parse(recognizedText, availableChannels)
             when (cmd) {
                 is VoiceCommand.SwitchChannel -> {
-                    reportSuccess("Đang mở: ${cmd.channel.name}")
+                    speakAndReport("Đang mở: ${cmd.channel.name}", "Dạ, đang mở kênh ${cmd.channel.name}")
                     switchToChannel(cmd.index)
                 }
                 is VoiceCommand.OpenApp -> {
-                    reportSuccess("Đang mở: ${cmd.target.uppercase()}")
+                    speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}")
                     launchAppByQuery(context, cmd.target)
                 }
                 is VoiceCommand.YouTubeSearch -> {
-                    reportSuccess("YouTube: ${cmd.query.uppercase()}")
+                    speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}")
                     launchYouTubeSearch(context, cmd.query)
                 }
                 is VoiceCommand.AdjustVolume -> {
                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                     val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
                     audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-                    reportSuccess(if (cmd.isIncrease) "Đã tăng âm lượng" else "Đã giảm âm lượng")
+                    val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng" else "Dạ, đã giảm âm lượng"
+                    speakAndReport(if (cmd.isIncrease) "Đã tăng âm lượng" else "Đã giảm âm lượng", phrase)
                 }
                 VoiceCommand.ToggleMute -> {
                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                     audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
-                    reportSuccess("Đã bật/tắt tiếng")
+                    speakAndReport("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
                 }
                 is VoiceCommand.SystemAction -> {
                     when (cmd.type) {
                         VoiceCommand.SystemActionType.HOME -> {
-                            reportSuccess("Về trang chủ")
+                            speakAndReport("Về trang chủ", "Dạ, về trang chủ")
                             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                                 addCategory(Intent.CATEGORY_HOME)
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -1390,11 +1409,11 @@ private fun PlayerScreenContent(
                             context.startActivity(homeIntent)
                         }
                         VoiceCommand.SystemActionType.BACK -> {
-                            reportSuccess("Quay lại")
+                            speakAndReport("Quay lại", "Dạ, quay lại")
                             onClose()
                         }
                         VoiceCommand.SystemActionType.POWER -> {
-                            reportSuccess("Đang tắt...")
+                            speakAndReport("Đang tắt...", "Dạ, đang tắt tivi")
                             val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                                 addCategory(Intent.CATEGORY_HOME)
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -1404,25 +1423,25 @@ private fun PlayerScreenContent(
                     }
                 }
                 VoiceCommand.NextChannel -> {
-                    reportSuccess("Chuyển kênh tiếp theo")
+                    speakAndReport("Chuyển kênh tiếp theo", "Dạ, kênh tiếp theo")
                     nextChannel()
                 }
                 VoiceCommand.PreviousChannel -> {
-                    reportSuccess("Quay lại kênh trước")
+                    speakAndReport("Quay lại kênh trước", "Dạ, quay lại kênh trước")
                     previousChannel()
                 }
                 VoiceCommand.Pause -> {
-                    reportSuccess("Tạm dừng phát")
+                    speakAndReport("Tạm dừng phát", "Dạ, đã tạm dừng")
                     exoPlayer.pause()
                     isPlaying = false
                 }
                 VoiceCommand.Resume -> {
-                    reportSuccess("Tiếp tục phát")
+                    speakAndReport("Tiếp tục phát", "Dạ, tiếp tục phát")
                     exoPlayer.play()
                     isPlaying = true
                 }
                 VoiceCommand.SwitchBackupSource -> {
-                    reportSuccess("Đổi server dự phòng")
+                    speakAndReport("Đổi server dự phòng", "Dạ, đã đổi server")
                     switchBackupSource()
                 }
                 VoiceCommand.ToggleStretch -> {
@@ -1430,26 +1449,80 @@ private fun PlayerScreenContent(
                     val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
                     currentAspectMode = modes[nextIdx]
                     AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
-                    reportSuccess(currentAspectMode.label)
+                    speakAndReport(currentAspectMode.label, "Dạ, đã đổi tỷ lệ màn hình")
+                }
+                is VoiceCommand.SeekTo -> {
+                    if (!isLive) {
+                        val safePos = cmd.positionMs.coerceIn(0L, maxOf(1L, exoPlayer.duration))
+                        exoPlayer.seekTo(safePos)
+                        currentPosMs = safePos
+                        speakAndReport("Tua đến: ${cmd.label}", "Dạ, đang tua đến ${cmd.label}")
+                    } else {
+                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                    }
+                }
+                is VoiceCommand.SeekDelta -> {
+                    if (!isLive) {
+                        triggerSeek(cmd.deltaSeconds)
+                        speakAndReport("Tua: ${cmd.label}", "Dạ, đã tua ${cmd.label}")
+                    } else {
+                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                    }
+                }
+                is VoiceCommand.SwitchEpisode -> {
+                    if (!isLive && availableEpisodes.isNotEmpty()) {
+                        val targetIdx = availableEpisodes.indexOfFirst {
+                            it.name.contains("${cmd.episodeNumber}")
+                        }.takeIf { it >= 0 } ?: (cmd.episodeNumber - 1).coerceIn(availableEpisodes.indices)
+                        
+                        if (targetIdx in availableEpisodes.indices) {
+                            val ep = availableEpisodes[targetIdx]
+                            speakAndReport("Đang mở: ${ep.name}", "Dạ, đang mở ${ep.name}")
+                            playVodEpisodeAt(targetIdx)
+                        } else {
+                            speakAndReport("Không có tập ${cmd.episodeNumber}", "Dạ, phim không có tập ${cmd.episodeNumber}")
+                        }
+                    } else {
+                        speakAndReport("Chỉ dùng khi xem phim bộ", "Dạ, lệnh này chỉ dùng khi xem phim bộ")
+                    }
+                }
+                VoiceCommand.NextEpisode -> {
+                    if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex + 1 < availableEpisodes.size) {
+                        val nextIdx = currentEpisodeIndex + 1
+                        val ep = availableEpisodes[nextIdx]
+                        speakAndReport("Tập tiếp: ${ep.name}", "Dạ, đang mở tập tiếp theo")
+                        playVodEpisodeAt(nextIdx)
+                    } else {
+                        speakAndReport("Đã ở tập cuối", "Dạ, đây là tập cuối cùng rồi ạ")
+                    }
+                }
+                VoiceCommand.PreviousEpisode -> {
+                    if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex > 0) {
+                        val prevIdx = currentEpisodeIndex - 1
+                        val ep = availableEpisodes[prevIdx]
+                        speakAndReport("Tập trước: ${ep.name}", "Dạ, đang mở tập trước")
+                        playVodEpisodeAt(prevIdx)
+                    } else {
+                        speakAndReport("Đã ở tập đầu tiên", "Dạ, đây là tập đầu tiên rồi ạ")
+                    }
                 }
                 is VoiceCommand.BrowseCategory -> {
-                    reportSuccess("Đang mở: ${cmd.categoryName}")
+                    speakAndReport("Đang mở: ${cmd.categoryName}", "Dạ, đang mở danh mục ${cmd.categoryName}")
                     onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome(cmd.categoryId))
                 }
                 is VoiceCommand.OpenMovie -> {
-                    reportSuccess("Đang tìm: ${cmd.query}")
+                    speakAndReport("Đang tìm: ${cmd.query}", "Dạ, em đang tìm phim ${cmd.query}")
                     scope.launch {
                         try {
                             val repo = repository ?: MovieRepository()
                             val results = repo.searchMovies(cmd.query)
                             val first = results.firstOrNull()
                             if (first != null) {
-                                reportSuccess("Đang nạp: ${first.name}")
                                 val detail = repo.getMovieDetail(first.slug)
                                 val epList = detail?.episodes?.firstOrNull()?.serverData.orEmpty()
                                 val ep1 = epList.firstOrNull()
                                 if (ep1 != null && !ep1.linkM3u8.isNullOrBlank()) {
-                                    reportSuccess("Đang chiếu: ${first.name} - ${ep1.name}")
+                                    speakAndReport("Đang chiếu: ${first.name} - ${ep1.name}", "Dạ, đang chiếu phim ${first.name}")
                                     onNavigate?.invoke(
                                         com.duytv.app.AppScreen.Player(
                                             slug = first.slug,
@@ -1464,6 +1537,7 @@ private fun PlayerScreenContent(
                                         )
                                     )
                                 } else {
+                                    speakAndReport("Đang mở: ${first.name}", "Dạ, đang mở phim ${first.name}")
                                     onNavigate?.invoke(com.duytv.app.AppScreen.Detail(first.slug))
                                 }
                             } else {
@@ -1472,29 +1546,29 @@ private fun PlayerScreenContent(
                                     it.name.contains(cmd.query, ignoreCase = true)
                                 }
                                 if (chIdx >= 0) {
-                                    reportSuccess("Đang mở: ${availableChannels[chIdx].name}")
+                                    speakAndReport("Đang mở: ${availableChannels[chIdx].name}", "Dạ, đang mở kênh ${availableChannels[chIdx].name}")
                                     switchToChannel(chIdx)
                                 } else {
-                                    reportSuccess("Tìm kiếm: ${cmd.query}")
+                                    speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
                                     onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                                 }
                             }
                         } catch (e: Exception) {
-                            reportError("Lỗi tìm phim: ${e.message}")
+                            speakAndReport("Lỗi tìm phim", "Dạ, không tìm thấy kết quả")
                             onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                         }
                     }
                 }
                 is VoiceCommand.SearchMovie -> {
-                    reportSuccess("Tìm kiếm: ${cmd.query}")
+                    speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
                     onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                 }
                 is VoiceCommand.OpenSetting -> {
-                    reportSuccess("Đang mở cài đặt...")
+                    speakAndReport("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
                     launchSettingIntent(context, cmd.settingType)
                 }
                 is VoiceCommand.Unknown -> {
-                    reportError("Chưa rõ lệnh: \"${cmd.rawText}\"")
+                    speakAndReport("Chưa rõ lệnh: \"${cmd.rawText}\"", "Dạ, em chưa hiểu câu lệnh này")
                 }
             }
         }
@@ -1502,6 +1576,7 @@ private fun PlayerScreenContent(
     DisposableEffect(Unit) {
         onDispose {
             voiceManager.destroy()
+            ttsAssistant.destroy()
         }
     }
 
