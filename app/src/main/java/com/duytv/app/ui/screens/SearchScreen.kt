@@ -48,11 +48,12 @@ fun SearchScreen(
     onMovieSelected: (String) -> Unit,
     onBack: () -> Unit,
     onPlayLiveChannel: (com.duytv.app.data.TvChannel) -> Unit = {},
+    initialQuery: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     var allResults by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
     var matchedChannels by remember { mutableStateOf<List<com.duytv.app.data.TvChannel>>(emptyList()) }
     var recentSearches by remember { mutableStateOf(com.duytv.app.data.AppCacheManager.getRecentSearches(context)) }
@@ -107,6 +108,13 @@ fun SearchScreen(
             val res = repository.searchAllSources(cleanText)
             allResults = res
             isSearching = false
+        }
+    }
+
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) {
+            query = initialQuery
+            performSearch(initialQuery)
         }
     }
 

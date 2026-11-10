@@ -128,7 +128,8 @@ private class PlayerLaunchParams(
     val backupUrls: List<String>,
     val episodes: List<EpisodeItemDto>,
     val repository: MovieRepository?,
-    val onClose: () -> Unit
+    val onClose: () -> Unit,
+    val onNavigate: ((com.duytv.app.AppScreen) -> Unit)? = null
 )
 
 @OptIn(UnstableApi::class)
@@ -145,9 +146,10 @@ fun PlayerScreen(
     episodes: List<EpisodeItemDto> = emptyList(),
     repository: MovieRepository? = null,
     onClose: () -> Unit,
+    onNavigate: ((com.duytv.app.AppScreen) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val params = remember(slug, movieTitle, episodeName, streamUrl, posterUrl, subtitleUrl, initialPositionMs, backupUrls, episodes, repository, onClose) {
+    val params = remember(slug, movieTitle, episodeName, streamUrl, posterUrl, subtitleUrl, initialPositionMs, backupUrls, episodes, repository, onClose, onNavigate) {
         PlayerLaunchParams(
             slug = slug,
             movieTitle = movieTitle,
@@ -159,7 +161,8 @@ fun PlayerScreen(
             backupUrls = backupUrls,
             episodes = episodes,
             repository = repository,
-            onClose = onClose
+            onClose = onClose,
+            onNavigate = onNavigate
         )
     }
     PlayerScreenContent(params = params, modifier = modifier)
@@ -182,6 +185,7 @@ private fun PlayerScreenContent(
     val episodes = params.episodes
     val repository = params.repository
     val onClose = params.onClose
+    val onNavigate = params.onNavigate
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1428,8 +1432,66 @@ private fun PlayerScreenContent(
                     AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
                     reportSuccess(currentAspectMode.label)
                 }
+                is VoiceCommand.BrowseCategory -> {
+                    reportSuccess("Đang mở: ${cmd.categoryName}")
+                    onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome(cmd.categoryId))
+                }
+                is VoiceCommand.OpenMovie -> {
+                    reportSuccess("Đang tìm: ${cmd.query}")
+                    scope.launch {
+                        try {
+                            val repo = repository ?: MovieRepository()
+                            val results = repo.searchMovies(cmd.query)
+                            val first = results.firstOrNull()
+                            if (first != null) {
+                                reportSuccess("Đang nạp: ${first.name}")
+                                val detail = repo.getMovieDetail(first.slug)
+                                val epList = detail?.episodes?.firstOrNull()?.serverData.orEmpty()
+                                val ep1 = epList.firstOrNull()
+                                if (ep1 != null && !ep1.linkM3u8.isNullOrBlank()) {
+                                    reportSuccess("Đang chiếu: ${first.name} - ${ep1.name}")
+                                    onNavigate?.invoke(
+                                        com.duytv.app.AppScreen.Player(
+                                            slug = first.slug,
+                                            movieTitle = first.name,
+                                            episodeName = ep1.name,
+                                            streamUrl = ep1.linkM3u8,
+                                            posterUrl = first.posterUrl ?: first.thumbUrl,
+                                            subtitleUrl = null,
+                                            initialPositionMs = 0L,
+                                            backupUrls = ep1.backupStreams,
+                                            episodes = epList
+                                        )
+                                    )
+                                } else {
+                                    onNavigate?.invoke(com.duytv.app.AppScreen.Detail(first.slug))
+                                }
+                            } else {
+                                // Kiểm tra nếu là tên kênh truyền hình
+                                val chIdx = availableChannels.indexOfFirst {
+                                    it.name.contains(cmd.query, ignoreCase = true)
+                                }
+                                if (chIdx >= 0) {
+                                    reportSuccess("Đang mở: ${availableChannels[chIdx].name}")
+                                    switchToChannel(chIdx)
+                                } else {
+                                    reportSuccess("Tìm kiếm: ${cmd.query}")
+                                    onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                                }
+                            }
+                        } catch (e: Exception) {
+                            reportError("Lỗi tìm phim: ${e.message}")
+                            onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                        }
+                    }
+                }
                 is VoiceCommand.SearchMovie -> {
                     reportSuccess("Tìm kiếm: ${cmd.query}")
+                    onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                }
+                is VoiceCommand.OpenSetting -> {
+                    reportSuccess("Đang mở cài đặt...")
+                    launchSettingIntent(context, cmd.settingType)
                 }
                 is VoiceCommand.Unknown -> {
                     reportError("Chưa rõ lệnh: \"${cmd.rawText}\"")
@@ -3512,12 +3574,22 @@ private fun launchAppByQuery(context: Context, query: String) {
         val pm = context.packageManager
         val q = query.lowercase().trim()
         val directPkg = when {
-            q.contains("youtube") -> "com.google.android.youtube.tv"
+            q.contains("youtube music") || q.contains("yt music") -> "com.google.android.youtube.tvmusic"
+            q.contains("youtube") || q.contains("you tube") -> "com.google.android.youtube.tv"
+            q.contains("smarttube") || q.contains("smart tube") -> "com.liskovsoft.smarttubetv.beta"
             q.contains("netflix") -> "com.netflix.ninja"
-            q.contains("cài đặt") || q.contains("settings") -> "com.android.tv.settings"
+            q.contains("ott navigator") || q.contains("ott") -> "studio.scillarium.ottnavigator"
             q.contains("xplore") || q.contains("x-plore") -> "com.lonelycatgames.Xplore"
+            q.contains("kodi") -> "org.xbmc.kodi"
+            q.contains("vlc") -> "org.videolan.vlc"
+            q.contains("spotify") -> "com.spotify.tv.android"
             q.contains("ch play") || q.contains("google play") || q.contains("cửa hàng") -> "com.android.vending"
-            q.contains("ott navigator") -> "b.proter"
+            q.contains("vieon") || q.contains("vie on") -> "com.vieon"
+            q.contains("fpt play") || q.contains("fpt") -> "com.fptplay.activity"
+            q.contains("tv360") -> "com.viettel.tv360"
+            q.contains("vtvgo") || q.contains("vtv go") -> "vn.vtv.vtvgo"
+            q.contains("monster tv") -> "com.monstertv.app"
+            q.contains("cài đặt") || q.contains("settings") -> "com.android.tv.settings"
             else -> null
         }
 
@@ -3530,7 +3602,10 @@ private fun launchAppByQuery(context: Context, query: String) {
                 addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
             }
             val apps = pm.queryIntentActivities(mainIntent, 0)
-            val matched = apps.find { it.loadLabel(pm).toString().lowercase().contains(q) }
+            val matched = apps.find { 
+                val label = it.loadLabel(pm).toString().lowercase()
+                label.contains(q) || q.contains(label)
+            }
             if (matched != null) {
                 val pkg = matched.activityInfo.packageName
                 intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
@@ -3541,7 +3616,10 @@ private fun launchAppByQuery(context: Context, query: String) {
                 addCategory(Intent.CATEGORY_LAUNCHER)
             }
             val stdApps = pm.queryIntentActivities(stdIntent, 0)
-            val matched = stdApps.find { it.loadLabel(pm).toString().lowercase().contains(q) }
+            val matched = stdApps.find { 
+                val label = it.loadLabel(pm).toString().lowercase()
+                label.contains(q) || q.contains(label)
+            }
             if (matched != null) {
                 val pkg = matched.activityInfo.packageName
                 intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
@@ -3552,6 +3630,31 @@ private fun launchAppByQuery(context: Context, query: String) {
             context.startActivity(intent)
         }
     } catch (_: Exception) {}
+}
+
+private fun launchSettingIntent(context: Context, type: VoiceCommand.SettingType) {
+    try {
+        val action = when (type) {
+            VoiceCommand.SettingType.WIFI -> android.provider.Settings.ACTION_WIFI_SETTINGS
+            VoiceCommand.SettingType.BLUETOOTH -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+            VoiceCommand.SettingType.SOUND -> android.provider.Settings.ACTION_SOUND_SETTINGS
+            VoiceCommand.SettingType.DISPLAY -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
+            VoiceCommand.SettingType.APPS -> android.provider.Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS
+            VoiceCommand.SettingType.DATE -> android.provider.Settings.ACTION_DATE_SETTINGS
+            VoiceCommand.SettingType.SYSTEM -> android.provider.Settings.ACTION_SETTINGS
+        }
+        val intent = Intent(action).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        try {
+            val fallback = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallback)
+        } catch (_: Exception) {}
+    }
 }
 
 private fun launchYouTubeSearch(context: Context, query: String) {

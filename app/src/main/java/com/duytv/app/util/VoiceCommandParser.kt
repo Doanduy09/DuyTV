@@ -14,9 +14,13 @@ sealed class VoiceCommand {
     object SwitchBackupSource : VoiceCommand()
     object ToggleStretch : VoiceCommand()
     data class SearchMovie(val query: String) : VoiceCommand()
+    data class OpenMovie(val query: String) : VoiceCommand()
+    data class BrowseCategory(val categoryId: String, val categoryName: String) : VoiceCommand()
     
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
+    enum class SettingType { WIFI, BLUETOOTH, SOUND, DISPLAY, APPS, SYSTEM, DATE }
+    data class OpenSetting(val settingType: SettingType) : VoiceCommand()
     data class YouTubeSearch(val query: String) : VoiceCommand()
     data class AdjustVolume(val isIncrease: Boolean) : VoiceCommand()
     object ToggleMute : VoiceCommand()
@@ -80,31 +84,59 @@ object VoiceCommandParser {
         "bê tê vê" to "btv"
     )
 
-    // Tiền tố câu nói thông thường của người Việt (giao tiếp tự nhiên)
-    private val PREFIX_CLEANUP = listOf(
-        "em hãy mở cho anh kênh", "em hãy mở cho em kênh", "em hãy mở cho anh đài", "em hãy mở cho em đài",
-        "em hãy mở cho anh", "em hãy mở cho em", "em hãy mở đài", "em hãy mở kênh", "em hãy mở",
-        "hãy mở cho anh kênh", "hãy mở cho em kênh", "hãy mở cho anh đài", "hãy mở cho em đài",
-        "hãy mở cho anh", "hãy mở cho em", "hãy mở đài", "hãy mở kênh", "hãy mở",
-        "em mở cho anh kênh", "em mở cho anh đài", "em mở cho anh", "em mở",
-        "anh muốn xem kênh", "anh muốn xem đài", "anh muốn xem", "anh muốn mở",
-        "chuyển sang kênh", "chuyển qua kênh", "chuyển đến kênh", "chuyển tới kênh",
-        "chuyển sang đài", "chuyển qua đài", "chuyển kênh", "chuyển đài",
-        "mở kênh", "mở đài", "mở cho anh kênh", "mở cho anh đài", "mở cho anh", "mở cho em kênh", "mở cho em đài", "mở cho em", "mở",
-        "bật kênh", "bật đài", "bật cho anh kênh", "bật cho anh đài", "bật cho anh", "bật cho em kênh", "bật cho em đài", "bật cho em", "bật",
-        "xem kênh", "xem đài", "xem cho anh kênh", "xem cho anh đài", "xem cho anh", "xem cho em", "xem",
-        "cho xem kênh", "cho xem đài", "cho xem", "cho anh xem", "cho em xem", "kênh số", "kênh", "đài"
+    // Tiền tố câu chào giao tiếp tự nhiên của người Việt
+    private val CONVERSATIONAL_SALUTATIONS = listOf(
+        "em ơi hãy ", "em hãy ", "em ơi ", "ơi em ", "anh ơi ", "chị ơi ", "bạn ơi ",
+        "trợ lý ơi ", "duy ơi ", "duytv ơi ", "ok google ", "ê duy ", "này em ", "này duy ",
+        "làm ơn ", "vui lòng "
+    )
+
+    // Tiền tố hành động phong phú
+    private val ACTION_PREFIXES = listOf(
+        "em hãy mở cho anh kênh ", "em hãy mở cho em kênh ", "em hãy mở cho anh đài ", "em hãy mở cho em đài ",
+        "em hãy mở cho anh ứng dụng ", "em hãy mở ứng dụng ", "em hãy mở app ", "em hãy mở cho anh ", "em hãy mở cho em ",
+        "em hãy mở đài ", "em hãy mở kênh ", "em hãy mở phim ", "em hãy mở ",
+        "hãy mở cho anh kênh ", "hãy mở cho em kênh ", "hãy mở cho anh đài ", "hãy mở cho em đài ",
+        "hãy mở cho anh ứng dụng ", "hãy mở ứng dụng ", "hãy mở app ", "hãy mở cho anh ", "hãy mở cho em ",
+        "hãy mở đài ", "hãy mở kênh ", "hãy mở phim ", "hãy mở ",
+        "em mở cho anh kênh ", "em mở cho anh đài ", "em mở cho anh ứng dụng ", "em mở ứng dụng ", "em mở app ",
+        "em mở cho anh ", "em mở phim ", "em mở ",
+        "anh muốn xem kênh ", "anh muốn xem đài ", "anh muốn xem phim ", "anh muốn xem ", "anh muốn mở ",
+        "cho anh xem phim ", "cho anh xem kênh ", "cho anh xem đài ", "cho anh xem ", "cho em xem ",
+        "chuyển sang kênh ", "chuyển qua kênh ", "chuyển đến kênh ", "chuyển tới kênh ",
+        "chuyển sang đài ", "chuyển qua đài ", "chuyển kênh ", "chuyển đài ",
+        "mở ứng dụng ", "mở app ", "bật ứng dụng ", "bật app ", "chạy ứng dụng ", "chạy app ", "vào ứng dụng ", "vào app ",
+        "mở kênh ", "mở đài ", "mở phim ", "bật phim ", "chiếu phim ", "xem phim ", "tìm phim ", "coi phim ",
+        "mở cho anh kênh ", "mở cho anh đài ", "mở cho anh ", "mở cho em kênh ", "mở cho em đài ", "mở cho em ",
+        "bật cho anh kênh ", "bật cho anh đài ", "bật cho anh ", "bật cho em kênh ", "bật cho em đài ", "bật cho em ",
+        "bật kênh ", "bật đài ", "bật ",
+        "xem cho anh kênh ", "xem cho anh đài ", "xem cho anh ", "xem cho em ",
+        "xem kênh ", "xem đài ", "xem ",
+        "mở ", "chiếu ", "tìm kiếm ", "tìm ", "kênh số ", "kênh ", "đài "
+    )
+
+    // Hậu tố chỉ định mở trên YouTube
+    private val YOUTUBE_MARKERS = listOf(
+        "trên ứng dụng youtube cho anh", "trên ứng dụng youtube cho em", "trên ứng dụng youtube",
+        "ở ứng dụng youtube cho anh", "ở ứng dụng youtube cho em", "ở ứng dụng youtube",
+        "trong ứng dụng youtube", "vào ứng dụng youtube",
+        "trên youtube cho anh", "trên youtube cho em", "trên youtube",
+        "ở youtube cho anh", "ở youtube cho em", "ở youtube",
+        "trong youtube", "qua youtube", "bằng youtube"
     )
 
     // Hậu tố câu nói giao tiếp thân mật của người Việt
-    private val SUFFIX_CLEANUP = listOf(
+    private val GENERAL_SUFFIXES = listOf(
         "cho anh với", "cho anh nhé", "cho anh nha", "cho anh đi", "cho anh xem", "cho anh",
         "cho em với", "cho em nhé", "cho em nha", "cho em đi", "cho em xem", "cho em",
         "cho tôi với", "cho tôi nhé", "cho tôi nha", "cho tôi đi", "cho tôi xem", "cho tôi",
         "cho tao với", "cho tao xem", "cho tao",
-        "giúp anh với", "giúp anh nhé", "giúp anh", "giúp em với", "giúp em nhé", "giúp em",
-        "giùm anh với", "giùm anh nhé", "giùm anh", "giùm em với", "giùm em nhé", "giùm em", "giùm với", "giùm",
-        "hộ anh với", "hộ anh nhé", "hộ anh", "hộ em với", "hộ em nhé", "hộ em", "hộ tôi", "hộ",
+        "giúp anh với", "giúp anh nhé", "giúp anh nha", "giúp anh đi", "giúp anh",
+        "giúp em với", "giúp em nhé", "giúp em nha", "giúp em đi", "giúp em",
+        "giùm anh với", "giùm anh nhé", "giùm anh nha", "giùm anh đi", "giùm anh",
+        "giùm em với", "giùm em nhé", "giùm em nha", "giùm em đi", "giùm em", "giùm với", "giùm",
+        "hộ anh với", "hộ anh nhé", "hộ anh nha", "hộ anh đi", "hộ anh",
+        "hộ em với", "hộ em nhé", "hộ em nha", "hộ em đi", "hộ em", "hộ tôi", "hộ",
         "lên tivi", "lên tv", "lên", "đi mà", "đi nào", "đi nhé", "đi nha", "đi",
         "nhé anh", "nhé em", "nhé", "nha anh", "nha em", "nha", "nào", "với", "ơi"
     )
@@ -125,6 +157,13 @@ object VoiceCommandParser {
         // 3. Gom chữ viết tắt đài với chữ số liền nhau ("htv 9" -> "htv9", "vtv 1" -> "vtv1")
         text = text.replace(Regex("([a-z]+)\\s+(\\d+)"), "$1$2")
 
+        // 4. Chuẩn hóa tên ứng dụng thông dụng
+        text = text.replace("you tube", "youtube")
+            .replace("du tu be", "youtube")
+            .replace("du tu be", "youtube")
+            .replace("chplay", "ch play")
+            .replace("x plore", "xplore")
+
         return text.trim()
     }
 
@@ -132,150 +171,290 @@ object VoiceCommandParser {
         val query = normalizeQuery(rawText)
         if (query.isBlank()) return VoiceCommand.Unknown(rawText)
 
+        // Tách bỏ lời chào giao tiếp thân mật đầu câu ("Em ơi hãy...", "Em ơi...", "Em hãy...", "Duy ơi...")
+        var core = query
+        for (salutation in CONVERSATIONAL_SALUTATIONS) {
+            if (core.startsWith(salutation)) {
+                core = core.removePrefix(salutation).trim()
+                break
+            }
+        }
+
         // I. LỆNH ĐIỀU KHIỂN ÂM LƯỢNG & LOA TIVI
-        if (query.contains("tăng âm") || query.contains("tăng loa") || query.contains("lớn hơn") || query.contains("to hơn") || query.contains("tăng volume") || query == "to lên") {
+        if (core.contains("tăng âm") || core.contains("tăng loa") || core.contains("lớn hơn") || core.contains("to hơn") || core.contains("tăng volume") || core == "to lên") {
             return VoiceCommand.AdjustVolume(isIncrease = true)
         }
-        if (query.contains("giảm âm") || query.contains("giảm loa") || query.contains("nhỏ hơn") || query.contains("nhỏ lại") || query.contains("giảm volume") || query == "nhỏ xuống") {
+        if (core.contains("giảm âm") || core.contains("giảm loa") || core.contains("nhỏ hơn") || core.contains("nhỏ lại") || core.contains("giảm volume") || core == "nhỏ xuống") {
             return VoiceCommand.AdjustVolume(isIncrease = false)
         }
-        if (query.contains("tắt tiếng") || query.contains("câm tiếng") || query.contains("tắt âm") || query.contains("mute") || query.contains("bật tiếng") || query.contains("mở tiếng")) {
+        if (core.contains("tắt tiếng") || core.contains("câm tiếng") || core.contains("tắt âm") || core.contains("mute") || core.contains("bật tiếng") || core.contains("mở tiếng")) {
             return VoiceCommand.ToggleMute
         }
 
         // II. LỆNH ĐIỀU KHIỂN HỆ THỐNG TIVI (HOME, BACK, POWER)
-        if (query.contains("về trang chủ") || query.contains("về màn hình chính") || query.contains("màn hình chính") || query.contains("về home") || query == "home" || query == "trang chủ") {
+        if (core.contains("về trang chủ") || core.contains("về màn hình chính") || core.contains("màn hình chính") || core.contains("về home") || core == "home" || core == "trang chủ") {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.HOME)
         }
-        if (query.contains("quay lại") || query.contains("trở lại") || query == "lùi lại" || query == "thoát") {
+        if (core.contains("quay lại") || core.contains("trở lại") || core == "lùi lại" || core == "thoát") {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.BACK)
         }
-        if (query.contains("tắt tivi") || query.contains("tắt màn hình") || query.contains("tắt tv") || query.contains("đi ngủ")) {
+        if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") || core.contains("đi ngủ")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.POWER)
         }
-        if (query.contains("mở tivi") || query.contains("bật tivi") || query.contains("xem tivi") || query.contains("bật tv") || query.contains("mở tv")) {
+        if (core.contains("mở tivi") || core.contains("bật tivi") || core.contains("xem tivi") || core.contains("bật tv") || core.contains("mở tv")) {
             return VoiceCommand.Resume
         }
 
         // III. LỆNH ĐIỀU KHIỂN PHÁT (Playback Controls)
         when {
-            query.contains("kênh tiếp") || query.contains("tiếp theo") || query.contains("chuyển tiếp") || query.contains("kênh sau") -> {
+            core.contains("kênh tiếp") || core.contains("tiếp theo") || core.contains("chuyển tiếp") || core.contains("kênh sau") -> {
                 return VoiceCommand.NextChannel
             }
-            query.contains("kênh trước") || query.contains("kênh lùi") || query.contains("quay lại") || query.contains("kênh vừa xem") -> {
+            core.contains("kênh trước") || core.contains("kênh lùi") || core.contains("kênh vừa xem") -> {
                 return VoiceCommand.PreviousChannel
             }
-            query.contains("tạm dừng") || query == "dừng" || query == "pause" -> {
+            core.contains("tạm dừng") || core == "dừng" || core == "pause" -> {
                 return VoiceCommand.Pause
             }
-            query.contains("phát tiếp") || query.contains("tiếp tục") || query == "play" || query == "phát" -> {
+            core.contains("phát tiếp") || core.contains("tiếp tục") || core == "play" || core == "phát" -> {
                 return VoiceCommand.Resume
             }
-            query.contains("đổi nguồn") || query.contains("đổi server") || query.contains("server dự phòng") || query.contains("đổi link") -> {
+            core.contains("đổi nguồn") || core.contains("đổi server") || core.contains("server dự phòng") || core.contains("đổi link") -> {
                 return VoiceCommand.SwitchBackupSource
             }
-            query.contains("tràn viền") || query.contains("toàn màn hình") || query.contains("tỷ lệ") || query.contains("co giãn") -> {
+            core.contains("tràn viền") || core.contains("toàn màn hình") || core.contains("tỷ lệ") || core.contains("co giãn") -> {
                 return VoiceCommand.ToggleStretch
             }
         }
 
-        // IV. LỆNH TÌM KIẾM & PHÁT NHẠC / VIDEO CHUYÊN SÂU TRÊN YOUTUBE (HỖ TRỢ TÌM ĐÍCH DANH BÀI HÁT / CA SĨ / PHIM)
-        val isYoutubeExplicit = query.contains("youtube") || query.contains("you tube") || query.contains("du tu be")
-        val isMusicOrKaraoke = query.startsWith("mở nhạc ") || query.startsWith("nghe nhạc ") ||
-                               query.startsWith("bật nhạc ") || query.startsWith("hát karaoke ") ||
-                               query.startsWith("karaoke ") || query.startsWith("tìm nhạc ")
+        // IV. CÀI ĐẶT HỆ THỐNG TIVI (Wifi, Bluetooth, Cài đặt ứng dụng, Âm thanh, Màn hình...)
+        if (core.contains("wifi") || core.contains("mạng internet") || core.contains("cài đặt mạng")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.WIFI)
+        }
+        if (core.contains("bluetooth")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.BLUETOOTH)
+        }
+        if (core.contains("cài đặt âm thanh") || core.contains("chỉnh âm thanh")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.SOUND)
+        }
+        if (core.contains("cài đặt màn hình") || core.contains("cài đặt hiển thị")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.DISPLAY)
+        }
+        if (core.contains("quản lý ứng dụng") || core.contains("cài đặt ứng dụng") || core.contains("danh sách ứng dụng")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.APPS)
+        }
+        if (core.contains("cài đặt ngày giờ") || core.contains("chỉnh giờ")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.DATE)
+        }
+        if (core.contains("cài đặt hệ thống") || core.contains("cài đặt tivi") || core == "cài đặt" || core == "settings" ||
+            core.startsWith("mở cài đặt") || core.startsWith("vào cài đặt")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.SYSTEM)
+        }
+
+        // V. KIỂM TRA PHIM & DUYỆT THỂ LOẠI / DANH MỤC (BrowseCategory)
+        val isCategoryIntent = core.contains("kiểm tra ") || core.contains("danh mục ") || core.contains("thể loại ") ||
+                               core.contains("danh sách ") || core.startsWith("xem danh mục") || core.startsWith("chọn thể loại")
+
+        if (core.contains("phim mới") || (isCategoryIntent && core.contains("mới"))) {
+            return VoiceCommand.BrowseCategory("all", "Phim Mới Cập Nhật")
+        }
+        if (core.contains("phim lẻ") || (isCategoryIntent && core.contains("lẻ"))) {
+            return VoiceCommand.BrowseCategory("phim-le", "Phim Lẻ")
+        }
+        if (core.contains("phim bộ") || (isCategoryIntent && core.contains("bộ"))) {
+            return VoiceCommand.BrowseCategory("phim-bo", "Phim Bộ")
+        }
+        if (core.contains("hoạt hình") || core.contains("anime")) {
+            return VoiceCommand.BrowseCategory("hoat-hinh", "Phim Hoạt Hình")
+        }
+        if (core.contains("phim chiếu rạp") || core.contains("chiếu rạp") || core.contains("phim rạp")) {
+            return VoiceCommand.BrowseCategory("phim-chieu-rap", "Phim Chiếu Rạp")
+        }
+        if (core.contains("cổ trang") || core.contains("tvb") || core.contains("phim tvb")) {
+            return VoiceCommand.BrowseCategory("co-trang", "Cổ Trang & TVB")
+        }
+        if (core.contains("phim 4k") || core.contains("4k cinema") || core.contains("torrent")) {
+            return VoiceCommand.BrowseCategory("torrent-4k", "Phim 4K Cinema")
+        }
+        if (isCategoryIntent && (core.contains("bóng đá") || core.contains("thể thao"))) {
+            return VoiceCommand.BrowseCategory("tv-live", "Bóng Đá & TV")
+        }
+        if (core.contains("phim hành động") || (isCategoryIntent && core.contains("hành động"))) {
+            return VoiceCommand.BrowseCategory("hanh-dong", "Hành Động")
+        }
+        if (core.contains("phim kinh dị") || (isCategoryIntent && core.contains("kinh dị"))) {
+            return VoiceCommand.BrowseCategory("kinh-di", "Kinh Dị")
+        }
+        if (core.contains("phim viễn tưởng") || (isCategoryIntent && core.contains("viễn tưởng"))) {
+            return VoiceCommand.BrowseCategory("vien-tuong", "Viễn Tưởng")
+        }
+        if (core.contains("phim hài") || (isCategoryIntent && core.contains("hài hước"))) {
+            return VoiceCommand.BrowseCategory("hai-huoc", "Hài Hước")
+        }
+        if (core.contains("tv show") || (isCategoryIntent && core.contains("shows"))) {
+            return VoiceCommand.BrowseCategory("tv-shows", "TV Shows")
+        }
+
+        // VI. LỆNH TÌM KIẾM & PHÁT NHẠC / VIDEO CHUYÊN SÂU TRÊN YOUTUBE
+        val isYoutubeExplicit = core.contains("youtube")
+        val isMusicOrKaraoke = core.contains("nhạc") || core.contains("karaoke") ||
+                               core.contains("bài hát") || core.contains("ca khúc")
 
         if (isYoutubeExplicit || isMusicOrKaraoke) {
-            // Kiểm tra nếu người dùng chỉ nói mở ứng dụng YouTube:
-            var appCandidate = query
+            // Kiểm tra nếu người dùng chỉ muốn mở ứng dụng YouTube (không tìm kiếm video cụ thể)
+            var justAppCheck = core
             for (p in listOf(
-                "em hãy mở ứng dụng ", "hãy mở ứng dụng ", "mở ứng dụng ", "bật ứng dụng ",
-                "em hãy mở app ", "hãy mở app ", "mở app ", "bật app ",
-                "em hãy mở ", "hãy mở ", "em mở ", "mở ", "bật ", "vào "
+                "mở ứng dụng ", "bật ứng dụng ", "chạy ứng dụng ", "vào ứng dụng ",
+                "mở app ", "bật app ", "chạy app ", "vào app ",
+                "mở ", "bật ", "chạy ", "vào "
             )) {
-                if (appCandidate.startsWith(p)) {
-                    appCandidate = appCandidate.removePrefix(p).trim()
+                if (justAppCheck.startsWith(p)) {
+                    justAppCheck = justAppCheck.removePrefix(p).trim()
                     break
                 }
             }
-            for (s in SUFFIX_CLEANUP) {
-                if (appCandidate.endsWith(s)) {
-                    appCandidate = appCandidate.removeSuffix(s).trim()
+            for (s in GENERAL_SUFFIXES) {
+                if (justAppCheck.endsWith(s)) {
+                    justAppCheck = justAppCheck.removeSuffix(s).trim()
                     break
                 }
             }
-
-            if (appCandidate == "youtube" || appCandidate == "you tube" || appCandidate == "du tu be") {
+            if (justAppCheck == "youtube") {
                 return VoiceCommand.OpenApp("youtube")
             }
 
-            // Nếu câu chứa tên bài hát, ca sĩ, thể loại (ví dụ: "mở nhạc lệ quyên trên youtube cho anh", "hát karaoke duyên phận")
-            var cleanSearch = query
-                .replace("trên youtube", "")
-                .replace("ở youtube", "")
-                .replace("trong youtube", "")
-                .replace("qua youtube", "")
-                .replace("bằng youtube", "")
-                .replace("youtube", "")
-                .trim()
+            // Người dùng tìm bài hát, ca sĩ, video:
+            // 1. Tách bỏ các chỉ định YouTube
+            var searchTarget = core
+            for (ym in YOUTUBE_MARKERS) {
+                if (searchTarget.contains(ym)) {
+                    searchTarget = searchTarget.replace(ym, "").trim()
+                }
+            }
+            searchTarget = searchTarget.replace("youtube", "").trim()
 
+            // 2. Tách bỏ các tiền tố hành động
             for (p in listOf(
-                "em hãy mở bài hát ", "hãy mở bài hát ", "mở bài hát ", "bật bài hát ",
-                "em hãy mở ca khúc ", "hãy mở ca khúc ", "mở ca khúc ",
-                "em hãy mở nhạc ", "hãy mở nhạc ", "mở nhạc ", "bật nhạc ", "nghe nhạc ",
-                "em hãy mở karaoke ", "hãy mở karaoke ", "mở karaoke ", "hát karaoke ", "karaoke ",
-                "em hãy tìm kiếm ", "hãy tìm kiếm ", "tìm kiếm ", "em hãy tìm ", "hãy tìm ", "tìm ",
-                "em hãy mở ", "hãy mở ", "em mở ", "mở ", "bật ", "xem "
+                "mở bài hát ", "bật bài hát ", "nghe bài hát ",
+                "mở ca khúc ", "bật ca khúc ", "nghe ca khúc ",
+                "mở nhạc ", "bật nhạc ", "nghe nhạc ", "tìm nhạc ",
+                "mở karaoke ", "bật karaoke ", "hát karaoke ", "karaoke ",
+                "mở ", "bật ", "nghe ", "tìm kiếm ", "tìm ", "xem ", "chiếu "
             )) {
-                if (cleanSearch.startsWith(p)) {
-                    cleanSearch = cleanSearch.removePrefix(p).trim()
+                if (searchTarget.startsWith(p)) {
+                    searchTarget = searchTarget.removePrefix(p).trim()
+                    break
+                }
+            }
+            if (searchTarget == "mở nhạc" || searchTarget == "bật nhạc" || searchTarget == "nghe nhạc") {
+                searchTarget = ""
+            }
+
+            // 3. Tách bỏ các hậu tố thân mật giao tiếp tiếng Việt ("cho anh", "giúp em"...)
+            for (s in GENERAL_SUFFIXES) {
+                if (searchTarget.endsWith(s)) {
+                    searchTarget = searchTarget.removeSuffix(s).trim()
                     break
                 }
             }
 
-            for (s in SUFFIX_CLEANUP) {
-                if (cleanSearch.endsWith(s)) {
-                    cleanSearch = cleanSearch.removeSuffix(s).trim()
+            // 4. Nếu sau khi tách chỉ còn trống hoặc từ "nhạc", đề xuất mở nhạc tuyển chọn hot nhất
+            val finalSearch = when {
+                searchTarget.isBlank() || searchTarget == "nhạc" -> "nhạc tuyển chọn hay nhất"
+                core.contains("karaoke") && !searchTarget.contains("karaoke") -> "karaoke $searchTarget"
+                else -> searchTarget
+            }
+
+            return VoiceCommand.YouTubeSearch(finalSearch)
+        }
+
+        // VII. MỞ MỌI ỨNG DỤNG BẤT KỲ TRÊN TIVI (Universal App Launcher)
+        val isAppCommand = core.startsWith("mở ứng dụng ") || core.startsWith("mở app ") ||
+                           core.startsWith("bật ứng dụng ") || core.startsWith("bật app ") ||
+                           core.startsWith("chạy ứng dụng ") || core.startsWith("chạy app ") ||
+                           core.startsWith("vào ứng dụng ") || core.startsWith("vào app ") ||
+                           core.startsWith("khởi động ứng dụng ") || core.startsWith("khởi động app ")
+
+        if (isAppCommand) {
+            var appName = core
+            for (p in listOf(
+                "mở ứng dụng ", "mở app ", "bật ứng dụng ", "bật app ",
+                "chạy ứng dụng ", "chạy app ", "vào ứng dụng ", "vào app ",
+                "khởi động ứng dụng ", "khởi động app "
+            )) {
+                if (appName.startsWith(p)) {
+                    appName = appName.removePrefix(p).trim()
                     break
                 }
             }
-
-            if (cleanSearch.isNotBlank()) {
-                val finalQuery = if (query.contains("karaoke") && !cleanSearch.contains("karaoke")) {
-                    "karaoke $cleanSearch"
-                } else {
-                    cleanSearch
+            for (s in GENERAL_SUFFIXES) {
+                if (appName.endsWith(s)) {
+                    appName = appName.removeSuffix(s).trim()
+                    break
                 }
-                return VoiceCommand.YouTubeSearch(finalQuery)
+            }
+            if (appName.isNotBlank()) {
+                return VoiceCommand.OpenApp(appName)
             }
         }
 
-        // V. LỆNH MỞ CÁC ỨNG DỤNG KHÁC TRÊN TIVI (Netflix, Cài đặt, CH Play, X-plore...)
+        // Tên các ứng dụng phổ biến trên TV khi người dùng nói trực tiếp (VD: "mở netflix", "vào vlc", "kodi")
         val knownApps = listOf(
-            "netflix", "cài đặt", "settings", "xplore", "x-plore",
-            "ch play", "chplay", "google play", "cửa hàng",
-            "ott navigator", "trình duyệt", "browser", "kodi",
-            "smarttube", "vieon", "fpt play", "tv360", "vtvgo"
+            "netflix", "kodi", "vlc", "spotify", "vieon", "fpt play", "tv360",
+            "vtvgo", "xplore", "x-plore", "monster tv", "smarttube", "tiktok", "zing mp3",
+            "ch play", "google play", "cửa hàng"
         )
         for (app in knownApps) {
-            if (query.contains(app)) {
+            if (core.contains(app)) {
                 return VoiceCommand.OpenApp(app)
             }
         }
 
-        // VI. LỆNH TÌM KIẾM PHIM TRONG DUYTV
-        if (query.startsWith("tìm phim ") || query.startsWith("tìm kiếm ") || query.startsWith("xem phim ")) {
-            val movieQuery = query.removePrefix("tìm phim ").removePrefix("tìm kiếm ").removePrefix("xem phim ").trim()
-            if (movieQuery.isNotBlank()) {
-                return VoiceCommand.SearchMovie(movieQuery)
+        // VIII. LỆNH MỞ PHIM & TÌM KIẾM PHIM TRONG DUYTV
+        val isMovieExplicit = core.startsWith("mở phim ") || core.startsWith("bật phim ") ||
+                              core.startsWith("xem phim ") || core.startsWith("chiếu phim ") ||
+                              core.startsWith("coi phim ") || core.startsWith("phim ") ||
+                              core.startsWith("tìm phim ")
+
+        if (isMovieExplicit) {
+            var movieTitle = core
+            for (p in listOf(
+                "mở phim ", "bật phim ", "xem phim ", "chiếu phim ", "coi phim ", "tìm phim ", "phim "
+            )) {
+                if (movieTitle.startsWith(p)) {
+                    movieTitle = movieTitle.removePrefix(p).trim()
+                    break
+                }
+            }
+            for (s in GENERAL_SUFFIXES) {
+                if (movieTitle.endsWith(s)) {
+                    movieTitle = movieTitle.removeSuffix(s).trim()
+                    break
+                }
+            }
+            if (movieTitle.isNotBlank()) {
+                return VoiceCommand.OpenMovie(movieTitle)
             }
         }
 
-        // VII. CHUYỂN KÊNH TRUYỀN HÌNH DUYTV
+        if (core.startsWith("tìm kiếm ") || core.startsWith("tìm ")) {
+            var searchTxt = core.removePrefix("tìm kiếm ").removePrefix("tìm ").trim()
+            for (s in GENERAL_SUFFIXES) {
+                if (searchTxt.endsWith(s)) {
+                    searchTxt = searchTxt.removeSuffix(s).trim()
+                    break
+                }
+            }
+            if (searchTxt.isNotBlank()) {
+                return VoiceCommand.SearchMovie(searchTxt)
+            }
+        }
+
+        // IX. CHUYỂN KÊNH TRUYỀN HÌNH DUYTV
         if (availableChannels.isNotEmpty()) {
-            // 1. Loại bỏ tiền tố nói chuyện thông thường
-            var cleanedTarget = query
-            for (prefix in PREFIX_CLEANUP) {
+            // 1. Loại bỏ tiền tố hành động
+            var cleanedTarget = core
+            for (prefix in ACTION_PREFIXES) {
                 if (cleanedTarget.startsWith(prefix)) {
                     cleanedTarget = cleanedTarget.removePrefix(prefix).trim()
                     break
@@ -283,7 +462,7 @@ object VoiceCommandParser {
             }
 
             // 2. Loại bỏ hậu tố thân mật giao tiếp tiếng Việt ("cho anh", "giúp em", "hộ tôi"...)
-            for (suffix in SUFFIX_CLEANUP) {
+            for (suffix in GENERAL_SUFFIXES) {
                 if (cleanedTarget.endsWith(suffix)) {
                     cleanedTarget = cleanedTarget.removeSuffix(suffix).trim()
                     break
@@ -339,7 +518,7 @@ object VoiceCommandParser {
             }
 
             // D. Khớp từ khóa thể thao / bóng đá
-            if (query.contains("bóng đá") || query.contains("thể thao") || query.contains("ngoại hạng")) {
+            if (core.contains("bóng đá") || core.contains("thể thao") || core.contains("ngoại hạng")) {
                 val sportsIdx = availableChannels.indexOfFirst { ch ->
                     val group = ch.groupTitle?.uppercase() ?: ""
                     val name = ch.name.uppercase()
@@ -348,6 +527,11 @@ object VoiceCommandParser {
                 if (sportsIdx >= 0) {
                     return VoiceCommand.SwitchChannel(sportsIdx, availableChannels[sportsIdx])
                 }
+            }
+
+            // X. THÔNG MINH BÙ TRÙ: Nếu không trùng kênh nào, thử tìm phim theo tên được nhắc đến!
+            if (cleanedTarget.length >= 3 && !cleanedTarget.startsWith("kênh ") && !cleanedTarget.startsWith("đài ")) {
+                return VoiceCommand.OpenMovie(cleanedTarget)
             }
         }
 

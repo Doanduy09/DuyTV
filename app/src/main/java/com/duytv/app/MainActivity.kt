@@ -17,7 +17,9 @@ import com.duytv.app.ui.theme.DuyTvTheme
 
 sealed class AppScreen {
     object Home : AppScreen()
+    data class CategoryHome(val categoryId: String) : AppScreen()
     object Search : AppScreen()
+    data class SearchQuery(val query: String) : AppScreen()
     data class Detail(val slug: String) : AppScreen()
     data class Player(
         val slug: String,
@@ -216,7 +218,31 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             if (action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                pendingScreenFromIntent = AppScreen.Search
+                pendingVoiceTrigger = true
+                val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
+                    com.duytv.app.data.AppCacheManager.activeChannels
+                } else {
+                    MovieRepository.getVerifiedOfficialChannels()
+                }
+                val targetCh = channels.find {
+                    it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+                } ?: channels.firstOrNull()
+                if (targetCh != null) {
+                    val allUrls = targetCh.allStreamUrls()
+                    val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
+                    pendingScreenFromIntent = AppScreen.Player(
+                        slug = "live_${targetCh.id}",
+                        movieTitle = targetCh.name,
+                        episodeName = "TRỰC TIẾP",
+                        streamUrl = primary,
+                        posterUrl = targetCh.logoUrl,
+                        subtitleUrl = null,
+                        initialPositionMs = 0L,
+                        backupUrls = allUrls.drop(1)
+                    )
+                } else {
+                    pendingScreenFromIntent = AppScreen.Search
+                }
             }
             return true
         }
@@ -379,7 +405,10 @@ class MainActivity : ComponentActivity() {
                         is AppScreen.Detail -> {
                             currentScreen = AppScreen.Home
                         }
-                        is AppScreen.Search -> {
+                        is AppScreen.Search, is AppScreen.SearchQuery -> {
+                            currentScreen = AppScreen.Home
+                        }
+                        is AppScreen.CategoryHome -> {
                             currentScreen = AppScreen.Home
                         }
                         else -> {}
@@ -429,6 +458,42 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                    is AppScreen.CategoryHome -> {
+                        HomeScreen(
+                            repository = repository,
+                            onMovieSelected = { slug ->
+                                currentScreen = AppScreen.Detail(slug)
+                            },
+                            onOpenSearch = {
+                                currentScreen = AppScreen.Search
+                            },
+                            onResumePlayback = { historyItem ->
+                                currentScreen = AppScreen.Player(
+                                    slug = historyItem.slug,
+                                    movieTitle = historyItem.movieTitle,
+                                    episodeName = historyItem.episodeName,
+                                    streamUrl = historyItem.streamUrl,
+                                    posterUrl = historyItem.posterUrl,
+                                    subtitleUrl = null,
+                                    initialPositionMs = historyItem.positionMs
+                                )
+                            },
+                            onPlayLiveStream = { title, streamUrl, posterUrl, backups ->
+                                currentScreen = AppScreen.Player(
+                                    slug = "live_${System.currentTimeMillis()}",
+                                    movieTitle = title,
+                                    episodeName = "TRỰC TIẾP",
+                                    streamUrl = streamUrl,
+                                    posterUrl = posterUrl,
+                                    subtitleUrl = null,
+                                    initialPositionMs = 0L,
+                                    backupUrls = backups
+                                )
+                            },
+                            initialCategoryId = screen.categoryId,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                     is AppScreen.Search -> {
                         SearchScreen(
                             repository = repository,
@@ -450,6 +515,31 @@ class MainActivity : ComponentActivity() {
                                     backupUrls = allUrls.drop(1)
                                 )
                             },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    is AppScreen.SearchQuery -> {
+                        SearchScreen(
+                            repository = repository,
+                            onMovieSelected = { slug ->
+                                currentScreen = AppScreen.Detail(slug)
+                            },
+                            onBack = { currentScreen = AppScreen.Home },
+                            onPlayLiveChannel = { ch ->
+                                val allUrls = ch.allStreamUrls()
+                                val primary = allUrls.firstOrNull() ?: ch.streamUrl
+                                currentScreen = AppScreen.Player(
+                                    slug = "live_${ch.id}",
+                                    movieTitle = ch.name,
+                                    episodeName = "TRỰC TIẾP",
+                                    streamUrl = primary,
+                                    posterUrl = ch.logoUrl,
+                                    subtitleUrl = null,
+                                    initialPositionMs = 0L,
+                                    backupUrls = allUrls.drop(1)
+                                )
+                            },
+                            initialQuery = screen.query,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -492,6 +582,9 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
                                 }
+                            },
+                            onNavigate = { targetScreen ->
+                                currentScreen = targetScreen
                             },
                             modifier = Modifier.fillMaxSize()
                         )

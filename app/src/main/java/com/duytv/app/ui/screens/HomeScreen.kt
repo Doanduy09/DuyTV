@@ -93,6 +93,7 @@ fun HomeScreen(
     onOpenSearch: () -> Unit,
     onResumePlayback: (WatchHistoryItem) -> Unit,
     onPlayLiveStream: (title: String, streamUrl: String, posterUrl: String?, backupUrls: List<String>) -> Unit = { _, _, _, _ -> },
+    initialCategoryId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -324,6 +325,15 @@ fun HomeScreen(
                     repository.getMoviesByCategory(category.endpoint, 1)
                 }
                 isCategoryLoadingMore = false
+            }
+        }
+    }
+
+    LaunchedEffect(initialCategoryId) {
+        if (!initialCategoryId.isNullOrBlank()) {
+            val target = NAV_CATEGORIES.firstOrNull { it.id == initialCategoryId }
+            if (target != null && target != selectedCategory) {
+                switchCategory(target)
             }
         }
     }
