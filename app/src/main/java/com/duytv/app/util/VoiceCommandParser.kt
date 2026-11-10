@@ -23,6 +23,11 @@ sealed class VoiceCommand {
     data class SwitchEpisode(val episodeNumber: Int) : VoiceCommand()
     object NextEpisode : VoiceCommand()
     object PreviousEpisode : VoiceCommand()
+    data class SetPlaybackSpeed(val speed: Float, val label: String) : VoiceCommand()
+    object ToggleClearDialog : VoiceCommand()
+    object ToggleSubtitle : VoiceCommand()
+    object SwitchAudioTrack : VoiceCommand()
+    object SkipIntro : VoiceCommand()
 
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
@@ -88,7 +93,33 @@ object VoiceCommandParser {
         // Kênh Giải trí khác
         "tu đây" to "today",
         "thô đây" to "today",
-        "bê tê vê" to "btv"
+        "bê tê vê" to "btv",
+
+        // Phim & Hoạt hình quốc tế phổ biến (Bilingual Phonetic Movie Mapping)
+        "người nhện" to "spider man",
+        "nguoi nhen" to "spider man",
+        "spiderman" to "spider man",
+        "người dơi" to "batman",
+        "nguoi doi" to "batman",
+        "biệt đội siêu anh hùng" to "avengers",
+        "avenger" to "avengers",
+        "đại chiến vô cực" to "avengers infinity war",
+        "hồi kết" to "avengers endgame",
+        "chú bé thám tử" to "conan",
+        "thám tử lừng danh" to "conan",
+        "thám tử conan" to "conan",
+        "vua hải tặc" to "one piece",
+        "đảo hải tặc" to "one piece",
+        "bảy viên ngọc rồng" to "dragon ball",
+        "ngọc rồng" to "dragon ball",
+        "quá nhanh quá nguy hiểm" to "fast and furious",
+        "fast & furious" to "fast and furious",
+        "chiến tranh giữa các vì sao" to "star wars",
+        "harry potter" to "harry potter",
+        "chúa tể những chiếc nhẫn" to "lord of the rings",
+        "lưỡi gươm diệt quỷ" to "kimetsu no yaiba",
+        "thanh gươm diệt quỷ" to "kimetsu no yaiba",
+        "chú thuật hồi chiến" to "jujutsu kaisen"
     )
 
     // Tiền tố câu chào giao tiếp tự nhiên của người Việt
@@ -201,7 +232,10 @@ object VoiceCommandParser {
                t == "kênh trước" || t == "kênh lùi" ||
                t == "tập tiếp" || t == "tập tiếp theo" || t == "tập trước" ||
                t == "tràn viền" || t == "toàn màn hình" ||
-               t == "quay lại" || t == "thoát"
+               t == "quay lại" || t == "thoát" ||
+               t == "bỏ qua mở đầu" || t == "skip intro" || t == "qua mở đầu" ||
+               t == "lọc giọng nói" || t == "rõ lời thoại" || t == "bật phụ đề" || t == "tắt phụ đề" ||
+               t == "nhanh hơn" || t == "chậm lại" || t == "tốc độ bình thường"
     }
 
     fun parse(rawText: String, availableChannels: List<TvChannel>): VoiceCommand {
@@ -308,6 +342,45 @@ object VoiceCommandParser {
             if (num != null && num > 0) {
                 val sec = if (unit == "phút" || unit == "p") num * 60 else num
                 return VoiceCommand.SeekDelta(-sec, "-${sec}s")
+            }
+        }
+
+        // III.C. LỆNH ĐIỀU KHIỂN TÍNH NĂNG XEM PHIM NÂNG CAO
+        // 1. Bỏ qua mở đầu (Skip Intro)
+        if (core.contains("bỏ qua mở đầu") || core.contains("skip intro") || core.contains("qua phần mở đầu") ||
+            core.contains("bỏ qua giới thiệu") || core.contains("bỏ giới thiệu") || core.contains("qua mở đầu")) {
+            return VoiceCommand.SkipIntro
+        }
+
+        // 2. Bật / Tắt phụ đề (Subtitles)
+        if (core.contains("bật phụ đề") || core.contains("tắt phụ đề") || core == "phụ đề" || core == "subtitle") {
+            return VoiceCommand.ToggleSubtitle
+        }
+
+        // 3. Lọc rõ lời thoại & tăng giọng nói (DRC Clear Voice Boost)
+        if (core.contains("lọc giọng nói") || core.contains("rõ lời thoại") || core.contains("tăng giọng nói") ||
+            core.contains("lọc âm đàm thoại") || core.contains("chế độ lời thoại") || core.contains("voice boost") ||
+            core.contains("lọc tiếng") || core.contains("lọc thoại")) {
+            return VoiceCommand.ToggleClearDialog
+        }
+
+        // 4. Chuyển kênh âm thanh / Thuyết minh / Audio Boost
+        if (core.contains("đổi thuyết minh") || core.contains("đổi lồng tiếng") || core.contains("đổi ngôn ngữ") ||
+            core.contains("chuyển thuyết minh") || core.contains("chuyển lồng tiếng")) {
+            return VoiceCommand.SwitchAudioTrack
+        }
+
+        // 5. Điều chỉnh tốc độ phát video (Playback Speed)
+        if (core.contains("tốc độ") || core.contains("nhanh hơn") || core.contains("chậm lại") || core.contains("phát nhanh") || core.contains("phát chậm")) {
+            return when {
+                core.contains("0.5") || core.contains("chậm một nửa") -> VoiceCommand.SetPlaybackSpeed(0.5f, "0.5x")
+                core.contains("0.75") || core.contains("chậm") -> VoiceCommand.SetPlaybackSpeed(0.75f, "0.75x")
+                core.contains("bình thường") || core.contains("1.0") || core.contains("1x") || core == "tốc độ chuẩn" -> VoiceCommand.SetPlaybackSpeed(1.0f, "1.0x")
+                core.contains("1.25") || core.contains("nhanh một chút") || core.contains("nhanh hơn một chút") -> VoiceCommand.SetPlaybackSpeed(1.25f, "1.25x")
+                core.contains("1.5") || core.contains("nhanh vừa") -> VoiceCommand.SetPlaybackSpeed(1.5f, "1.5x")
+                core.contains("2.0") || core.contains("2x") || core.contains("nhanh gấp đôi") || core.contains("cực nhanh") -> VoiceCommand.SetPlaybackSpeed(2.0f, "2.0x")
+                core.contains("nhanh hơn") -> VoiceCommand.SetPlaybackSpeed(1.25f, "1.25x")
+                else -> VoiceCommand.SetPlaybackSpeed(1.0f, "1.0x")
             }
         }
 

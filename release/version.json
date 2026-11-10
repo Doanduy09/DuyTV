@@ -1,7 +1,7 @@
 {
-  "versionCode": 49,
-  "versionName": "2.1.4",
+  "versionCode": 50,
+  "versionName": "2.1.5",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản v2.1.4 (Build #49): Sửa triệt để điều khiển giọng nói mở ứng dụng ngoài (YouTube, Facebook, Chrome) & bổ sung kênh VTV6 HD (VTV Cần Thơ). Khắc phục lỗi rò rỉ ExoPlayer khi nhấn phím Micro từ Remote TV trên Android 11+."
+  "releaseNotes": "Bản v2.1.5 (Build #50): Crash Shield bảo vệ tiến trình toàn cầu; NLP song ngữ thông minh cho phim quốc tế (Người nhện, Conan, Avengers, One Piece...); Điều khiển nâng cao bằng giọng nói: Tốc độ phát (0.5x - 2.0x), Lọc thoại rõ tiếng DRC (+12dB), Bật/Tắt phụ đề, Bỏ qua mở đầu; Tối ưu hóa bộ nhớ cho TV RAM thấp."
 }

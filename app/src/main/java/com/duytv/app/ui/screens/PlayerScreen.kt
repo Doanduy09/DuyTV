@@ -1496,6 +1496,37 @@ private fun PlayerScreenContent(
                         speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
                     }
                 }
+                is VoiceCommand.SetPlaybackSpeed -> {
+                    playbackSpeed = cmd.speed
+                    currentExoPlayer?.setPlaybackSpeed(cmd.speed)
+                    speakAndReport("Tốc độ: ${cmd.label}", "Dạ, đã chuyển tốc độ phát ${cmd.label}")
+                }
+                VoiceCommand.ToggleClearDialog -> {
+                    isDrcVoiceEnabled = !isDrcVoiceEnabled
+                    val msg = if (isDrcVoiceEnabled) "Lọc thoại rõ tiếng: BẬT (+12dB)" else "Lọc thoại rõ tiếng: TẮT"
+                    speakAndReport(msg, "Dạ, đã ${if (isDrcVoiceEnabled) "bật lọc rõ lời thoại" else "tắt lọc lời thoại"}")
+                }
+                VoiceCommand.ToggleSubtitle -> {
+                    val currentDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !currentDisabled)
+                        .build()
+                    val msg = if (currentDisabled) "Bật phụ đề" else "Tắt phụ đề"
+                    speakAndReport(msg, "Dạ, đã $msg")
+                }
+                VoiceCommand.SkipIntro -> {
+                    if (!isLive) {
+                        triggerSeek(85)
+                        speakAndReport("Bỏ qua mở đầu (+85s)", "Dạ, đã bỏ qua phần mở đầu")
+                    } else {
+                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                    }
+                }
+                VoiceCommand.SwitchAudioTrack -> {
+                    cycleAudioBoost()
+                    speakAndReport("Khuếch đại âm lượng: $audioBoostPercent%", "Dạ, đã đổi mức khuếch đại âm lượng $audioBoostPercent phần trăm")
+                }
                 is VoiceCommand.SwitchEpisode -> {
                     if (!isLive && availableEpisodes.isNotEmpty()) {
                         val targetIdx = availableEpisodes.indexOfFirst {

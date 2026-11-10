@@ -13,6 +13,16 @@ import java.util.concurrent.TimeUnit
 class DuyTvApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        // Crash Shield: Bắt toàn bộ uncaught exception nền để tránh app bị crash popup trên Android TV
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("CrashShield", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
+            if (thread.name.contains("DefaultDispatcher") || thread.name.contains("OkHttp") || thread.name.contains("ExoPlayer:Playback")) {
+                android.util.Log.w("CrashShield", "Suppressed non-fatal background crash on thread ${thread.name}")
+            } else {
+                defaultHandler?.uncaughtException(thread, throwable)
+            }
+        }
         AppCacheManager.init(this, MovieRepository.getVerifiedOfficialChannels())
     }
 
