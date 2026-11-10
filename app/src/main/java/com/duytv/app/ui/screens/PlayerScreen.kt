@@ -1370,7 +1370,7 @@ private fun PlayerScreenContent(
     val ttsAssistant = remember { VoiceTtsFeedback(context) }
 
     val voiceManager = remember {
-        VoiceAssistantManager(context) { recognizedText ->
+        VoiceAssistantManager(context) { recognizedText, candidates ->
             val player = currentExoPlayer
             fun speakAndReport(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
                 reportSuccess(message)
@@ -1648,23 +1648,32 @@ private fun PlayerScreenContent(
                 }
             }
 
-            val rawQuery = recognizedText.trim()
-            android.util.Log.i("VoiceCommandParser", "🎤 [VOICE INPUT]: '$rawQuery'")
+            val bestCandidate = VoiceCommandParser.selectBestCandidate(candidates, currentAvailableChannels)
+            val rawQuery = (if (bestCandidate.isNotBlank()) bestCandidate else recognizedText).trim()
+            android.util.Log.i("VoiceCommandParser", "🎤 [VOICE INPUT BEST]: '$rawQuery' (từ danh sách: $candidates)")
 
             // 1. Phản hồi tức thì 0ms cho các khẩu lệnh điều khiển nhanh cục bộ
             if (VoiceCommandParser.isQuickTriggerCommand(rawQuery)) {
                 val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
                 executeVoiceCommand(cmd)
             } else {
-                // 2. Với các câu nói phức tạp: Thử suy luận qua dàn 12 tài khoản Gemini Pro (Hermes LAN Gateway)
+                // 2. Nạp ngữ cảnh thời gian thực (Context Injection)
+                val currentMovie = movieTitle
+                val currentEp = episodeName
+                val currentSec = (currentExoPlayer?.currentPosition ?: 0L) / 1000L
+                val currentCh = currentAvailableChannels.getOrNull(currentChannelIndex)?.name
+                val voiceCtx = com.duytv.app.util.VoiceContext(currentMovie, currentEp, currentSec, currentCh)
+
+                // 3. Phân tích qua Bộ Não Đa Mô Hình (Claude Opus/Sonnet 5.5, GPT-OSS 120B, Gemini Pro 12-Pool)
                 scope.launch {
-                    val aiAction = GeminiVoiceClient.query(rawQuery)
+                    val aiAction = GeminiVoiceClient.query(rawQuery, voiceCtx)
                     if (aiAction != null) {
+                        val modelTag = if (!aiAction.modelName.isNullOrBlank()) " [${aiAction.modelName}]" else ""
                         when (aiAction.action) {
                             "search_youtube" -> {
                                 val q = aiAction.query ?: rawQuery
                                 val tts = aiAction.ttsReply ?: "Dạ, em mở ngay trên YouTube cho anh"
-                                speakAndReport("YouTube: ${q.uppercase()}", tts) {
+                                speakAndReport("YouTube: ${q.uppercase()}$modelTag", tts) {
                                     launchYouTubeSearch(context, q)
                                 }
                             }
@@ -1675,7 +1684,7 @@ private fun PlayerScreenContent(
                                 }
                                 if (chIdx >= 0) {
                                     val tts = aiAction.ttsReply ?: "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}"
-                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", tts)
+                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}$modelTag", tts)
                                     switchToChannel(chIdx)
                                 } else {
                                     executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
@@ -1684,19 +1693,19 @@ private fun PlayerScreenContent(
                             "play_movie" -> {
                                 val q = aiAction.query ?: rawQuery
                                 val tts = aiAction.ttsReply ?: "Dạ, đang mở phim $q cho anh"
-                                speakAndReport("Đang tìm: $q", tts)
+                                speakAndReport("Đang tìm: $q$modelTag", tts)
                                 executeVoiceCommand(VoiceCommand.OpenMovie(q))
                             }
                             "chat" -> {
                                 val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
-                                speakAndReport(reply, reply)
+                                speakAndReport(reply + modelTag, reply)
                             }
                             else -> {
                                 executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
                             }
                         }
                     } else {
-                        // Fallback sang bộ phân tích cục bộ 0ms nếu không thể kết nối tới máy chủ Gemini Pro
+                        // Fallback sang bộ phân tích cục bộ 0ms nếu không thể kết nối tới máy chủ AI
                         val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
                         executeVoiceCommand(cmd)
                     }

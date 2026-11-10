@@ -24,7 +24,7 @@ sealed class VoiceState {
 
 class VoiceAssistantManager(
     private val context: Context,
-    private val onResult: VoiceAssistantManager.(String) -> Unit
+    private val onResult: VoiceAssistantManager.(String, List<String>) -> Unit
 ) {
     companion object {
         private const val TAG = "VoiceAssistantManager"
@@ -216,11 +216,11 @@ class VoiceAssistantManager(
             override fun onResults(results: Bundle?) {
                 mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val bestMatch = matches?.firstOrNull()?.trim()
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                val bestMatch = matches.firstOrNull()?.trim()
                 Log.d(TAG, "onResults: bestMatch=$bestMatch, matches=$matches")
                 if (!bestMatch.isNullOrBlank()) {
-                    this@VoiceAssistantManager.onResult(bestMatch)
+                    this@VoiceAssistantManager.onResult(bestMatch, matches)
                 } else {
                     _state.value = VoiceState.Error("Chưa nghe rõ khẩu lệnh. Hãy thử lại!")
                     scheduleReset(2200)
@@ -228,7 +228,8 @@ class VoiceAssistantManager(
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                val partialMatches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                val partial = partialMatches.firstOrNull()
                 if (!partial.isNullOrBlank()) {
                     _state.value = VoiceState.Processing(partial)
 
@@ -240,7 +241,7 @@ class VoiceAssistantManager(
                         try {
                             speechRecognizer?.stopListening()
                         } catch (_: Exception) {}
-                        this@VoiceAssistantManager.onResult(partial)
+                        this@VoiceAssistantManager.onResult(partial, partialMatches)
                         return
                     }
 

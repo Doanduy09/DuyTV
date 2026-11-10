@@ -147,7 +147,7 @@ fun VoiceOverlay(
                     }
 
                     val desc = when (state) {
-                        is VoiceState.Listening -> "Nói tự nhiên với Trợ lý DuyTV AI (Gemini Pro Brain)..."
+                        is VoiceState.Listening -> "Nói tự nhiên với DuyTV AI (Claude 5.5 • GPT-OSS 120B • Gemini Pro)..."
                         is VoiceState.Processing -> if (state.partialText.isNotBlank()) "Đang nghe: \"${state.partialText}\"" else "Đang nhận diện giọng nói..."
                         is VoiceState.Success -> state.message
                         is VoiceState.Error -> state.message

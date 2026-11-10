@@ -242,6 +242,64 @@ object VoiceCommandParser {
                t == "nhanh hơn" || t == "chậm lại" || t == "tốc độ bình thường"
     }
 
+    /**
+     * Giải mã lưới âm tiết đa ứng viên (N-Candidate Speech Lattice):
+     * Duyệt qua toàn bộ mảng EXTRA_RESULTS từ SpeechRecognizer, chấm điểm cấu trúc lệnh
+     * để tự động chọn ra ứng viên chính xác nhất thay vì chỉ lấy cứng candidate đầu tiên!
+     */
+    fun selectBestCandidate(candidates: List<String>, availableChannels: List<TvChannel>): String {
+        if (candidates.isEmpty()) return ""
+        if (candidates.size == 1) return candidates[0].trim()
+
+        var bestCandidate = candidates[0].trim()
+        var bestScore = -100
+
+        for (cand in candidates) {
+            val raw = cand.trim()
+            if (raw.isBlank()) continue
+            val norm = normalizeQuery(raw)
+            var score = 0
+
+            // 1. Khẩu lệnh nhanh 0ms (Ưu tiên tuyệt đối)
+            if (isQuickTriggerCommand(norm)) {
+                score += 150
+            }
+
+            // 2. Khớp kênh truyền hình
+            val matchesChannel = availableChannels.any { ch ->
+                val chNorm = normalizeQuery(ch.name)
+                norm == chNorm || norm.startsWith("mở $chNorm") || norm.startsWith("bật $chNorm") || norm.contains(chNorm)
+            }
+            if (matchesChannel) {
+                score += 100
+            }
+
+            // 3. Chứa động từ hành động điều khiển chuẩn
+            val actionVerbs = listOf("mở", "bật", "xem", "tăng", "giảm", "dừng", "phát", "tua", "tập", "kênh", "tìm", "chiếu")
+            for (verb in actionVerbs) {
+                if (norm.startsWith("$verb ") || norm.contains(" $verb ")) {
+                    score += 15
+                }
+            }
+
+            // 4. Khớp ý định YouTube / Âm nhạc / Karaoke
+            if (norm.contains("nhạc") || norm.contains("karaoke") || norm.contains("ca sĩ") || norm.contains("bài hát")) {
+                score += 25
+            }
+
+            // 5. Trừ điểm nếu bị Google STT nhét từ rác đầu câu
+            if (raw.startsWith("tải ") || raw.startsWith("hải ") || raw.startsWith("thử ")) {
+                score -= 10
+            }
+
+            if (score > bestScore) {
+                bestScore = score
+                bestCandidate = raw
+            }
+        }
+        return bestCandidate
+    }
+
     fun parse(rawText: String, availableChannels: List<TvChannel>): VoiceCommand {
         val query = normalizeQuery(rawText)
         if (query.isBlank()) return VoiceCommand.Unknown(rawText)
