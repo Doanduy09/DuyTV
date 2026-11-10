@@ -196,6 +196,10 @@ object VoiceCommandParser {
             text = text.replace(wrong, right)
         }
 
+        // Tự động sửa lỗi Google STT nhận nhầm "hãy" thành "hải" hoặc "tải" trước các động từ
+        text = text.replace(Regex("\\b(hải|tải|thử)\\s+(mở|bật|tăng|giảm|tìm|xem|chiếu|phát|chuyển|chạy|vào)\\b"), "hãy $2")
+        text = text.replace(Regex("^\\s*(hải|tải|thử)\\s+"), "hãy ")
+
         // 2. Thay thế phiên âm đài tiếng Việt (vê tê vê -> vtv, hát tê vê -> htv...)
         for ((phonetic, standard) in PHONETIC_ALIASES) {
             text = text.replace(phonetic, standard)
@@ -455,7 +459,12 @@ object VoiceCommandParser {
         // VI. LỆNH TÌM KIẾM & PHÁT NHẠC / VIDEO CHUYÊN SÂU TRÊN YOUTUBE
         val isYoutubeExplicit = core.contains("youtube")
         val isMusicOrKaraoke = core.contains("nhạc") || core.contains("karaoke") ||
-                               core.contains("bài hát") || core.contains("ca khúc")
+                               core.contains("bài hát") || core.contains("ca khúc") ||
+                               core.contains("ca sĩ") || core.contains("hài kịch") ||
+                               core.contains("hài ") || core.contains("bolero") ||
+                               core.contains("remix") || core.contains("acoustic") ||
+                               core.contains("cover") || core.contains("live music") ||
+                               core.contains("mv ") || core.contains("clip ")
 
         if (isYoutubeExplicit || isMusicOrKaraoke) {
             // Kiểm tra nếu người dùng chỉ muốn mở ứng dụng YouTube (không tìm kiếm video cụ thể)
@@ -490,19 +499,30 @@ object VoiceCommandParser {
             }
             searchTarget = searchTarget.replace("youtube", "").trim()
 
-            // 2. Tách bỏ các tiền tố hành động
-            for (p in listOf(
-                "mở bài hát ", "bật bài hát ", "nghe bài hát ",
-                "mở ca khúc ", "bật ca khúc ", "nghe ca khúc ",
+            // 2. Multi-Pass Query Sanitizer: Gọt sạch toàn bộ từ rác, tiền tố hành động & từ đệm
+            val noisePrefixes = listOf(
+                "em hãy ", "hãy ", "tải ", "hải ", "thử ", "làm ơn ", "vui lòng ",
+                "mở bài hát ", "bật bài hát ", "nghe bài hát ", "tìm bài hát ",
+                "mở ca khúc ", "bật ca khúc ", "nghe ca khúc ", "tìm ca khúc ",
+                "mở ca sĩ ", "bật ca sĩ ", "nghe ca sĩ ", "tìm ca sĩ ", "ca sĩ ",
+                "mở bài ", "bật bài ", "nghe bài ", "tìm bài ",
                 "mở nhạc ", "bật nhạc ", "nghe nhạc ", "tìm nhạc ",
                 "mở karaoke ", "bật karaoke ", "hát karaoke ", "karaoke ",
-                "mở ", "bật ", "nghe ", "tìm kiếm ", "tìm ", "xem ", "chiếu "
-            )) {
-                if (searchTarget.startsWith(p)) {
-                    searchTarget = searchTarget.removePrefix(p).trim()
-                    break
+                "mở hài ", "xem hài ", "bật hài ", "hài kịch ", "hài ",
+                "mở ", "bật ", "nghe ", "tìm kiếm ", "tìm ", "xem ", "chiếu ", "phát "
+            )
+            var cleanedMore = true
+            while (cleanedMore) {
+                cleanedMore = false
+                for (p in noisePrefixes) {
+                    if (searchTarget.startsWith(p)) {
+                        searchTarget = searchTarget.removePrefix(p).trim()
+                        cleanedMore = true
+                        break
+                    }
                 }
             }
+
             if (searchTarget == "mở nhạc" || searchTarget == "bật nhạc" || searchTarget == "nghe nhạc") {
                 searchTarget = ""
             }

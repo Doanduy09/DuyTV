@@ -1,7 +1,7 @@
 {
-  "versionCode": 50,
-  "versionName": "2.1.5",
+  "versionCode": 51,
+  "versionName": "2.1.6",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản v2.1.5 (Build #50): Crash Shield bảo vệ tiến trình toàn cầu; NLP song ngữ thông minh cho phim quốc tế (Người nhện, Conan, Avengers, One Piece...); Điều khiển nâng cao bằng giọng nói: Tốc độ phát (0.5x - 2.0x), Lọc thoại rõ tiếng DRC (+12dB), Bật/Tắt phụ đề, Bỏ qua mở đầu; Tối ưu hóa bộ nhớ cho TV RAM thấp."
+  "releaseNotes": "Bản v2.1.6 (Build #51): Tích hợp trực tiếp bộ não Gemini Pro Brain (kết nối trực tiếp 12 tài khoản Google AI Pool chính thức của Anh Duy); Smart Intent Auto-Routing phân tuyến thông minh sang YouTube; Multi-Pass Query Sanitizer gọt sạch từ khóa rác; Tăng âm lượng nhạy 3 nấc + kích hoạt bộ khuếch đại phần cứng."
 }

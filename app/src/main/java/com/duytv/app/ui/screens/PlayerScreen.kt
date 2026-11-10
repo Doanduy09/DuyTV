@@ -12,6 +12,8 @@ import com.duytv.app.util.VoiceTtsFeedback
 import com.duytv.app.util.VoiceState
 import com.duytv.app.util.VoiceCommandParser
 import com.duytv.app.util.VoiceCommand
+import com.duytv.app.util.GeminiVoiceClient
+import com.duytv.app.util.GeminiVoiceAction
 import com.duytv.app.ui.components.VoiceOverlay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -1397,236 +1399,307 @@ private fun PlayerScreenContent(
                 }
             }
 
-            val cmd = VoiceCommandParser.parse(recognizedText, currentAvailableChannels)
-            when (cmd) {
-                is VoiceCommand.SwitchChannel -> {
-                    speakAndReport("Đang mở: ${cmd.channel.name}", "Dạ, đang mở kênh ${cmd.channel.name}")
-                    switchToChannel(cmd.index)
-                }
-                is VoiceCommand.OpenApp -> {
-                    speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
-                        launchAppByQuery(context, cmd.target)
+            val executeVoiceCommand: (VoiceCommand) -> Unit = { cmd ->
+                when (cmd) {
+                    is VoiceCommand.SwitchChannel -> {
+                        speakAndReport("Đang mở: ${cmd.channel.name}", "Dạ, đang mở kênh ${cmd.channel.name}")
+                        switchToChannel(cmd.index)
                     }
-                }
-                is VoiceCommand.YouTubeSearch -> {
-                    speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
-                        launchYouTubeSearch(context, cmd.query)
-                    }
-                }
-                is VoiceCommand.AdjustVolume -> {
-                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                    val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-                    audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-                    val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng" else "Dạ, đã giảm âm lượng"
-                    speakAndReport(if (cmd.isIncrease) "Đã tăng âm lượng" else "Đã giảm âm lượng", phrase)
-                }
-                VoiceCommand.ToggleMute -> {
-                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                    audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
-                    speakAndReport("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
-                }
-                is VoiceCommand.SystemAction -> {
-                    when (cmd.type) {
-                        VoiceCommand.SystemActionType.HOME -> {
-                            speakAndReport("Về trang chủ", "Dạ, về trang chủ")
-                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                                addCategory(Intent.CATEGORY_HOME)
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(homeIntent)
-                        }
-                        VoiceCommand.SystemActionType.BACK -> {
-                            speakAndReport("Quay lại", "Dạ, quay lại")
-                            onClose()
-                        }
-                        VoiceCommand.SystemActionType.POWER -> {
-                            speakAndReport("Đang tắt...", "Dạ, đang tắt tivi")
-                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                                addCategory(Intent.CATEGORY_HOME)
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(homeIntent)
+                    is VoiceCommand.OpenApp -> {
+                        speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
+                            launchAppByQuery(context, cmd.target)
                         }
                     }
-                }
-                VoiceCommand.NextChannel -> {
-                    speakAndReport("Chuyển kênh tiếp theo", "Dạ, kênh tiếp theo")
-                    nextChannel()
-                }
-                VoiceCommand.PreviousChannel -> {
-                    speakAndReport("Quay lại kênh trước", "Dạ, quay lại kênh trước")
-                    previousChannel()
-                }
-                VoiceCommand.Pause -> {
-                    speakAndReport("Tạm dừng phát", "Dạ, đã tạm dừng")
-                    exoPlayer.pause()
-                    isPlaying = false
-                }
-                VoiceCommand.Resume -> {
-                    speakAndReport("Tiếp tục phát", "Dạ, tiếp tục phát")
-                    exoPlayer.play()
-                    isPlaying = true
-                }
-                VoiceCommand.SwitchBackupSource -> {
-                    speakAndReport("Đổi server dự phòng", "Dạ, đã đổi server")
-                    switchBackupSource()
-                }
-                VoiceCommand.ToggleStretch -> {
-                    val modes = VideoAspectMode.values()
-                    val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
-                    currentAspectMode = modes[nextIdx]
-                    AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
-                    speakAndReport(currentAspectMode.label, "Dạ, đã đổi tỷ lệ màn hình")
-                }
-                is VoiceCommand.SeekTo -> {
-                    if (!isLive) {
-                        val safePos = cmd.positionMs.coerceIn(0L, maxOf(1L, exoPlayer.duration))
-                        exoPlayer.seekTo(safePos)
-                        currentPosMs = safePos
-                        speakAndReport("Tua đến: ${cmd.label}", "Dạ, đang tua đến ${cmd.label}")
-                    } else {
-                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
-                    }
-                }
-                is VoiceCommand.SeekDelta -> {
-                    if (!isLive) {
-                        triggerSeek(cmd.deltaSeconds)
-                        speakAndReport("Tua: ${cmd.label}", "Dạ, đã tua ${cmd.label}")
-                    } else {
-                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
-                    }
-                }
-                is VoiceCommand.SetPlaybackSpeed -> {
-                    playbackSpeed = cmd.speed
-                    currentExoPlayer?.setPlaybackSpeed(cmd.speed)
-                    speakAndReport("Tốc độ: ${cmd.label}", "Dạ, đã chuyển tốc độ phát ${cmd.label}")
-                }
-                VoiceCommand.ToggleClearDialog -> {
-                    isDrcVoiceEnabled = !isDrcVoiceEnabled
-                    val msg = if (isDrcVoiceEnabled) "Lọc thoại rõ tiếng: BẬT (+12dB)" else "Lọc thoại rõ tiếng: TẮT"
-                    speakAndReport(msg, "Dạ, đã ${if (isDrcVoiceEnabled) "bật lọc rõ lời thoại" else "tắt lọc lời thoại"}")
-                }
-                VoiceCommand.ToggleSubtitle -> {
-                    val currentDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                        .buildUpon()
-                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !currentDisabled)
-                        .build()
-                    val msg = if (currentDisabled) "Bật phụ đề" else "Tắt phụ đề"
-                    speakAndReport(msg, "Dạ, đã $msg")
-                }
-                VoiceCommand.SkipIntro -> {
-                    if (!isLive) {
-                        triggerSeek(85)
-                        speakAndReport("Bỏ qua mở đầu (+85s)", "Dạ, đã bỏ qua phần mở đầu")
-                    } else {
-                        speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
-                    }
-                }
-                VoiceCommand.SwitchAudioTrack -> {
-                    cycleAudioBoost()
-                    speakAndReport("Khuếch đại âm lượng: $audioBoostPercent%", "Dạ, đã đổi mức khuếch đại âm lượng $audioBoostPercent phần trăm")
-                }
-                is VoiceCommand.SwitchEpisode -> {
-                    if (!isLive && availableEpisodes.isNotEmpty()) {
-                        val targetIdx = availableEpisodes.indexOfFirst {
-                            it.name.contains("${cmd.episodeNumber}")
-                        }.takeIf { it >= 0 } ?: (cmd.episodeNumber - 1).coerceIn(availableEpisodes.indices)
-                        
-                        if (targetIdx in availableEpisodes.indices) {
-                            val ep = availableEpisodes[targetIdx]
-                            speakAndReport("Đang mở: ${ep.name}", "Dạ, đang mở ${ep.name}")
-                            playVodEpisodeAt(targetIdx)
-                        } else {
-                            speakAndReport("Không có tập ${cmd.episodeNumber}", "Dạ, phim không có tập ${cmd.episodeNumber}")
+                    is VoiceCommand.YouTubeSearch -> {
+                        speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
+                            launchYouTubeSearch(context, cmd.query)
                         }
-                    } else {
-                        speakAndReport("Chỉ dùng khi xem phim bộ", "Dạ, lệnh này chỉ dùng khi xem phim bộ")
                     }
-                }
-                VoiceCommand.NextEpisode -> {
-                    if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex + 1 < availableEpisodes.size) {
-                        val nextIdx = currentEpisodeIndex + 1
-                        val ep = availableEpisodes[nextIdx]
-                        speakAndReport("Tập tiếp: ${ep.name}", "Dạ, đang mở tập tiếp theo")
-                        playVodEpisodeAt(nextIdx)
-                    } else {
-                        speakAndReport("Đã ở tập cuối", "Dạ, đây là tập cuối cùng rồi ạ")
+                    is VoiceCommand.AdjustVolume -> {
+                        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+                        repeat(3) {
+                            audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+                        }
+                        if (cmd.isIncrease && audioBoostPercent < 150) {
+                            audioBoostPercent = 150
+                            AppCacheManager.savePreferredAudioBoost(context, 150)
+                        }
+                        val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng to rõ rồi anh nhé" else "Dạ, đã giảm âm lượng"
+                        speakAndReport(if (cmd.isIncrease) "Đã tăng âm lượng (+3)" else "Đã giảm âm lượng (-3)", phrase)
                     }
-                }
-                VoiceCommand.PreviousEpisode -> {
-                    if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex > 0) {
-                        val prevIdx = currentEpisodeIndex - 1
-                        val ep = availableEpisodes[prevIdx]
-                        speakAndReport("Tập trước: ${ep.name}", "Dạ, đang mở tập trước")
-                        playVodEpisodeAt(prevIdx)
-                    } else {
-                        speakAndReport("Đã ở tập đầu tiên", "Dạ, đây là tập đầu tiên rồi ạ")
+                    VoiceCommand.ToggleMute -> {
+                        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+                        speakAndReport("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
                     }
-                }
-                is VoiceCommand.BrowseCategory -> {
-                    speakAndReport("Đang mở: ${cmd.categoryName}", "Dạ, đang mở danh mục ${cmd.categoryName}")
-                    onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome(cmd.categoryId))
-                }
-                is VoiceCommand.OpenMovie -> {
-                    speakAndReport("Đang tìm: ${cmd.query}", "Dạ, em đang tìm phim ${cmd.query}")
-                    scope.launch {
-                        try {
-                            val repo = repository ?: MovieRepository()
-                            val results = repo.searchMovies(cmd.query)
-                            val first = results.firstOrNull()
-                            if (first != null) {
-                                val detail = repo.getMovieDetail(first.slug)
-                                val epList = detail?.episodes?.firstOrNull()?.serverData.orEmpty()
-                                val ep1 = epList.firstOrNull()
-                                if (ep1 != null && !ep1.linkM3u8.isNullOrBlank()) {
-                                    speakAndReport("Đang chiếu: ${first.name} - ${ep1.name}", "Dạ, đang chiếu phim ${first.name}")
-                                    onNavigate?.invoke(
-                                        com.duytv.app.AppScreen.Player(
-                                            slug = first.slug,
-                                            movieTitle = first.name,
-                                            episodeName = ep1.name,
-                                            streamUrl = ep1.linkM3u8,
-                                            posterUrl = first.posterUrl ?: first.thumbUrl,
-                                            subtitleUrl = null,
-                                            initialPositionMs = 0L,
-                                            backupUrls = ep1.backupStreams,
-                                            episodes = epList
-                                        )
-                                    )
-                                } else {
-                                    speakAndReport("Đang mở: ${first.name}", "Dạ, đang mở phim ${first.name}")
-                                    onNavigate?.invoke(com.duytv.app.AppScreen.Detail(first.slug))
+                    is VoiceCommand.SystemAction -> {
+                        when (cmd.type) {
+                            VoiceCommand.SystemActionType.HOME -> {
+                                speakAndReport("Về trang chủ", "Dạ, về trang chủ")
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 }
+                                context.startActivity(homeIntent)
+                            }
+                            VoiceCommand.SystemActionType.BACK -> {
+                                speakAndReport("Quay lại", "Dạ, quay lại")
+                                onClose()
+                            }
+                            VoiceCommand.SystemActionType.POWER -> {
+                                speakAndReport("Đang tắt...", "Dạ, đang tắt tivi")
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(homeIntent)
+                            }
+                        }
+                    }
+                    VoiceCommand.NextChannel -> {
+                        speakAndReport("Chuyển kênh tiếp theo", "Dạ, kênh tiếp theo")
+                        nextChannel()
+                    }
+                    VoiceCommand.PreviousChannel -> {
+                        speakAndReport("Quay lại kênh trước", "Dạ, quay lại kênh trước")
+                        previousChannel()
+                    }
+                    VoiceCommand.Pause -> {
+                        speakAndReport("Tạm dừng phát", "Dạ, đã tạm dừng")
+                        exoPlayer.pause()
+                        isPlaying = false
+                    }
+                    VoiceCommand.Resume -> {
+                        speakAndReport("Tiếp tục phát", "Dạ, tiếp tục phát")
+                        exoPlayer.play()
+                        isPlaying = true
+                    }
+                    VoiceCommand.SwitchBackupSource -> {
+                        speakAndReport("Đổi server dự phòng", "Dạ, đã đổi server")
+                        switchBackupSource()
+                    }
+                    VoiceCommand.ToggleStretch -> {
+                        val modes = VideoAspectMode.values()
+                        val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
+                        currentAspectMode = modes[nextIdx]
+                        AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
+                        speakAndReport(currentAspectMode.label, "Dạ, đã đổi tỷ lệ màn hình")
+                    }
+                    is VoiceCommand.SeekTo -> {
+                        if (!isLive) {
+                            val safePos = cmd.positionMs.coerceIn(0L, maxOf(1L, exoPlayer.duration))
+                            exoPlayer.seekTo(safePos)
+                            currentPosMs = safePos
+                            speakAndReport("Tua đến: ${cmd.label}", "Dạ, đang tua đến ${cmd.label}")
+                        } else {
+                            speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                        }
+                    }
+                    is VoiceCommand.SeekDelta -> {
+                        if (!isLive) {
+                            triggerSeek(cmd.deltaSeconds)
+                            speakAndReport("Tua: ${cmd.label}", "Dạ, đã tua ${cmd.label}")
+                        } else {
+                            speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                        }
+                    }
+                    is VoiceCommand.SetPlaybackSpeed -> {
+                        playbackSpeed = cmd.speed
+                        currentExoPlayer?.setPlaybackSpeed(cmd.speed)
+                        speakAndReport("Tốc độ: ${cmd.label}", "Dạ, đã chuyển tốc độ phát ${cmd.label}")
+                    }
+                    VoiceCommand.ToggleClearDialog -> {
+                        isDrcVoiceEnabled = !isDrcVoiceEnabled
+                        val msg = if (isDrcVoiceEnabled) "Lọc thoại rõ tiếng: BẬT (+12dB)" else "Lọc thoại rõ tiếng: TẮT"
+                        speakAndReport(msg, "Dạ, đã ${if (isDrcVoiceEnabled) "bật lọc rõ lời thoại" else "tắt lọc lời thoại"}")
+                    }
+                    VoiceCommand.ToggleSubtitle -> {
+                        val currentDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !currentDisabled)
+                            .build()
+                        val msg = if (currentDisabled) "Bật phụ đề" else "Tắt phụ đề"
+                        speakAndReport(msg, "Dạ, đã $msg")
+                    }
+                    VoiceCommand.SkipIntro -> {
+                        if (!isLive) {
+                            triggerSeek(85)
+                            speakAndReport("Bỏ qua mở đầu (+85s)", "Dạ, đã bỏ qua phần mở đầu")
+                        } else {
+                            speakAndReport("Truyền hình không hỗ trợ tua", "Dạ, truyền hình trực tiếp không hỗ trợ tua")
+                        }
+                    }
+                    VoiceCommand.SwitchAudioTrack -> {
+                        cycleAudioBoost()
+                        speakAndReport("Khuếch đại âm lượng: $audioBoostPercent%", "Dạ, đã đổi mức khuếch đại âm lượng $audioBoostPercent phần trăm")
+                    }
+                    is VoiceCommand.SwitchEpisode -> {
+                        if (!isLive && availableEpisodes.isNotEmpty()) {
+                            val targetIdx = availableEpisodes.indexOfFirst {
+                                it.name.contains("${cmd.episodeNumber}")
+                            }.takeIf { it >= 0 } ?: (cmd.episodeNumber - 1).coerceIn(availableEpisodes.indices)
+                            
+                            if (targetIdx in availableEpisodes.indices) {
+                                val ep = availableEpisodes[targetIdx]
+                                speakAndReport("Đang mở: ${ep.name}", "Dạ, đang mở ${ep.name}")
+                                playVodEpisodeAt(targetIdx)
                             } else {
-                                // Kiểm tra nếu là tên kênh truyền hình
+                                speakAndReport("Không có tập ${cmd.episodeNumber}", "Dạ, phim không có tập ${cmd.episodeNumber}")
+                            }
+                        } else {
+                            speakAndReport("Chỉ dùng khi xem phim bộ", "Dạ, lệnh này chỉ dùng khi xem phim bộ")
+                        }
+                    }
+                    VoiceCommand.NextEpisode -> {
+                        if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex + 1 < availableEpisodes.size) {
+                            val nextIdx = currentEpisodeIndex + 1
+                            val ep = availableEpisodes[nextIdx]
+                            speakAndReport("Tập tiếp: ${ep.name}", "Dạ, đang mở tập tiếp theo")
+                            playVodEpisodeAt(nextIdx)
+                        } else {
+                            speakAndReport("Đã ở tập cuối", "Dạ, đây là tập cuối cùng rồi ạ")
+                        }
+                    }
+                    VoiceCommand.PreviousEpisode -> {
+                        if (!isLive && availableEpisodes.isNotEmpty() && currentEpisodeIndex > 0) {
+                            val prevIdx = currentEpisodeIndex - 1
+                            val ep = availableEpisodes[prevIdx]
+                            speakAndReport("Tập trước: ${ep.name}", "Dạ, đang mở tập trước")
+                            playVodEpisodeAt(prevIdx)
+                        } else {
+                            speakAndReport("Đã ở tập đầu tiên", "Dạ, đây là tập đầu tiên rồi ạ")
+                        }
+                    }
+                    is VoiceCommand.BrowseCategory -> {
+                        speakAndReport("Đang mở: ${cmd.categoryName}", "Dạ, đang mở danh mục ${cmd.categoryName}")
+                        onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome(cmd.categoryId))
+                    }
+                    is VoiceCommand.OpenMovie -> {
+                        speakAndReport("Đang tìm: ${cmd.query}", "Dạ, em đang tìm ${cmd.query}")
+                        scope.launch {
+                            try {
+                                val repo = repository ?: MovieRepository()
+                                val results = repo.searchMovies(cmd.query)
+                                val first = results.firstOrNull()
+                                if (first != null) {
+                                    val detail = repo.getMovieDetail(first.slug)
+                                    val epList = detail?.episodes?.firstOrNull()?.serverData.orEmpty()
+                                    val ep1 = epList.firstOrNull()
+                                    if (ep1 != null && !ep1.linkM3u8.isNullOrBlank()) {
+                                        speakAndReport("Đang chiếu: ${first.name} - ${ep1.name}", "Dạ, đang chiếu phim ${first.name}")
+                                        onNavigate?.invoke(
+                                            com.duytv.app.AppScreen.Player(
+                                                slug = first.slug,
+                                                movieTitle = first.name,
+                                                episodeName = ep1.name,
+                                                streamUrl = ep1.linkM3u8,
+                                                posterUrl = first.posterUrl ?: first.thumbUrl,
+                                                subtitleUrl = null,
+                                                initialPositionMs = 0L,
+                                                backupUrls = ep1.backupStreams,
+                                                episodes = epList
+                                            )
+                                        )
+                                    } else {
+                                        speakAndReport("Đang mở: ${first.name}", "Dạ, đang mở phim ${first.name}")
+                                        onNavigate?.invoke(com.duytv.app.AppScreen.Detail(first.slug))
+                                    }
+                                } else {
+                                    // Kiểm tra nếu là tên kênh truyền hình
+                                    val chIdx = currentAvailableChannels.indexOfFirst {
+                                        it.name.contains(cmd.query, ignoreCase = true)
+                                    }
+                                    if (chIdx >= 0) {
+                                        speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}")
+                                        switchToChannel(chIdx)
+                                    } else {
+                                        // Smart Fallback to YouTube: Nếu không có kênh và không có phim trong DuyTV, tự động mở YouTube!
+                                        speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                            launchYouTubeSearch(context, cmd.query)
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                    launchYouTubeSearch(context, cmd.query)
+                                }
+                            }
+                        }
+                    }
+                    is VoiceCommand.SearchMovie -> {
+                        speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
+                        currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                    }
+                    is VoiceCommand.OpenSetting -> {
+                        speakAndReport("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
+                        launchSettingIntent(context, cmd.settingType)
+                    }
+                    is VoiceCommand.Unknown -> {
+                        if (cmd.rawText.isNotBlank()) {
+                            speakAndReport("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
+                                launchYouTubeSearch(context, cmd.rawText)
+                            }
+                        } else {
+                            speakAndReport("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này")
+                        }
+                    }
+                }
+            }
+
+            val rawQuery = recognizedText.trim()
+            android.util.Log.i("VoiceCommandParser", "🎤 [VOICE INPUT]: '$rawQuery'")
+
+            // 1. Phản hồi tức thì 0ms cho các khẩu lệnh điều khiển nhanh cục bộ
+            if (VoiceCommandParser.isQuickTriggerCommand(rawQuery)) {
+                val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
+                executeVoiceCommand(cmd)
+            } else {
+                // 2. Với các câu nói phức tạp: Thử suy luận qua dàn 12 tài khoản Gemini Pro (Hermes LAN Gateway)
+                scope.launch {
+                    val aiAction = GeminiVoiceClient.query(rawQuery)
+                    if (aiAction != null) {
+                        when (aiAction.action) {
+                            "search_youtube" -> {
+                                val q = aiAction.query ?: rawQuery
+                                val tts = aiAction.ttsReply ?: "Dạ, em mở ngay trên YouTube cho anh"
+                                speakAndReport("YouTube: ${q.uppercase()}", tts) {
+                                    launchYouTubeSearch(context, q)
+                                }
+                            }
+                            "play_tv" -> {
+                                val q = aiAction.query ?: rawQuery
                                 val chIdx = currentAvailableChannels.indexOfFirst {
-                                    it.name.contains(cmd.query, ignoreCase = true)
+                                    it.name.contains(q, ignoreCase = true)
                                 }
                                 if (chIdx >= 0) {
-                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}")
+                                    val tts = aiAction.ttsReply ?: "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}"
+                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", tts)
                                     switchToChannel(chIdx)
                                 } else {
-                                    speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
-                                    currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                                    executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
                                 }
                             }
-                        } catch (e: Exception) {
-                            speakAndReport("Lỗi tìm phim", "Dạ, không tìm thấy kết quả")
-                            currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                            "play_movie" -> {
+                                val q = aiAction.query ?: rawQuery
+                                val tts = aiAction.ttsReply ?: "Dạ, đang mở phim $q cho anh"
+                                speakAndReport("Đang tìm: $q", tts)
+                                executeVoiceCommand(VoiceCommand.OpenMovie(q))
+                            }
+                            "chat" -> {
+                                val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
+                                speakAndReport(reply, reply)
+                            }
+                            else -> {
+                                executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
+                            }
                         }
+                    } else {
+                        // Fallback sang bộ phân tích cục bộ 0ms nếu không thể kết nối tới máy chủ Gemini Pro
+                        val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
+                        executeVoiceCommand(cmd)
                     }
-                }
-                is VoiceCommand.SearchMovie -> {
-                    speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
-                    currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
-                }
-                is VoiceCommand.OpenSetting -> {
-                    speakAndReport("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
-                    launchSettingIntent(context, cmd.settingType)
-                }
-                is VoiceCommand.Unknown -> {
-                    speakAndReport("Chưa rõ lệnh: \"${cmd.rawText}\"", "Dạ, em chưa hiểu câu lệnh này")
                 }
             }
         }
