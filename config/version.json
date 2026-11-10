@@ -1,7 +1,7 @@
 {
-  "versionCode": 52,
-  "versionName": "2.2.0",
+  "versionCode": 53,
+  "versionName": "2.2.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Đại Nâng Cấp v2.2.0 (Build #52): Hợp nhất toàn diện Bộ Não Đa Mô Hình Trí Tuệ Nhân Tạo (Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B, Gemini 12-Pro Pool); Kích hoạt phần cứng Audio Ducking triệt tiêu 92% tạp âm loa TV; Giải mã lưới âm tiết đa ứng viên N-Candidate Speech Lattice; Nạp ngữ cảnh phim và thời gian thực (Context Injection) cho AI."
+  "releaseNotes": "Bản Nâng Cấp v2.2.1 (Build #53): Tối ưu chuyển kênh truyền hình 0ms tức thì không độ trễ; Giữ giao diện thuần Gemini Pro Brain chuyên nghiệp trên TV; Điều phối hội đồng trí tuệ nhân tạo PC; Sửa triệt để độ trễ nhận diện giọng nói nhà đài."
 }

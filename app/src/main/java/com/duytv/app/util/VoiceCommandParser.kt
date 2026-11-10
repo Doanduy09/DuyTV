@@ -227,6 +227,10 @@ object VoiceCommandParser {
      */
     fun isQuickTriggerCommand(raw: String): Boolean {
         val t = normalizeQuery(raw).trim()
+        if (t.contains("vtv") || t.contains("htv") || t.contains("vtc") || t.contains("thvl") ||
+            t.contains("sctv") || t.contains("k+") || t.contains("bóng đá") || t.contains("kênh") || t.contains("đài")) {
+            return true
+        }
         return t == "dừng" || t == "tạm dừng" || t == "pause" ||
                t == "tiếp tục" || t == "phát tiếp" || t == "play" || t == "phát" ||
                t.startsWith("tăng âm") || t.startsWith("tăng loa") || t == "to hơn" || t == "to lên" || t == "lớn hơn" ||
@@ -310,6 +314,15 @@ object VoiceCommandParser {
             if (core.startsWith(salutation)) {
                 core = core.removePrefix(salutation).trim()
                 break
+            }
+        }
+
+        // ⚡ 0. ƯU TIÊN TUYỆT ĐỐI: KHỚP KÊNH TRUYỀN HÌNH & NHÀ ĐÀI TỨC THÌ 0ms
+        // Miễn là thấy tên các nhà đài (VTV, HTV, VTC, THVL, SCTV, K+,...) -> MỞ NGAY LẬP TỨC 0ms!
+        if (availableChannels.isNotEmpty()) {
+            val channelMatch = matchTvChannel(core, availableChannels)
+            if (channelMatch != null) {
+                return channelMatch
             }
         }
 
@@ -685,85 +698,88 @@ object VoiceCommandParser {
             }
         }
 
-        // IX. CHUYỂN KÊNH TRUYỀN HÌNH DUYTV
-        if (availableChannels.isNotEmpty()) {
-            // 1. Loại bỏ tiền tố hành động
-            var cleanedTarget = core
-            for (prefix in ACTION_PREFIXES) {
-                if (cleanedTarget.startsWith(prefix)) {
-                    cleanedTarget = cleanedTarget.removePrefix(prefix).trim()
-                    break
-                }
-            }
+        return VoiceCommand.Unknown(rawText)
+    }
 
-            // 2. Loại bỏ hậu tố thân mật giao tiếp tiếng Việt ("cho anh", "giúp em", "hộ tôi"...)
-            for (suffix in GENERAL_SUFFIXES) {
-                if (cleanedTarget.endsWith(suffix)) {
-                    cleanedTarget = cleanedTarget.removeSuffix(suffix).trim()
-                    break
-                }
-            }
+    /**
+     * Khớp kênh truyền hình & nhà đài cực nhanh 0ms (VTV, HTV, VTC, THVL, SCTV, K+, BTV, Today...)
+     */
+    fun matchTvChannel(core: String, availableChannels: List<TvChannel>): VoiceCommand.SwitchChannel? {
+        if (availableChannels.isEmpty()) return null
 
-            // A. Khớp theo số kênh trực tiếp ("kênh 5", "số 10")
-            val numberMatch = Regex("^\\s*(\\d{1,3})\\s*$").find(cleanedTarget)
-            if (numberMatch != null) {
-                val channelNumber = numberMatch.groupValues[1].toIntOrNull()
-                if (channelNumber != null && channelNumber in 1..availableChannels.size) {
-                    val targetIdx = channelNumber - 1
-                    return VoiceCommand.SwitchChannel(targetIdx, availableChannels[targetIdx])
-                }
+        // 1. Loại bỏ tiền tố hành động
+        var cleanedTarget = core
+        for (prefix in ACTION_PREFIXES) {
+            if (cleanedTarget.startsWith(prefix)) {
+                cleanedTarget = cleanedTarget.removePrefix(prefix).trim()
+                break
             }
+        }
 
-            // B. Khớp theo mã định danh kênh chuẩn (MovieRepository.normalizeChannelKey)
-            val normalizedTargetKey = MovieRepository.normalizeChannelKey(cleanedTarget)
+        // 2. Loại bỏ hậu tố thân mật giao tiếp tiếng Việt ("cho anh", "giúp em", "hộ tôi"...)
+        for (suffix in GENERAL_SUFFIXES) {
+            if (cleanedTarget.endsWith(suffix)) {
+                cleanedTarget = cleanedTarget.removeSuffix(suffix).trim()
+                break
+            }
+        }
+
+        // A. Khớp theo số kênh trực tiếp ("kênh 5", "số 10")
+        val numberMatch = Regex("^\\s*(?:kênh\\s+|số\\s+)?(\\d{1,3})\\s*$").find(cleanedTarget)
+        if (numberMatch != null) {
+            val channelNumber = numberMatch.groupValues[1].toIntOrNull()
+            if (channelNumber != null && channelNumber in 1..availableChannels.size) {
+                val targetIdx = channelNumber - 1
+                return VoiceCommand.SwitchChannel(targetIdx, availableChannels[targetIdx])
+            }
+        }
+
+        // B. Khớp theo mã định danh kênh chuẩn (MovieRepository.normalizeChannelKey)
+        val normalizedTargetKey = MovieRepository.normalizeChannelKey(cleanedTarget)
+        if (normalizedTargetKey.isNotBlank()) {
             val directKeyMatchIdx = availableChannels.indexOfFirst { ch ->
                 val chKey = MovieRepository.normalizeChannelKey(ch.name)
-                chKey == normalizedTargetKey && normalizedTargetKey.isNotBlank()
+                chKey == normalizedTargetKey
             }
             if (directKeyMatchIdx >= 0) {
                 return VoiceCommand.SwitchChannel(directKeyMatchIdx, availableChannels[directKeyMatchIdx])
             }
+        }
 
-            // C. Khớp mờ theo khoảng cách ngữ âm Levenshtein & Substring
-            val compactTarget = cleanedTarget.replace(Regex("[^a-z0-9]"), "")
-            if (compactTarget.isNotBlank()) {
-                val fuzzyIdx = fuzzyMatchChannel(compactTarget, availableChannels)
-                if (fuzzyIdx >= 0) {
-                    return VoiceCommand.SwitchChannel(fuzzyIdx, availableChannels[fuzzyIdx])
-                }
-
-                // Thử khớp theo tên gốc không dấu
-                val targetNoAccent = removeAccents(cleanedTarget)
-                if (targetNoAccent.length >= 3) {
-                    val nameMatchIdx = availableChannels.indexOfFirst { ch ->
-                        val chNoAccent = removeAccents(ch.name)
-                        chNoAccent.contains(targetNoAccent, ignoreCase = true)
-                    }
-                    if (nameMatchIdx >= 0) {
-                        return VoiceCommand.SwitchChannel(nameMatchIdx, availableChannels[nameMatchIdx])
-                    }
-                }
+        // C. Khớp mờ theo khoảng cách ngữ âm Levenshtein & Substring
+        val compactTarget = cleanedTarget.replace(Regex("[^a-z0-9]"), "")
+        if (compactTarget.isNotBlank()) {
+            val fuzzyIdx = fuzzyMatchChannel(compactTarget, availableChannels)
+            if (fuzzyIdx >= 0) {
+                return VoiceCommand.SwitchChannel(fuzzyIdx, availableChannels[fuzzyIdx])
             }
 
-            // D. Khớp từ khóa thể thao / bóng đá
-            if (core.contains("bóng đá") || core.contains("thể thao") || core.contains("ngoại hạng")) {
-                val sportsIdx = availableChannels.indexOfFirst { ch ->
-                    val group = ch.groupTitle?.uppercase() ?: ""
-                    val name = ch.name.uppercase()
-                    group.contains("THỂ THAO") || group.contains("SPORTS") || name.contains("SPORTS") || name.contains("ON FOOTBALL") || name.contains("ON SPORTS")
+            // Thử khớp theo tên gốc không dấu
+            val targetNoAccent = removeAccents(cleanedTarget)
+            if (targetNoAccent.length >= 2) {
+                val nameMatchIdx = availableChannels.indexOfFirst { ch ->
+                    val chNoAccent = removeAccents(ch.name)
+                    chNoAccent.contains(targetNoAccent, ignoreCase = true) || targetNoAccent.contains(chNoAccent, ignoreCase = true)
                 }
-                if (sportsIdx >= 0) {
-                    return VoiceCommand.SwitchChannel(sportsIdx, availableChannels[sportsIdx])
+                if (nameMatchIdx >= 0) {
+                    return VoiceCommand.SwitchChannel(nameMatchIdx, availableChannels[nameMatchIdx])
                 }
-            }
-
-            // X. THÔNG MINH BÙ TRÙ: Nếu không trùng kênh nào, thử tìm phim theo tên được nhắc đến!
-            if (cleanedTarget.length >= 3 && !cleanedTarget.startsWith("kênh ") && !cleanedTarget.startsWith("đài ")) {
-                return VoiceCommand.OpenMovie(cleanedTarget)
             }
         }
 
-        return VoiceCommand.Unknown(rawText)
+        // D. Khớp từ khóa thể thao / bóng đá
+        if (core.contains("bóng đá") || core.contains("thể thao") || core.contains("ngoại hạng")) {
+            val sportsIdx = availableChannels.indexOfFirst { ch ->
+                val group = ch.groupTitle?.uppercase() ?: ""
+                val name = ch.name.uppercase()
+                group.contains("THỂ THAO") || group.contains("SPORTS") || name.contains("SPORTS") || name.contains("ON FOOTBALL") || name.contains("ON SPORTS")
+            }
+            if (sportsIdx >= 0) {
+                return VoiceCommand.SwitchChannel(sportsIdx, availableChannels[sportsIdx])
+            }
+        }
+
+        return null
     }
 
     fun levenshteinDistance(s1: String, s2: String): Int {

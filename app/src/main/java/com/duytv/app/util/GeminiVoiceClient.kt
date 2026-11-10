@@ -22,46 +22,27 @@ data class GeminiVoiceAction(
     val action: String, // "play_tv", "play_movie", "search_youtube", "playback_control", "system_action", "chat"
     val query: String? = null,
     val ttsReply: String? = null,
-    val target: String? = null,
-    val modelName: String? = null
+    val target: String? = null
 )
 
 /**
- * BỘ NÃO ĐA MÔ HÌNH HỢP NHẤT DUYTV (Unified Multi-Model Voice Brain):
- * 
- * 1. Cụm Mô Hình Tư Duy Sâu Sắc (High-Reasoning Cluster):
- *    - Claude Opus 5.5 & Claude Sonnet 5.5: Phân tích ngữ cảnh phức tạp, ý định ẩn, tâm lý học điện ảnh.
- *    - GPT-OSS 120B (Medium): Kho tri thức bách khoa, giải mã phim theo nội dung mô tả, gợi ý thông minh.
- * 
- * 2. Cụm Tốc Độ Cao & Đa Tài Khoản (High-Speed & Pool Cluster):
- *    - Gemini 4 / Argon / Gemini 3.8 Flash (Dàn 12 tài khoản Google AI Pool của Anh Duy qua LAN 192.168.1.189:8100).
- *    - Google Gemini Cloud Direct (Chạy độc lập trên TV không phụ thuộc máy tính PC).
- * 
- * 3. Tầng Phản Xạ Cục Bộ 0ms (Zero-Latency Local Reflex):
- *    - VoiceCommandParser: Tự động fallback trong < 1.5s nếu mạng nghẽn hoặc offline, không bao giờ đơ/treo TV.
+ * Trợ Lý Trí Tuệ Nhân Tạo DuyTV (Gemini Pro Brain):
+ * - Vận hành chuyên biệt trên nền tảng Google Gemini Pro (kết nối trực tiếp 12 tài khoản Google AI Pool của Anh Duy qua LAN 192.168.1.189:8100 hoặc Google Gemini Cloud Direct).
+ * - Timeout siêu nhanh 1200ms để đảm bảo không bao giờ làm trễ TV.
  */
 object GeminiVoiceClient {
-    private const val TAG = "UnifiedVoiceBrain"
+    private const val TAG = "GeminiVoiceClient"
 
-    // Cổng LAN AI Bridge (chạy 12 tài khoản Google Gemini Pro, Claude 5.5, GPT-OSS 120B)
+    // Cổng LAN AI Bridge (chạy 12 tài khoản Google Gemini Pro của Anh Duy)
     var hermesHostUrl: String = "http://192.168.1.189:8100/v1/chat/completions"
 
     // Cổng Google Gemini Cloud chính thức độc lập
     var geminiDirectApiKey: String = ""
 
-    // Danh sách các model AI được hỗ trợ theo mức độ ưu tiên
-    val SUPPORTED_AI_MODELS = listOf(
-        "gemini-3.8-flash-low",
-        "gemini-4-argon",
-        "gpt-oss-120b",
-        "claude-sonnet-4-6",
-        "claude-opus-4-6"
-    )
-
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(1500, TimeUnit.MILLISECONDS)
-        .readTimeout(2500, TimeUnit.MILLISECONDS)
+        .connectTimeout(1200, TimeUnit.MILLISECONDS)
+        .readTimeout(2000, TimeUnit.MILLISECONDS)
         .build()
 
     private fun buildSystemPrompt(context: VoiceContext?): String {
@@ -75,17 +56,16 @@ object GeminiVoiceClient {
         }
 
         return """
-            Bạn là Trợ lý AI DuyTV độc quyền cho Anh Duy trên Android TV.
-            Hệ thống vận hành đa mô hình (Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B, Gemini Pro 12-Pool).
+            Bạn là Trợ lý AI DuyTV (Gemini Pro Brain) độc quyền cho Anh Duy trên Android TV.
             
             Ngữ cảnh thiết bị hiện tại:$contextInfo
             
             Nhiệm vụ: Phân tích khẩu lệnh tiếng Việt của Anh Duy và trả về đúng JSON hành động.
             
             Quy tắc phân loại:
-            1. 'play_tv': Xem truyền hình Việt Nam (VTV1, HTV9, VTC, THVL, K+, bóng đá...).
+            1. 'play_tv': Xem truyền hình Việt Nam (VTV, HTV, VTC, THVL, K+, bóng đá...).
             2. 'play_movie': Xem phim ảnh, anime, phim bộ, phim lẻ trong kho DuyTV.
-            3. 'search_youtube': Tìm kiếm ca sĩ, bài hát, MV, karaoke, hài kịch, tin tức, review trên YouTube.
+            3. 'search_youtube': Tìm kiếm ca sĩ, bài hát, MV, karaoke, hài kịch, tin tức trên YouTube.
             4. 'playback_control': Điều khiển video (pause, resume, seek, speed, clear_dialog, subtitle, next_ep, prev_ep).
             5. 'system_action': Điều khiển TV (volume_up, volume_down, mute, home, back, power).
             6. 'chat': Hỏi đáp nội dung phim đang xem, thời tiết, kiến thức, trò chuyện tự nhiên với Anh Duy.
@@ -108,51 +88,48 @@ object GeminiVoiceClient {
             if (directResult != null) return@withContext directResult
         }
 
-        // 2. Thử truy vấn qua Cổng LAN Đa Mô Hình (Hermes Bridge)
-        for (modelName in SUPPORTED_AI_MODELS) {
-            try {
-                val messages = listOf(
-                    mapOf("role" to "system", "content" to systemPrompt),
-                    mapOf("role" to "user", "content" to userInput)
-                )
-                val reqBodyJson = JsonObject().apply {
-                    addProperty("model", modelName)
-                    add("messages", gson.toJsonTree(messages))
-                    addProperty("temperature", 0.1)
-                }
+        // 2. Gọi qua Cổng LAN Gemini Pro Pool (192.168.1.189:8100)
+        try {
+            val messages = listOf(
+                mapOf("role" to "system", "content" to systemPrompt),
+                mapOf("role" to "user", "content" to userInput)
+            )
+            val reqBodyJson = JsonObject().apply {
+                addProperty("model", "gemini-3.8-flash-low")
+                add("messages", gson.toJsonTree(messages))
+                addProperty("temperature", 0.1)
+            }
 
-                val mediaType = "application/json; charset=utf-8".toMediaType()
-                val request = Request.Builder()
-                    .url(hermesHostUrl)
-                    .post(reqBodyJson.toString().toRequestBody(mediaType))
-                    .build()
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val request = Request.Builder()
+                .url(hermesHostUrl)
+                .post(reqBodyJson.toString().toRequestBody(mediaType))
+                .build()
 
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    val bodyStr = response.body?.string()
-                    if (!bodyStr.isNullOrBlank()) {
-                        val rootObj = gson.fromJson(bodyStr, JsonObject::class.java)
-                        val content = rootObj.getAsJsonArray("choices")
-                            ?.get(0)?.asJsonObject
-                            ?.getAsJsonObject("message")
-                            ?.get("content")?.asString
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val bodyStr = response.body?.string()
+                if (!bodyStr.isNullOrBlank()) {
+                    val rootObj = gson.fromJson(bodyStr, JsonObject::class.java)
+                    val content = rootObj.getAsJsonArray("choices")
+                        ?.get(0)?.asJsonObject
+                        ?.getAsJsonObject("message")
+                        ?.get("content")?.asString
 
-                        if (!content.isNullOrBlank()) {
-                            val jsonStr = extractJsonString(content)
-                            val parsedObj = gson.fromJson(jsonStr, JsonObject::class.java)
-                            val action = parsedObj.get("action")?.asString ?: "chat"
-                            val query = parsedObj.get("query")?.asString
-                            val ttsReply = parsedObj.get("tts_reply")?.asString
+                    if (!content.isNullOrBlank()) {
+                        val jsonStr = extractJsonString(content)
+                        val parsedObj = gson.fromJson(jsonStr, JsonObject::class.java)
+                        val action = parsedObj.get("action")?.asString ?: "chat"
+                        val query = parsedObj.get("query")?.asString
+                        val ttsReply = parsedObj.get("tts_reply")?.asString
 
-                            Log.i(TAG, "[$modelName] Đã giải mã: action=$action, query=$query, tts=$ttsReply")
-                            return@withContext GeminiVoiceAction(action, query, ttsReply, modelName = modelName)
-                        }
+                        Log.i(TAG, "Gemini Pro Brain đã giải mã: action=$action, query=$query, tts=$ttsReply")
+                        return@withContext GeminiVoiceAction(action, query, ttsReply)
                     }
                 }
-            } catch (e: Exception) {
-                // Tiếp tục thử model kế tiếp trong cụm đa mô hình hoặc fallback
-                Log.d(TAG, "Model $modelName không khả dụng (${e.message}), thử phương án dự phòng...")
             }
+        } catch (e: Exception) {
+            Log.d(TAG, "Gemini Pro LAN không phản hồi (${e.message}), chuyển sang phản xạ cục bộ 0ms")
         }
 
         return@withContext null
@@ -214,7 +191,7 @@ object GeminiVoiceClient {
                 val ttsReply = parsed.get("tts_reply")?.asString
 
                 Log.i(TAG, "[Gemini Cloud Direct] action=$action, query=$query, tts=$ttsReply")
-                return GeminiVoiceAction(action, query, ttsReply, modelName = "Gemini Cloud")
+                return GeminiVoiceAction(action, query, ttsReply)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Gemini Cloud Direct lỗi (${e.message})")

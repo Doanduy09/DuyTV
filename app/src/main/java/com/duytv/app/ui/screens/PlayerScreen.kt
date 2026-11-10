@@ -1652,28 +1652,30 @@ private fun PlayerScreenContent(
             val rawQuery = (if (bestCandidate.isNotBlank()) bestCandidate else recognizedText).trim()
             android.util.Log.i("VoiceCommandParser", "🎤 [VOICE INPUT BEST]: '$rawQuery' (từ danh sách: $candidates)")
 
-            // 1. Phản hồi tức thì 0ms cho các khẩu lệnh điều khiển nhanh cục bộ
-            if (VoiceCommandParser.isQuickTriggerCommand(rawQuery)) {
-                val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
-                executeVoiceCommand(cmd)
+            // 1. Phân tích khẩu lệnh cục bộ tức thì 0ms (Zero-Latency Local Reflex)
+            val localCmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
+
+            // 2. NẾU LÀ LỆNH ĐIỀU KHIỂN RÕ RÀNG (Kênh truyền hình, Nhà đài, Âm lượng, Playback, Cài đặt, YouTube, App, Phim rõ ràng):
+            // THỰC THI NGAY LẬP TỨC 0ms - TUYỆT ĐỐI KHÔNG CHỜ MẠNG, KHÔNG QUA AI!
+            if (localCmd !is VoiceCommand.Unknown) {
+                executeVoiceCommand(localCmd)
             } else {
-                // 2. Nạp ngữ cảnh thời gian thực (Context Injection)
+                // 3. CHỈ KHI hoàn toàn không khớp bất kỳ lệnh nào (câu hỏi tự do, trò chuyện, tìm kiếm nâng cao...)
+                // MỚI GỬI LÊN TRỢ LÝ GEMINI PRO BRAIN (qua LAN 192.168.1.189:8100 hoặc Direct Gemini Cloud)
                 val currentMovie = movieTitle
                 val currentEp = episodeName
                 val currentSec = (currentExoPlayer?.currentPosition ?: 0L) / 1000L
                 val currentCh = currentAvailableChannels.getOrNull(currentChannelIndex)?.name
                 val voiceCtx = com.duytv.app.util.VoiceContext(currentMovie, currentEp, currentSec, currentCh)
 
-                // 3. Phân tích qua Bộ Não Đa Mô Hình (Claude Opus/Sonnet 5.5, GPT-OSS 120B, Gemini Pro 12-Pool)
                 scope.launch {
                     val aiAction = GeminiVoiceClient.query(rawQuery, voiceCtx)
                     if (aiAction != null) {
-                        val modelTag = if (!aiAction.modelName.isNullOrBlank()) " [${aiAction.modelName}]" else ""
                         when (aiAction.action) {
                             "search_youtube" -> {
                                 val q = aiAction.query ?: rawQuery
                                 val tts = aiAction.ttsReply ?: "Dạ, em mở ngay trên YouTube cho anh"
-                                speakAndReport("YouTube: ${q.uppercase()}$modelTag", tts) {
+                                speakAndReport("YouTube: ${q.uppercase()}", tts) {
                                     launchYouTubeSearch(context, q)
                                 }
                             }
@@ -1684,30 +1686,29 @@ private fun PlayerScreenContent(
                                 }
                                 if (chIdx >= 0) {
                                     val tts = aiAction.ttsReply ?: "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}"
-                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}$modelTag", tts)
+                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", tts)
                                     switchToChannel(chIdx)
                                 } else {
-                                    executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
+                                    executeVoiceCommand(localCmd)
                                 }
                             }
                             "play_movie" -> {
                                 val q = aiAction.query ?: rawQuery
                                 val tts = aiAction.ttsReply ?: "Dạ, đang mở phim $q cho anh"
-                                speakAndReport("Đang tìm: $q$modelTag", tts)
+                                speakAndReport("Đang tìm: $q", tts)
                                 executeVoiceCommand(VoiceCommand.OpenMovie(q))
                             }
                             "chat" -> {
                                 val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
-                                speakAndReport(reply + modelTag, reply)
+                                speakAndReport(reply, reply)
                             }
                             else -> {
-                                executeVoiceCommand(VoiceCommandParser.parse(rawQuery, currentAvailableChannels))
+                                executeVoiceCommand(localCmd)
                             }
                         }
                     } else {
-                        // Fallback sang bộ phân tích cục bộ 0ms nếu không thể kết nối tới máy chủ AI
-                        val cmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
-                        executeVoiceCommand(cmd)
+                        // Không kết nối được AI -> Thực thi lệnh mặc định
+                        executeVoiceCommand(localCmd)
                     }
                 }
             }
