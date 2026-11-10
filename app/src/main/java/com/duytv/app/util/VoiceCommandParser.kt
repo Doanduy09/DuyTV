@@ -486,7 +486,7 @@ object VoiceCommandParser {
         val knownApps = listOf(
             "netflix", "kodi", "vlc", "spotify", "vieon", "fpt play", "tv360",
             "vtvgo", "xplore", "x-plore", "monster tv", "smarttube", "tiktok", "zing mp3",
-            "ch play", "google play", "cửa hàng"
+            "ch play", "google play", "cửa hàng", "facebook", "fb", "chrome", "trình duyệt"
         )
         for (app in knownApps) {
             if (core.contains(app)) {

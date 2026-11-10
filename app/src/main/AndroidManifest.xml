@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Network & Hardware Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -8,11 +9,33 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <package android:name="com.google.android.youtube.tv" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.liskovsoft.videomanager" />
+        <package android:name="com.liskovsoft.smarttubetv.beta" />
+        <package android:name="com.netflix.ninja" />
+        <package android:name="com.spotify.tv.android" />
+        <package android:name="org.videolan.vlc" />
+        <package android:name="org.xbmc.kodi" />
+        <package android:name="com.vieon" />
+        <package android:name="com.fptplay.activity" />
+        <package android:name="com.viettel.tv360" />
+        <package android:name="vn.vtv.vtvgo" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.lonelycatgames.Xplore" />
     </queries>
 
     <!-- Mandatory for Android TV / Google TV / Android Box compatibility -->

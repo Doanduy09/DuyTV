@@ -1,7 +1,7 @@
 {
-  "versionCode": 48,
-  "versionName": "2.1.3",
+  "versionCode": 49,
+  "versionName": "2.1.4",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản v2.1.3 (Build #48): Trợ lý giọng nói thông minh toàn năng - Phản hồi tiếng Việt tự nhiên Voice TTS Ducking, kích hoạt tức thì 0ms (Zero-Latency Ear-Trigger), tua video ('tua qua 30s', 'tua tới phút 15') & chọn tập ('mở tập 5', 'tập tiếp') bằng giọng nói, thuật toán sửa lỗi đồng âm Trigram/Levenshtein"
+  "releaseNotes": "Bản v2.1.4 (Build #49): Sửa triệt để điều khiển giọng nói mở ứng dụng ngoài (YouTube, Facebook, Chrome) & bổ sung kênh VTV6 HD (VTV Cần Thơ). Khắc phục lỗi rò rỉ ExoPlayer khi nhấn phím Micro từ Remote TV trên Android 11+."
 }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
 import android.media.AudioManager
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -650,6 +651,10 @@ private fun PlayerScreenContent(
         if (isLive) {
             currentStreamUrl = url
             try {
+                if (!player.applicationLooper.thread.isAlive) {
+                    android.util.Log.w("PlayerScreen", "ExoPlayer thread đã giải phóng, bỏ qua loadLiveStreamUrl")
+                    return
+                }
                 val newMediaSource = buildStreamMediaSource(context, url, isLive = true, subtitleUrl = null)
                 errorRetryJob?.cancel()
                 player.stop()
@@ -657,7 +662,9 @@ private fun PlayerScreenContent(
                 player.setMediaSource(newMediaSource)
                 player.prepare()
                 player.play()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("PlayerScreen", "Lỗi loadLiveStreamUrl: ${e.message}", e)
+            }
         } else {
             val savedPos = maxOf(0L, player.currentPosition, currentPosMs)
             scope.launch {
@@ -1350,6 +1357,11 @@ private fun PlayerScreenContent(
     val currentIsTouchLocked by rememberUpdatedState(isTouchLocked)
     val currentPendingSeekPosMs by rememberUpdatedState(pendingSeekPosMs)
     val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val currentExoPlayer by rememberUpdatedState(exoPlayer)
+    val currentAvailableChannels by rememberUpdatedState(availableChannels)
+    val currentAvailableEpisodes by rememberUpdatedState(availableEpisodes)
+    val currentOnNavigate by rememberUpdatedState(onNavigate)
+    val currentOnClose by rememberUpdatedState(onClose)
     val osdPlayPauseFocusRequester = remember { FocusRequester() }
     val sheetCloseFocusRequester = remember { FocusRequester() }
 
@@ -1357,34 +1369,49 @@ private fun PlayerScreenContent(
 
     val voiceManager = remember {
         VoiceAssistantManager(context) { recognizedText ->
+            val player = currentExoPlayer
             fun speakAndReport(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
                 reportSuccess(message)
-                exoPlayer.volume = 0.05f
+                player?.volume = 0.05f
+                val executed = java.util.concurrent.atomic.AtomicBoolean(false)
+                val safeDone = {
+                    if (executed.compareAndSet(false, true)) {
+                        player?.volume = 1.0f
+                        onDone?.invoke()
+                    }
+                }
                 ttsAssistant.speak(
                     text = ttsPhrase,
                     onStart = {
-                        exoPlayer.volume = 0.05f
+                        player?.volume = 0.05f
                     },
                     onDone = {
-                        exoPlayer.volume = 1.0f
-                        onDone?.invoke()
+                        safeDone()
                     }
                 )
+                if (onDone != null) {
+                    scope.launch {
+                        delay(1200)
+                        safeDone()
+                    }
+                }
             }
 
-            val cmd = VoiceCommandParser.parse(recognizedText, availableChannels)
+            val cmd = VoiceCommandParser.parse(recognizedText, currentAvailableChannels)
             when (cmd) {
                 is VoiceCommand.SwitchChannel -> {
                     speakAndReport("Đang mở: ${cmd.channel.name}", "Dạ, đang mở kênh ${cmd.channel.name}")
                     switchToChannel(cmd.index)
                 }
                 is VoiceCommand.OpenApp -> {
-                    speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}")
-                    launchAppByQuery(context, cmd.target)
+                    speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
+                        launchAppByQuery(context, cmd.target)
+                    }
                 }
                 is VoiceCommand.YouTubeSearch -> {
-                    speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}")
-                    launchYouTubeSearch(context, cmd.query)
+                    speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
+                        launchYouTubeSearch(context, cmd.query)
+                    }
                 }
                 is VoiceCommand.AdjustVolume -> {
                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -1542,26 +1569,26 @@ private fun PlayerScreenContent(
                                 }
                             } else {
                                 // Kiểm tra nếu là tên kênh truyền hình
-                                val chIdx = availableChannels.indexOfFirst {
+                                val chIdx = currentAvailableChannels.indexOfFirst {
                                     it.name.contains(cmd.query, ignoreCase = true)
                                 }
                                 if (chIdx >= 0) {
-                                    speakAndReport("Đang mở: ${availableChannels[chIdx].name}", "Dạ, đang mở kênh ${availableChannels[chIdx].name}")
+                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}")
                                     switchToChannel(chIdx)
                                 } else {
                                     speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
-                                    onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                                    currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                                 }
                             }
                         } catch (e: Exception) {
                             speakAndReport("Lỗi tìm phim", "Dạ, không tìm thấy kết quả")
-                            onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                            currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                         }
                     }
                 }
                 is VoiceCommand.SearchMovie -> {
                     speakAndReport("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
-                    onNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
+                    currentOnNavigate?.invoke(com.duytv.app.AppScreen.SearchQuery(cmd.query))
                 }
                 is VoiceCommand.OpenSetting -> {
                     speakAndReport("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
@@ -3664,6 +3691,8 @@ private fun launchAppByQuery(context: Context, query: String) {
             q.contains("tv360") -> "com.viettel.tv360"
             q.contains("vtvgo") || q.contains("vtv go") -> "vn.vtv.vtvgo"
             q.contains("monster tv") -> "com.monstertv.app"
+            q.contains("facebook") || q.contains("fb") -> "com.facebook.katana"
+            q.contains("chrome") || q.contains("trình duyệt") -> "com.android.chrome"
             q.contains("cài đặt") || q.contains("settings") -> "com.android.tv.settings"
             else -> null
         }
@@ -3671,6 +3700,21 @@ private fun launchAppByQuery(context: Context, query: String) {
         var intent: Intent? = null
         if (directPkg != null) {
             intent = pm.getLeanbackLaunchIntentForPackage(directPkg) ?: pm.getLaunchIntentForPackage(directPkg)
+            // Đặc biệt với YouTube trên TV: ShellActivity hoặc Component trực tiếp
+            if (intent == null && (directPkg == "com.google.android.youtube.tv" || directPkg == "com.google.android.youtube")) {
+                val shellIntent = Intent(Intent.ACTION_MAIN).apply {
+                    component = ComponentName("com.google.android.youtube.tv", "com.google.android.apps.youtube.tv.activity.ShellActivity")
+                    addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                }
+                if (shellIntent.resolveActivity(pm) != null) {
+                    intent = shellIntent
+                } else {
+                    intent = pm.getLeanbackLaunchIntentForPackage("com.liskovsoft.smarttubetv.beta")
+                        ?: pm.getLaunchIntentForPackage("com.liskovsoft.smarttubetv.beta")
+                        ?: pm.getLeanbackLaunchIntentForPackage("com.liskovsoft.videomanager")
+                        ?: pm.getLaunchIntentForPackage("com.google.android.youtube")
+                }
+            }
         }
         if (intent == null) {
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -3700,11 +3744,21 @@ private fun launchAppByQuery(context: Context, query: String) {
                 intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
             }
         }
+        // Fallback chung cho YouTube nếu chưa có Intent Launcher nào
+        if (intent == null && (q.contains("youtube") || q.contains("you tube"))) {
+            intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com"))
+        }
+
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            android.util.Log.i("PlayerScreen", "Khởi chạy ứng dụng thành công: $intent")
             context.startActivity(intent)
+        } else {
+            android.util.Log.w("PlayerScreen", "Không tìm thấy ứng dụng phù hợp cho: $query")
         }
-    } catch (_: Exception) {}
+    } catch (e: Exception) {
+        android.util.Log.e("PlayerScreen", "Lỗi launchAppByQuery: ${e.message}", e)
+    }
 }
 
 private fun launchSettingIntent(context: Context, type: VoiceCommand.SettingType) {

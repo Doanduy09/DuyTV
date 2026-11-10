@@ -152,29 +152,31 @@ class MainActivity : ComponentActivity() {
             val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
             if (onKeyEventListener?.invoke(fakeEvent) != true) {
                 pendingVoiceTrigger = true
-                val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
-                    com.duytv.app.data.AppCacheManager.activeChannels
-                } else {
-                    MovieRepository.getVerifiedOfficialChannels()
-                }
-                val targetCh = channels.find {
-                    it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
-                } ?: channels.firstOrNull()
-                if (targetCh != null) {
-                    val allUrls = targetCh.allStreamUrls()
-                    val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
-                    pendingScreenFromIntent = AppScreen.Player(
-                        slug = "live_${targetCh.id}",
-                        movieTitle = targetCh.name,
-                        episodeName = "TRỰC TIẾP",
-                        streamUrl = primary,
-                        posterUrl = targetCh.logoUrl,
-                        subtitleUrl = null,
-                        initialPositionMs = 0L,
-                        backupUrls = allUrls.drop(1)
-                    )
-                } else {
-                    pendingScreenFromIntent = AppScreen.Search
+                if (!isVideoActivelyPlaying && onKeyEventListener == null) {
+                    val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
+                        com.duytv.app.data.AppCacheManager.activeChannels
+                    } else {
+                        MovieRepository.getVerifiedOfficialChannels()
+                    }
+                    val targetCh = channels.find {
+                        it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+                    } ?: channels.firstOrNull()
+                    if (targetCh != null) {
+                        val allUrls = targetCh.allStreamUrls()
+                        val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
+                        pendingScreenFromIntent = AppScreen.Player(
+                            slug = "live_${targetCh.id}",
+                            movieTitle = targetCh.name,
+                            episodeName = "TRỰC TIẾP",
+                            streamUrl = primary,
+                            posterUrl = targetCh.logoUrl,
+                            subtitleUrl = null,
+                            initialPositionMs = 0L,
+                            backupUrls = allUrls.drop(1)
+                        )
+                    } else {
+                        pendingScreenFromIntent = AppScreen.Search
+                    }
                 }
             }
             intent.removeExtra("trigger_voice")
@@ -219,29 +221,31 @@ class MainActivity : ComponentActivity() {
             }
             if (action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 pendingVoiceTrigger = true
-                val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
-                    com.duytv.app.data.AppCacheManager.activeChannels
-                } else {
-                    MovieRepository.getVerifiedOfficialChannels()
-                }
-                val targetCh = channels.find {
-                    it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
-                } ?: channels.firstOrNull()
-                if (targetCh != null) {
-                    val allUrls = targetCh.allStreamUrls()
-                    val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
-                    pendingScreenFromIntent = AppScreen.Player(
-                        slug = "live_${targetCh.id}",
-                        movieTitle = targetCh.name,
-                        episodeName = "TRỰC TIẾP",
-                        streamUrl = primary,
-                        posterUrl = targetCh.logoUrl,
-                        subtitleUrl = null,
-                        initialPositionMs = 0L,
-                        backupUrls = allUrls.drop(1)
-                    )
-                } else {
-                    pendingScreenFromIntent = AppScreen.Search
+                if (!isVideoActivelyPlaying && onKeyEventListener == null) {
+                    val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
+                        com.duytv.app.data.AppCacheManager.activeChannels
+                    } else {
+                        MovieRepository.getVerifiedOfficialChannels()
+                    }
+                    val targetCh = channels.find {
+                        it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+                    } ?: channels.firstOrNull()
+                    if (targetCh != null) {
+                        val allUrls = targetCh.allStreamUrls()
+                        val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
+                        pendingScreenFromIntent = AppScreen.Player(
+                            slug = "live_${targetCh.id}",
+                            movieTitle = targetCh.name,
+                            episodeName = "TRỰC TIẾP",
+                            streamUrl = primary,
+                            posterUrl = targetCh.logoUrl,
+                            subtitleUrl = null,
+                            initialPositionMs = 0L,
+                            backupUrls = allUrls.drop(1)
+                        )
+                    } else {
+                        pendingScreenFromIntent = AppScreen.Search
+                    }
                 }
             }
             return true

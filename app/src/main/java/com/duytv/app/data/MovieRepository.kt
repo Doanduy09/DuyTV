@@ -580,6 +580,17 @@ class MovieRepository {
                 backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8")
             ),
             TvChannel(
+                id = "vtv6_hd",
+                name = "VTV6 HD (VTV Cần Thơ)",
+                logoUrl = "https://i.postimg.cc/t7Jc81QZ/V6.png",
+                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV6%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                groupTitle = "VTV Quốc Gia",
+                backupUrls = listOf(
+                    "https://live.canthotv.vn/live/tv/chunklist.m3u8",
+                    "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8"
+                )
+            ),
+            TvChannel(
                 id = "vtv7_hd",
                 name = "VTV7 HD",
                 logoUrl = "https://i.postimg.cc/ykSbYwN8/V7.png",
