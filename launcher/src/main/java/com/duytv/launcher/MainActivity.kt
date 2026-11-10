@@ -52,12 +52,65 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun isVoiceOrAssistKey(keyCode: Int): Boolean {
+        return keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+               keyCode == KeyEvent.KEYCODE_ASSIST ||
+               keyCode == KeyEvent.KEYCODE_SEARCH
+    }
+
+    private fun launchDuyTvVoice() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage("com.duytv.app")
+                ?: packageManager.getLeanbackLaunchIntentForPackage("com.duytv.app")
+            if (intent != null) {
+                intent.addFlags(
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
+                intent.putExtra("trigger_voice", true)
+                startActivity(intent)
+            }
+        } catch (_: Exception) {}
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val keyCode = event.keyCode
+        val action = event.action
+
+        // 🎙️ Đánh chặn triệt để phím Micro Remote TV (KEYCODE_VOICE_ASSIST, KEYCODE_ASSIST & KEYCODE_SEARCH):
+        // Khi người dùng bấm phím Micro trên Remote: Mở ngay DuyTV với giao diện giọng nói thay vì mở Google!
+        if (isVoiceOrAssistKey(keyCode)) {
+            if (action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                launchDuyTvVoice()
+            }
+            return true
+        }
+
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isVoiceOrAssistKey(keyCode)) {
+            return true
+        }
         // Prevent Back key from closing the launcher
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             return true
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isVoiceOrAssistKey(keyCode)) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onSearchRequested(): Boolean {
+        launchDuyTvVoice()
+        return true
     }
 
     @Deprecated("Deprecated in Java")

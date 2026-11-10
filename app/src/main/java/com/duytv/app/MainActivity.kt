@@ -42,12 +42,37 @@ class MainActivity : ComponentActivity() {
             private set
 
         @Volatile
+        var isActivityInForeground: Boolean = false
+            private set
+
+        @Volatile
+        var pendingVoiceTrigger: Boolean = false
+
+        @Volatile
         var lastUserInteractionMs: Long = System.currentTimeMillis()
             private set
 
         fun notifyPlaybackState(isPlaying: Boolean) {
             isVideoActivelyPlaying = isPlaying
             lastUserInteractionMs = System.currentTimeMillis()
+        }
+
+        fun triggerVoiceFromService(context: android.content.Context, event: android.view.KeyEvent) {
+            if (isActivityInForeground && onKeyEventListener?.invoke(event) == true) {
+                return
+            }
+            if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                pendingVoiceTrigger = true
+                val intent = android.content.Intent(context, MainActivity::class.java).apply {
+                    addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    )
+                    putExtra("trigger_voice", true)
+                }
+                context.startActivity(intent)
+            }
         }
     }
 
@@ -104,11 +129,40 @@ class MainActivity : ComponentActivity() {
             pendingScreenFromIntent = AppScreen.Home
             intent.removeExtra("open_home")
         } else if (intent.action == android.content.Intent.ACTION_SEARCH ||
-                   intent.action == android.content.Intent.ACTION_ASSIST) {
+                   intent.action == android.content.Intent.ACTION_ASSIST ||
+                   intent.action == "android.speech.action.WEB_SEARCH" ||
+                   intent.action == "android.speech.action.VOICE_SEARCH_HANDS_FREE" ||
+                   intent.action == "android.intent.action.VOICE_COMMAND" ||
+                   intent.getBooleanExtra("trigger_voice", false)) {
             val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
             if (onKeyEventListener?.invoke(fakeEvent) != true) {
-                pendingScreenFromIntent = AppScreen.Search
+                pendingVoiceTrigger = true
+                val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
+                    com.duytv.app.data.AppCacheManager.activeChannels
+                } else {
+                    MovieRepository.getVerifiedOfficialChannels()
+                }
+                val targetCh = channels.find {
+                    it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+                } ?: channels.firstOrNull()
+                if (targetCh != null) {
+                    val allUrls = targetCh.allStreamUrls()
+                    val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
+                    pendingScreenFromIntent = AppScreen.Player(
+                        slug = "live_${targetCh.id}",
+                        movieTitle = targetCh.name,
+                        episodeName = "TRỰC TIẾP",
+                        streamUrl = primary,
+                        posterUrl = targetCh.logoUrl,
+                        subtitleUrl = null,
+                        initialPositionMs = 0L,
+                        backupUrls = allUrls.drop(1)
+                    )
+                } else {
+                    pendingScreenFromIntent = AppScreen.Search
+                }
             }
+            intent.removeExtra("trigger_voice")
         }
     }
 
@@ -194,6 +248,16 @@ class MainActivity : ComponentActivity() {
                 enterPictureInPictureMode(pipParams)
             } catch (_: Exception) {}
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isActivityInForeground = true
+    }
+
+    override fun onPause() {
+        isActivityInForeground = false
+        super.onPause()
     }
 
     override fun onStart() {

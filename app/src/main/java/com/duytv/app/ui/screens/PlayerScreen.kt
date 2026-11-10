@@ -20,6 +20,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import android.content.Context
+import android.content.Intent
+import android.media.AudioManager
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -194,6 +196,7 @@ private fun PlayerScreenContent(
     var selectedQualityMode by remember { mutableStateOf("AUTO") }
     var videoResolution by remember { mutableStateOf("1080p FHD") }
     var currentPosMs by remember { mutableStateOf(initialPositionMs) }
+    var voiceKeyDownTimeMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableStateOf(1L) }
     var pendingSeekPosMs by remember { mutableStateOf<Long?>(null) }
     var seekDeltaText by remember { mutableStateOf("") }
@@ -1352,6 +1355,45 @@ private fun PlayerScreenContent(
                     reportSuccess("Đang mở: ${cmd.channel.name}")
                     switchToChannel(cmd.index)
                 }
+                is VoiceCommand.OpenApp -> {
+                    reportSuccess("Đang mở: ${cmd.target.uppercase()}")
+                    launchAppByQuery(context, cmd.target)
+                }
+                is VoiceCommand.AdjustVolume -> {
+                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+                    audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
+                    reportSuccess(if (cmd.isIncrease) "Đã tăng âm lượng" else "Đã giảm âm lượng")
+                }
+                VoiceCommand.ToggleMute -> {
+                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+                    reportSuccess("Đã bật/tắt tiếng")
+                }
+                is VoiceCommand.SystemAction -> {
+                    when (cmd.type) {
+                        VoiceCommand.SystemActionType.HOME -> {
+                            reportSuccess("Về trang chủ")
+                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                addCategory(Intent.CATEGORY_HOME)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(homeIntent)
+                        }
+                        VoiceCommand.SystemActionType.BACK -> {
+                            reportSuccess("Quay lại")
+                            onClose()
+                        }
+                        VoiceCommand.SystemActionType.POWER -> {
+                            reportSuccess("Đang tắt...")
+                            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                addCategory(Intent.CATEGORY_HOME)
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(homeIntent)
+                        }
+                    }
+                }
                 VoiceCommand.NextChannel -> {
                     reportSuccess("Chuyển kênh tiếp theo")
                     nextChannel()
@@ -1385,7 +1427,7 @@ private fun PlayerScreenContent(
                     reportSuccess("Tìm kiếm: ${cmd.query}")
                 }
                 is VoiceCommand.Unknown -> {
-                    reportError("Không tìm thấy đài: \"${cmd.rawText}\"")
+                    reportError("Chưa rõ lệnh: \"${cmd.rawText}\"")
                 }
             }
         }
@@ -1410,6 +1452,7 @@ private fun PlayerScreenContent(
             if (isVoiceKey) {
                 if (action == KeyEvent.ACTION_DOWN) {
                     if (event.repeatCount == 0) {
+                        voiceKeyDownTimeMs = System.currentTimeMillis()
                         // Ẩn tất cả nội dung / OSD để giao diện chuyên nghiệp, sạch sẽ
                         showControls = false
                         showChannelRibbon = false
@@ -1418,11 +1461,16 @@ private fun PlayerScreenContent(
 
                         if (voiceManager.state.value is VoiceState.Idle) {
                             voiceManager.startListening()
+                        } else {
+                            voiceManager.cancel()
                         }
                     }
                 } else if (action == KeyEvent.ACTION_UP) {
-                    // Khi nhả phím sau khi bấm giữ: chốt thu âm và nhận diện ngay
-                    if (voiceManager.state.value is VoiceState.Listening) {
+                    // Khi nhả phím:
+                    // - Nếu bấm giữ lâu (> 600ms, Push-To-Talk): Chốt thu âm và nhận diện ngay lập tức
+                    // - Nếu bấm nhả nhanh (Tap <= 600ms): Tiếp tục lắng nghe tự nhiên để người dùng đọc câu lệnh
+                    val pressDurationMs = System.currentTimeMillis() - voiceKeyDownTimeMs
+                    if (pressDurationMs > 600L && voiceManager.state.value is VoiceState.Listening) {
                         voiceManager.stopListening()
                     }
                 }
@@ -1665,6 +1713,15 @@ private fun PlayerScreenContent(
     LaunchedEffect(Unit) {
         delay(200)
         focusRequester.requestFocus()
+        if (com.duytv.app.MainActivity.pendingVoiceTrigger) {
+            com.duytv.app.MainActivity.pendingVoiceTrigger = false
+            delay(150)
+            showControls = false
+            showChannelRibbon = false
+            showQuickActionSheet = false
+            showQualityMenu = false
+            voiceManager.startListening()
+        }
     }
 
     LaunchedEffect(showControls, showQuickActionSheet, showQualityMenu) {
@@ -3433,4 +3490,40 @@ private fun createConfiguredExoPlayer(
             }
             playWhenReady = true
         }
+}
+
+private fun launchAppByQuery(context: Context, query: String) {
+    try {
+        val pm = context.packageManager
+        val q = query.lowercase().trim()
+        val directPkg = when {
+            q.contains("youtube") -> "com.google.android.youtube.tv"
+            q.contains("netflix") -> "com.netflix.ninja"
+            q.contains("cài đặt") || q.contains("settings") -> "com.android.tv.settings"
+            q.contains("xplore") || q.contains("x-plore") -> "com.lonelycatgames.Xplore"
+            q.contains("ch play") || q.contains("google play") || q.contains("cửa hàng") -> "com.android.vending"
+            q.contains("ott navigator") -> "b.proter"
+            else -> null
+        }
+
+        var intent: Intent? = null
+        if (directPkg != null) {
+            intent = pm.getLeanbackLaunchIntentForPackage(directPkg) ?: pm.getLaunchIntentForPackage(directPkg)
+        }
+        if (intent == null) {
+            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+            }
+            val apps = pm.queryIntentActivities(mainIntent, 0)
+            val matched = apps.find { it.loadLabel(pm).toString().lowercase().contains(q) }
+            if (matched != null) {
+                val pkg = matched.activityInfo.packageName
+                intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
+            }
+        }
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    } catch (_: Exception) {}
 }

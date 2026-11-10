@@ -43,6 +43,7 @@ class VoiceAssistantManager(
 
     fun startListening() {
         mainHandler.post {
+            Log.d(TAG, "startListening invoked. isListening=$isListening, available=${isAvailable()}")
             if (isListening) {
                 cancel()
                 return@post
@@ -74,6 +75,7 @@ class VoiceAssistantManager(
                 speechRecognizer?.startListening(intent)
                 isListening = true
                 _state.value = VoiceState.Listening(0f)
+                Log.d(TAG, "speechRecognizer.startListening started successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Lỗi khi bắt đầu nhận diện giọng nói", e)
                 _state.value = VoiceState.Error("Không thể kích hoạt micro: ${e.message}")
@@ -142,10 +144,12 @@ class VoiceAssistantManager(
     private fun createListener(): RecognitionListener {
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                Log.d(TAG, "onReadyForSpeech")
                 _state.value = VoiceState.Listening(0f)
             }
 
             override fun onBeginningOfSpeech() {
+                Log.d(TAG, "onBeginningOfSpeech")
                 _state.value = VoiceState.Listening(5f)
             }
 
@@ -158,11 +162,13 @@ class VoiceAssistantManager(
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
+                Log.d(TAG, "onEndOfSpeech")
                 isListening = false
                 _state.value = VoiceState.Processing("Đang nhận diện giọng nói...")
             }
 
             override fun onError(error: Int) {
+                Log.w(TAG, "RecognitionListener onError: $error")
                 isListening = false
                 val msg = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH -> "Chưa nghe rõ tên đài. Hãy nói lại (ví dụ: 'VTV1', 'THVL1')."
@@ -181,6 +187,7 @@ class VoiceAssistantManager(
                 isListening = false
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val bestMatch = matches?.firstOrNull()?.trim()
+                Log.d(TAG, "onResults: bestMatch=$bestMatch, matches=$matches")
                 if (!bestMatch.isNullOrBlank()) {
                     this@VoiceAssistantManager.onResult(bestMatch)
                 } else {

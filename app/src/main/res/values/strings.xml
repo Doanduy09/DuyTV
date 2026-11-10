@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">DuyTV</string>
+    <string name="voice_accessibility_desc">Điều khiển giọng nói thông minh DuyTV cho Remote TV</string>
 </resources>
