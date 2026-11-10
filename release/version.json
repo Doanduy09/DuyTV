@@ -1,7 +1,7 @@
 {
-  "versionCode": 41,
-  "versionName": "2.0.6",
+  "versionCode": 46,
+  "versionName": "2.1.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản v2.0.6 (Build #41): Chuyển nguồn dự phòng chống lag ngầm hoàn toàn thông minh (Silent Zero-Stall Failover), ẩn thông báo che màn hình, tối ưu độ mượt tối đa"
+  "releaseNotes": "Bản v2.1.1 (Build #46): Điều khiển giọng nói tiếng Việt siêu tốc phản hồi <1s (Anti-Noise Audio Ducking & Fast Silence Watchdog), tích hợp tìm kiếm & phát nhạc/karaoke/phim YouTube chuyên sâu, mở ứng dụng toàn năng"
 }
