@@ -17,6 +17,7 @@ sealed class VoiceCommand {
     
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
+    data class YouTubeSearch(val query: String) : VoiceCommand()
     data class AdjustVolume(val isIncrease: Boolean) : VoiceCommand()
     object ToggleMute : VoiceCommand()
     enum class SystemActionType { HOME, BACK, POWER }
@@ -79,8 +80,14 @@ object VoiceCommandParser {
         "bê tê vê" to "btv"
     )
 
-    // Tiền tố câu nói thông thường của người Việt
+    // Tiền tố câu nói thông thường của người Việt (giao tiếp tự nhiên)
     private val PREFIX_CLEANUP = listOf(
+        "em hãy mở cho anh kênh", "em hãy mở cho em kênh", "em hãy mở cho anh đài", "em hãy mở cho em đài",
+        "em hãy mở cho anh", "em hãy mở cho em", "em hãy mở đài", "em hãy mở kênh", "em hãy mở",
+        "hãy mở cho anh kênh", "hãy mở cho em kênh", "hãy mở cho anh đài", "hãy mở cho em đài",
+        "hãy mở cho anh", "hãy mở cho em", "hãy mở đài", "hãy mở kênh", "hãy mở",
+        "em mở cho anh kênh", "em mở cho anh đài", "em mở cho anh", "em mở",
+        "anh muốn xem kênh", "anh muốn xem đài", "anh muốn xem", "anh muốn mở",
         "chuyển sang kênh", "chuyển qua kênh", "chuyển đến kênh", "chuyển tới kênh",
         "chuyển sang đài", "chuyển qua đài", "chuyển kênh", "chuyển đài",
         "mở kênh", "mở đài", "mở cho anh kênh", "mở cho anh đài", "mở cho anh", "mở cho em kênh", "mở cho em đài", "mở cho em", "mở",
@@ -98,7 +105,7 @@ object VoiceCommandParser {
         "giúp anh với", "giúp anh nhé", "giúp anh", "giúp em với", "giúp em nhé", "giúp em",
         "giùm anh với", "giùm anh nhé", "giùm anh", "giùm em với", "giùm em nhé", "giùm em", "giùm với", "giùm",
         "hộ anh với", "hộ anh nhé", "hộ anh", "hộ em với", "hộ em nhé", "hộ em", "hộ tôi", "hộ",
-        "đi mà", "đi nào", "đi nhé", "đi nha", "đi",
+        "lên tivi", "lên tv", "lên", "đi mà", "đi nào", "đi nhé", "đi nha", "đi",
         "nhé anh", "nhé em", "nhé", "nha anh", "nha em", "nha", "nào", "với", "ơi"
     )
 
@@ -146,20 +153,11 @@ object VoiceCommandParser {
         if (query.contains("tắt tivi") || query.contains("tắt màn hình") || query.contains("tắt tv") || query.contains("đi ngủ")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.POWER)
         }
-
-        // III. LỆNH MỞ ỨNG DỤNG BẤT KỲ TRÊN TIVI (YouTube, Netflix, Settings...)
-        val openAppPrefixes = listOf("mở ứng dụng ", "bật ứng dụng ", "mở app ", "bật app ", "mở ", "bật ")
-        for (pref in openAppPrefixes) {
-            if (query.startsWith(pref)) {
-                val candidate = query.removePrefix(pref).trim()
-                val knownApps = listOf("youtube", "netflix", "cài đặt", "settings", "xplore", "x-plore", "ch play", "google play", "cửa hàng", "ott navigator", "trình duyệt", "browser")
-                if (knownApps.any { candidate.contains(it) }) {
-                    return VoiceCommand.OpenApp(candidate)
-                }
-            }
+        if (query.contains("mở tivi") || query.contains("bật tivi") || query.contains("xem tivi") || query.contains("bật tv") || query.contains("mở tv")) {
+            return VoiceCommand.Resume
         }
 
-        // IV. LỆNH ĐIỀU KHIỂN PHÁT (Playback Controls)
+        // III. LỆNH ĐIỀU KHIỂN PHÁT (Playback Controls)
         when {
             query.contains("kênh tiếp") || query.contains("tiếp theo") || query.contains("chuyển tiếp") || query.contains("kênh sau") -> {
                 return VoiceCommand.NextChannel
@@ -181,7 +179,91 @@ object VoiceCommandParser {
             }
         }
 
-        // V. LỆNH TÌM KIẾM PHIM
+        // IV. LỆNH TÌM KIẾM & PHÁT NHẠC / VIDEO CHUYÊN SÂU TRÊN YOUTUBE (HỖ TRỢ TÌM ĐÍCH DANH BÀI HÁT / CA SĨ / PHIM)
+        val isYoutubeExplicit = query.contains("youtube") || query.contains("you tube") || query.contains("du tu be")
+        val isMusicOrKaraoke = query.startsWith("mở nhạc ") || query.startsWith("nghe nhạc ") ||
+                               query.startsWith("bật nhạc ") || query.startsWith("hát karaoke ") ||
+                               query.startsWith("karaoke ") || query.startsWith("tìm nhạc ")
+
+        if (isYoutubeExplicit || isMusicOrKaraoke) {
+            // Kiểm tra nếu người dùng chỉ nói mở ứng dụng YouTube:
+            var appCandidate = query
+            for (p in listOf(
+                "em hãy mở ứng dụng ", "hãy mở ứng dụng ", "mở ứng dụng ", "bật ứng dụng ",
+                "em hãy mở app ", "hãy mở app ", "mở app ", "bật app ",
+                "em hãy mở ", "hãy mở ", "em mở ", "mở ", "bật ", "vào "
+            )) {
+                if (appCandidate.startsWith(p)) {
+                    appCandidate = appCandidate.removePrefix(p).trim()
+                    break
+                }
+            }
+            for (s in SUFFIX_CLEANUP) {
+                if (appCandidate.endsWith(s)) {
+                    appCandidate = appCandidate.removeSuffix(s).trim()
+                    break
+                }
+            }
+
+            if (appCandidate == "youtube" || appCandidate == "you tube" || appCandidate == "du tu be") {
+                return VoiceCommand.OpenApp("youtube")
+            }
+
+            // Nếu câu chứa tên bài hát, ca sĩ, thể loại (ví dụ: "mở nhạc lệ quyên trên youtube cho anh", "hát karaoke duyên phận")
+            var cleanSearch = query
+                .replace("trên youtube", "")
+                .replace("ở youtube", "")
+                .replace("trong youtube", "")
+                .replace("qua youtube", "")
+                .replace("bằng youtube", "")
+                .replace("youtube", "")
+                .trim()
+
+            for (p in listOf(
+                "em hãy mở bài hát ", "hãy mở bài hát ", "mở bài hát ", "bật bài hát ",
+                "em hãy mở ca khúc ", "hãy mở ca khúc ", "mở ca khúc ",
+                "em hãy mở nhạc ", "hãy mở nhạc ", "mở nhạc ", "bật nhạc ", "nghe nhạc ",
+                "em hãy mở karaoke ", "hãy mở karaoke ", "mở karaoke ", "hát karaoke ", "karaoke ",
+                "em hãy tìm kiếm ", "hãy tìm kiếm ", "tìm kiếm ", "em hãy tìm ", "hãy tìm ", "tìm ",
+                "em hãy mở ", "hãy mở ", "em mở ", "mở ", "bật ", "xem "
+            )) {
+                if (cleanSearch.startsWith(p)) {
+                    cleanSearch = cleanSearch.removePrefix(p).trim()
+                    break
+                }
+            }
+
+            for (s in SUFFIX_CLEANUP) {
+                if (cleanSearch.endsWith(s)) {
+                    cleanSearch = cleanSearch.removeSuffix(s).trim()
+                    break
+                }
+            }
+
+            if (cleanSearch.isNotBlank()) {
+                val finalQuery = if (query.contains("karaoke") && !cleanSearch.contains("karaoke")) {
+                    "karaoke $cleanSearch"
+                } else {
+                    cleanSearch
+                }
+                return VoiceCommand.YouTubeSearch(finalQuery)
+            }
+        }
+
+        // V. LỆNH MỞ CÁC ỨNG DỤNG KHÁC TRÊN TIVI (Netflix, Cài đặt, CH Play, X-plore...)
+        val knownApps = listOf(
+            "netflix", "cài đặt", "settings", "xplore", "x-plore",
+            "ch play", "chplay", "google play", "cửa hàng",
+            "ott navigator", "trình duyệt", "browser", "kodi",
+            "smarttube", "vieon", "fpt play", "tv360", "vtvgo"
+        )
+        for (app in knownApps) {
+            if (query.contains(app)) {
+                return VoiceCommand.OpenApp(app)
+            }
+        }
+
+        // VI. LỆNH TÌM KIẾM PHIM TRONG DUYTV
         if (query.startsWith("tìm phim ") || query.startsWith("tìm kiếm ") || query.startsWith("xem phim ")) {
             val movieQuery = query.removePrefix("tìm phim ").removePrefix("tìm kiếm ").removePrefix("xem phim ").trim()
             if (movieQuery.isNotBlank()) {
@@ -189,7 +271,7 @@ object VoiceCommandParser {
             }
         }
 
-        // VI. CHUYỂN KÊNH TRUYỀN HÌNH DUYTV
+        // VII. CHUYỂN KÊNH TRUYỀN HÌNH DUYTV
         if (availableChannels.isNotEmpty()) {
             // 1. Loại bỏ tiền tố nói chuyện thông thường
             var cleanedTarget = query
@@ -228,12 +310,16 @@ object VoiceCommandParser {
                 return VoiceCommand.SwitchChannel(directKeyMatchIdx, availableChannels[directKeyMatchIdx])
             }
 
-            // C. Khớp theo chuỗi con rút gọn không dấu, không khoảng trắng (SO KHỚP ĐA CHIỀU)
+            // C. Khớp theo chuỗi con rút gọn không dấu, không khoảng trắng (SO KHỚP AN TOÀN CHỐNG NHẦM ĐÀI)
             val compactTarget = cleanedTarget.replace(Regex("[^a-z0-9]"), "")
             if (compactTarget.isNotBlank()) {
                 val fuzzyIdx = availableChannels.indexOfFirst { ch ->
                     val cleanCh = MovieRepository.normalizeChannelKey(ch.name).replace(Regex("[^a-z0-9]"), "")
-                    cleanCh.isNotBlank() && (cleanCh == compactTarget || cleanCh.contains(compactTarget) || compactTarget.contains(cleanCh))
+                    if (cleanCh.isBlank()) return@indexOfFirst false
+                    if (cleanCh == compactTarget) return@indexOfFirst true
+                    if (compactTarget.length >= 3 && cleanCh.contains(compactTarget)) return@indexOfFirst true
+                    if (cleanCh.length >= 4 && compactTarget.contains(cleanCh)) return@indexOfFirst true
+                    false
                 }
                 if (fuzzyIdx >= 0) {
                     return VoiceCommand.SwitchChannel(fuzzyIdx, availableChannels[fuzzyIdx])
@@ -241,12 +327,14 @@ object VoiceCommandParser {
 
                 // Thử khớp theo tên gốc không dấu
                 val targetNoAccent = removeAccents(cleanedTarget)
-                val nameMatchIdx = availableChannels.indexOfFirst { ch ->
-                    val chNoAccent = removeAccents(ch.name)
-                    chNoAccent.contains(targetNoAccent, ignoreCase = true) || targetNoAccent.contains(chNoAccent, ignoreCase = true)
-                }
-                if (nameMatchIdx >= 0) {
-                    return VoiceCommand.SwitchChannel(nameMatchIdx, availableChannels[nameMatchIdx])
+                if (targetNoAccent.length >= 3) {
+                    val nameMatchIdx = availableChannels.indexOfFirst { ch ->
+                        val chNoAccent = removeAccents(ch.name)
+                        chNoAccent.contains(targetNoAccent, ignoreCase = true)
+                    }
+                    if (nameMatchIdx >= 0) {
+                        return VoiceCommand.SwitchChannel(nameMatchIdx, availableChannels[nameMatchIdx])
+                    }
                 }
             }
 

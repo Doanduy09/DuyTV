@@ -36,6 +36,13 @@ class VoiceAssistantManager(
     val state: StateFlow<VoiceState> = _state.asStateFlow()
 
     private var isListening = false
+    private var resetRunnable: Runnable? = null
+    private val silenceWatchdog = Runnable {
+        if (isListening) {
+            Log.d(TAG, "Silence watchdog triggered (850ms sau khi nói) -> gọi stopListening()")
+            stopListening()
+        }
+    }
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -45,9 +52,13 @@ class VoiceAssistantManager(
         mainHandler.post {
             Log.d(TAG, "startListening invoked. isListening=$isListening, available=${isAvailable()}")
             if (isListening) {
-                cancel()
+                Log.d(TAG, "startListening: already listening, skipping redundant invocation.")
                 return@post
             }
+
+            // Hủy lịch reset và silence watchdog trước đó
+            resetRunnable?.let { mainHandler.removeCallbacks(it) }
+            mainHandler.removeCallbacks(silenceWatchdog)
 
             if (!isAvailable()) {
                 _state.value = VoiceState.Error("Hệ thống nhận diện giọng nói chưa sẵn sàng trên thiết bị")
@@ -60,6 +71,10 @@ class VoiceAssistantManager(
                     speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
                         setRecognitionListener(createListener())
                     }
+                } else {
+                    try {
+                        speechRecognizer?.cancel()
+                    } catch (_: Exception) {}
                 }
 
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -69,7 +84,9 @@ class VoiceAssistantManager(
                     putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, "vi-VN")
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
                 }
 
                 speechRecognizer?.startListening(intent)
@@ -87,10 +104,11 @@ class VoiceAssistantManager(
 
     fun stopListening() {
         mainHandler.post {
+            mainHandler.removeCallbacks(silenceWatchdog)
             if (isListening) {
                 try {
                     speechRecognizer?.stopListening()
-                    _state.value = VoiceState.Processing("Đang xử lý...")
+                    _state.value = VoiceState.Processing("Đang phân tích...")
                 } catch (e: Exception) {
                     Log.e(TAG, "Lỗi dừng nhận diện giọng nói", e)
                 }
@@ -100,6 +118,8 @@ class VoiceAssistantManager(
 
     fun cancel() {
         mainHandler.post {
+            resetRunnable?.let { mainHandler.removeCallbacks(it) }
+            mainHandler.removeCallbacks(silenceWatchdog)
             isListening = false
             try {
                 speechRecognizer?.cancel()
@@ -120,18 +140,21 @@ class VoiceAssistantManager(
         mainHandler.post {
             isListening = false
             _state.value = VoiceState.Error(message)
-            scheduleReset(2200)
+            scheduleReset(2500)
         }
     }
 
     private fun scheduleReset(delayMs: Long) {
-        mainHandler.postDelayed({
+        resetRunnable?.let { mainHandler.removeCallbacks(it) }
+        resetRunnable = Runnable {
             _state.value = VoiceState.Idle
-        }, delayMs)
+        }
+        mainHandler.postDelayed(resetRunnable!!, delayMs)
     }
 
     fun destroy() {
         mainHandler.post {
+            resetRunnable?.let { mainHandler.removeCallbacks(it) }
             isListening = false
             try {
                 speechRecognizer?.destroy()
@@ -150,40 +173,48 @@ class VoiceAssistantManager(
 
             override fun onBeginningOfSpeech() {
                 Log.d(TAG, "onBeginningOfSpeech")
+                mainHandler.removeCallbacks(silenceWatchdog)
                 _state.value = VoiceState.Listening(5f)
             }
 
             override fun onRmsChanged(rmsdB: Float) {
-                if (isListening) {
-                    _state.value = VoiceState.Listening(rmsdB.coerceAtLeast(0f))
-                }
+                // Giữ trạng thái ổn định, không re-emit làm rung giật giao diện (Anti-Jitter)
             }
 
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
                 Log.d(TAG, "onEndOfSpeech")
+                mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
-                _state.value = VoiceState.Processing("Đang nhận diện giọng nói...")
+                _state.value = VoiceState.Processing("Đang xử lý khẩu lệnh...")
             }
 
             override fun onError(error: Int) {
                 Log.w(TAG, "RecognitionListener onError: $error")
+                mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
+                if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    try {
+                        speechRecognizer?.destroy()
+                    } catch (_: Exception) {}
+                    speechRecognizer = null
+                }
                 val msg = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH -> "Chưa nghe rõ tên đài. Hãy nói lại (ví dụ: 'VTV1', 'THVL1')."
+                    SpeechRecognizer.ERROR_NO_MATCH -> "Chưa nghe rõ khẩu lệnh. Bấm mic và nói lại nhé!"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Hết thời gian chờ giọng nói."
                     SpeechRecognizer.ERROR_AUDIO -> "Lỗi thu âm từ micro remote."
-                    SpeechRecognizer.ERROR_CLIENT -> "Lỗi kết nối bộ nhận diện."
+                    SpeechRecognizer.ERROR_CLIENT -> "Hệ thống bận. Bấm mic thử lại."
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Lỗi mạng khi nhận diện giọng nói."
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Chưa cấp quyền Micro cho DuyTV."
-                    else -> "Lỗi nhận diện ($error)"
+                    else -> "Chưa nhận diện được ($error)"
                 }
                 _state.value = VoiceState.Error(msg)
-                scheduleReset(2200)
+                scheduleReset(2500)
             }
 
             override fun onResults(results: Bundle?) {
+                mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val bestMatch = matches?.firstOrNull()?.trim()
@@ -191,8 +222,8 @@ class VoiceAssistantManager(
                 if (!bestMatch.isNullOrBlank()) {
                     this@VoiceAssistantManager.onResult(bestMatch)
                 } else {
-                    _state.value = VoiceState.Error("Không tìm thấy kết quả phù hợp.")
-                    scheduleReset(2000)
+                    _state.value = VoiceState.Error("Chưa nghe rõ khẩu lệnh. Hãy thử lại!")
+                    scheduleReset(2200)
                 }
             }
 
@@ -200,6 +231,9 @@ class VoiceAssistantManager(
                 val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                 if (!partial.isNullOrBlank()) {
                     _state.value = VoiceState.Processing(partial)
+                    // Tự động chốt lệnh sau 850ms nếu người dùng ngừng nói, phản hồi tức thì mà không cần chờ 15s!
+                    mainHandler.removeCallbacks(silenceWatchdog)
+                    mainHandler.postDelayed(silenceWatchdog, 850L)
                 }
             }
 

@@ -197,6 +197,7 @@ private fun PlayerScreenContent(
     var videoResolution by remember { mutableStateOf("1080p FHD") }
     var currentPosMs by remember { mutableStateOf(initialPositionMs) }
     var voiceKeyDownTimeMs by remember { mutableLongStateOf(0L) }
+    var lastVoiceTriggerTimestampMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableStateOf(1L) }
     var pendingSeekPosMs by remember { mutableStateOf<Long?>(null) }
     var seekDeltaText by remember { mutableStateOf("") }
@@ -1359,6 +1360,10 @@ private fun PlayerScreenContent(
                     reportSuccess("Đang mở: ${cmd.target.uppercase()}")
                     launchAppByQuery(context, cmd.target)
                 }
+                is VoiceCommand.YouTubeSearch -> {
+                    reportSuccess("YouTube: ${cmd.query.uppercase()}")
+                    launchYouTubeSearch(context, cmd.query)
+                }
                 is VoiceCommand.AdjustVolume -> {
                     val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                     val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
@@ -1450,27 +1455,32 @@ private fun PlayerScreenContent(
                              keyCode == KeyEvent.KEYCODE_SEARCH
 
             if (isVoiceKey) {
+                val now = System.currentTimeMillis()
                 if (action == KeyEvent.ACTION_DOWN) {
                     if (event.repeatCount == 0) {
-                        voiceKeyDownTimeMs = System.currentTimeMillis()
+                        // Khử rung / chống dội phím (Debounce 800ms) để triệt tiêu hoàn toàn trùng lặp tín hiệu
+                        if (now - lastVoiceTriggerTimestampMs < 800L) {
+                            return@listener true
+                        }
+                        lastVoiceTriggerTimestampMs = now
+                        voiceKeyDownTimeMs = now
+
                         // Ẩn tất cả nội dung / OSD để giao diện chuyên nghiệp, sạch sẽ
                         showControls = false
                         showChannelRibbon = false
                         showQuickActionSheet = false
                         showQualityMenu = false
 
+                        // Bắt đầu lắng nghe ổn định - Tuyệt đối không hủy nếu đang nghe (tránh nhấp nháy UI)
                         if (voiceManager.state.value is VoiceState.Idle) {
                             voiceManager.startListening()
-                        } else {
-                            voiceManager.cancel()
                         }
                     }
                 } else if (action == KeyEvent.ACTION_UP) {
-                    // Khi nhả phím:
-                    // - Nếu bấm giữ lâu (> 600ms, Push-To-Talk): Chốt thu âm và nhận diện ngay lập tức
-                    // - Nếu bấm nhả nhanh (Tap <= 600ms): Tiếp tục lắng nghe tự nhiên để người dùng đọc câu lệnh
-                    val pressDurationMs = System.currentTimeMillis() - voiceKeyDownTimeMs
-                    if (pressDurationMs > 600L && voiceManager.state.value is VoiceState.Listening) {
+                    val pressDurationMs = now - voiceKeyDownTimeMs
+                    // Nếu bấm giữ nói (> 350ms, Push-To-Talk) thì khi nhả nút chốt lệnh ngay lập tức (phản hồi 0ms!)
+                    // Nếu bấm nhả nhanh (Tap thông thường) thì để SpeechRecognizer tự lắng nghe tự nhiên!
+                    if (pressDurationMs > 350L && voiceManager.state.value is VoiceState.Listening) {
                         voiceManager.stopListening()
                     }
                 }
@@ -2834,6 +2844,11 @@ private fun PlayerScreenContent(
                 showChannelRibbon = false
                 showQuickActionSheet = false
                 showQualityMenu = false
+                // Giảm nhỏ âm lượng stream TV (Ducking) để micro remote thu âm giọng nói rõ nét 100%, không bị tiếng loa TV làm nhiễu
+                try { exoPlayer.volume = 0.05f } catch (_: Exception) {}
+            } else {
+                // Khôi phục âm lượng đầy đủ khi kết thúc phiên nhận diện
+                try { exoPlayer.volume = 1.0f } catch (_: Exception) {}
             }
         }
         VoiceOverlay(
@@ -3521,9 +3536,50 @@ private fun launchAppByQuery(context: Context, query: String) {
                 intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
             }
         }
+        if (intent == null) {
+            val stdIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+            val stdApps = pm.queryIntentActivities(stdIntent, 0)
+            val matched = stdApps.find { it.loadLabel(pm).toString().lowercase().contains(q) }
+            if (matched != null) {
+                val pkg = matched.activityInfo.packageName
+                intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
+            }
+        }
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }
     } catch (_: Exception) {}
+}
+
+private fun launchYouTubeSearch(context: Context, query: String) {
+    try {
+        val uri = android.net.Uri.parse("https://www.youtube.com/results?search_query=" + android.net.Uri.encode(query))
+        val pm = context.packageManager
+        val candidatePkgs = listOf(
+            "com.google.android.youtube.tv",
+            "com.liskovsoft.smarttubetv.beta",
+            "com.teamsmart.videomanager.tv",
+            "com.google.android.youtube"
+        )
+        val installedPkg = candidatePkgs.find { pkg ->
+            try {
+                pm.getPackageInfo(pkg, 0)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            if (installedPkg != null) {
+                setPackage(installedPkg)
+            }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        android.util.Log.e("PlayerScreen", "Lỗi mở YouTube Search: ${e.message}")
+    }
 }

@@ -49,6 +49,9 @@ class MainActivity : ComponentActivity() {
         var pendingVoiceTrigger: Boolean = false
 
         @Volatile
+        var lastVoiceTriggerMs: Long = 0L
+
+        @Volatile
         var lastUserInteractionMs: Long = System.currentTimeMillis()
             private set
 
@@ -58,6 +61,11 @@ class MainActivity : ComponentActivity() {
         }
 
         fun triggerVoiceFromService(context: android.content.Context, event: android.view.KeyEvent) {
+            val now = System.currentTimeMillis()
+            if (now - lastVoiceTriggerMs < 800L) {
+                return
+            }
+            lastVoiceTriggerMs = now
             if (isActivityInForeground && onKeyEventListener?.invoke(event) == true) {
                 return
             }
@@ -134,6 +142,11 @@ class MainActivity : ComponentActivity() {
                    intent.action == "android.speech.action.VOICE_SEARCH_HANDS_FREE" ||
                    intent.action == "android.intent.action.VOICE_COMMAND" ||
                    intent.getBooleanExtra("trigger_voice", false)) {
+            val now = System.currentTimeMillis()
+            if (now - lastVoiceTriggerMs < 800L) {
+                return
+            }
+            lastVoiceTriggerMs = now
             val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
             if (onKeyEventListener?.invoke(fakeEvent) != true) {
                 pendingVoiceTrigger = true
@@ -191,6 +204,14 @@ class MainActivity : ComponentActivity() {
         // 🎙️ Đánh chặn triệt để phím Micro Remote TV (KEYCODE_VOICE_ASSIST, KEYCODE_ASSIST & KEYCODE_SEARCH):
         // Luôn tiêu thụ sự kiện để ngăn Google Assistant hệ thống nhảy đè lên màn hình DuyTV!
         if (isVoiceOrAssistKey(keyCode)) {
+            val now = System.currentTimeMillis()
+            if (action == android.view.KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount > 0) return true
+                if (now - lastVoiceTriggerMs < 800L) {
+                    return true
+                }
+                lastVoiceTriggerMs = now
+            }
             if (onKeyEventListener?.invoke(event) == true) {
                 return true
             }
@@ -208,9 +229,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (isVoiceOrAssistKey(keyCode)) {
-            if (onKeyEventListener?.invoke(event) == true) {
-                return true
-            }
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -218,9 +236,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (isVoiceOrAssistKey(keyCode)) {
-            if (onKeyEventListener?.invoke(event) == true) {
-                return true
-            }
             return true
         }
         return super.onKeyUp(keyCode, event)

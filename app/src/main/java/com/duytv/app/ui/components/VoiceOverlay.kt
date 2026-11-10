@@ -46,19 +46,18 @@ fun VoiceOverlay(
         modifier = modifier
     ) {
         val infiniteTransition = rememberInfiniteTransition(label = "VoicePulse")
-        val idlePulse by infiniteTransition.animateFloat(
-            initialValue = 1.0f,
-            targetValue = 1.25f,
+        val breathScale by infiniteTransition.animateFloat(
+            initialValue = 0.95f,
+            targetValue = 1.12f,
             animationSpec = infiniteRepeatable(
-                animation = tween(600, easing = FastOutSlowInEasing),
+                animation = tween(900, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
-            label = "idlePulse"
+            label = "breathScale"
         )
 
-        val rms = (state as? VoiceState.Listening)?.rmsDb ?: 0f
         val animatedScale = if (state is VoiceState.Listening) {
-            1.0f + (rms / 10f).coerceIn(0f, 0.45f) * idlePulse
+            breathScale
         } else {
             1.0f
         }
@@ -81,6 +80,7 @@ fun VoiceOverlay(
         ) {
             Row(
                 modifier = Modifier
+                    .widthIn(min = 360.dp, max = 600.dp)
                     .clip(RoundedCornerShape(32.dp))
                     .shadow(16.dp, RoundedCornerShape(32.dp))
                     .background(Color(0xEE10141E))
@@ -92,7 +92,7 @@ fun VoiceOverlay(
                         shape = RoundedCornerShape(32.dp)
                     )
                     .clickable { onDismiss() }
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -133,21 +133,22 @@ fun VoiceOverlay(
                     }
                 }
 
-                // Text Feedback Block: Tinh gọn, ẩn nội dung thừa, chuyên nghiệp như Apple TV / Google TV
+                // Text Feedback Block: Rõ ràng, êm dịu, không giật màn hình
                 Column(
+                    modifier = Modifier.weight(1f, fill = false),
                     verticalArrangement = Arrangement.Center
                 ) {
                     val title = when (state) {
                         is VoiceState.Listening -> "ĐANG LẮNG NGHE..."
-                        is VoiceState.Processing -> "ĐANG NHẬN DIỆN..."
-                        is VoiceState.Success -> "ĐÃ CHUYỂN ĐÀI"
+                        is VoiceState.Processing -> "ĐANG XỬ LÝ KHẨU LỆNH..."
+                        is VoiceState.Success -> "ĐÃ THỰC HIỆN"
                         is VoiceState.Error -> "CHƯA RÕ KHẨU LỆNH"
                         VoiceState.Idle -> ""
                     }
 
                     val desc = when (state) {
-                        is VoiceState.Listening -> "" // Ẩn nội dung hướng dẫn khi đang nghe để giao diện tối giản, sang trọng
-                        is VoiceState.Processing -> state.partialText
+                        is VoiceState.Listening -> "Nói tên đài (VTV, HTV...) hoặc nội dung YouTube (nhạc, karaoke...)"
+                        is VoiceState.Processing -> if (state.partialText.isNotBlank()) "Đang nghe: \"${state.partialText}\"" else "Đang nhận diện giọng nói..."
                         is VoiceState.Success -> state.message
                         is VoiceState.Error -> state.message
                         VoiceState.Idle -> ""
