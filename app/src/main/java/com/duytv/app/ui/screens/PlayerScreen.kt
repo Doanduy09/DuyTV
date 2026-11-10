@@ -7,6 +7,11 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import com.duytv.app.util.VoiceAssistantManager
+import com.duytv.app.util.VoiceState
+import com.duytv.app.util.VoiceCommandParser
+import com.duytv.app.util.VoiceCommand
+import com.duytv.app.ui.components.VoiceOverlay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1339,11 +1344,100 @@ private fun PlayerScreenContent(
     val osdPlayPauseFocusRequester = remember { FocusRequester() }
     val sheetCloseFocusRequester = remember { FocusRequester() }
 
+    val voiceManager = remember {
+        VoiceAssistantManager(context) { recognizedText ->
+            val cmd = VoiceCommandParser.parse(recognizedText, availableChannels)
+            when (cmd) {
+                is VoiceCommand.SwitchChannel -> {
+                    reportSuccess("Đang mở: ${cmd.channel.name}")
+                    switchToChannel(cmd.index)
+                }
+                VoiceCommand.NextChannel -> {
+                    reportSuccess("Chuyển kênh tiếp theo")
+                    nextChannel()
+                }
+                VoiceCommand.PreviousChannel -> {
+                    reportSuccess("Quay lại kênh trước")
+                    previousChannel()
+                }
+                VoiceCommand.Pause -> {
+                    reportSuccess("Tạm dừng phát")
+                    exoPlayer.pause()
+                    isPlaying = false
+                }
+                VoiceCommand.Resume -> {
+                    reportSuccess("Tiếp tục phát")
+                    exoPlayer.play()
+                    isPlaying = true
+                }
+                VoiceCommand.SwitchBackupSource -> {
+                    reportSuccess("Đổi server dự phòng")
+                    switchBackupSource()
+                }
+                VoiceCommand.ToggleStretch -> {
+                    val modes = VideoAspectMode.values()
+                    val nextIdx = (currentAspectMode.ordinal + 1) % modes.size
+                    currentAspectMode = modes[nextIdx]
+                    AppCacheManager.savePreferredAspectModeName(context, currentAspectMode.name)
+                    reportSuccess(currentAspectMode.label)
+                }
+                is VoiceCommand.SearchMovie -> {
+                    reportSuccess("Tìm kiếm: ${cmd.query}")
+                }
+                is VoiceCommand.Unknown -> {
+                    reportError("Không tìm thấy đài: \"${cmd.rawText}\"")
+                }
+            }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceManager.destroy()
+        }
+    }
+
     // Bắt toàn diện 100% phím bấm phần cứng từ Remote Sharp TV ở cấp độ Activity
     DisposableEffect(exoPlayer) {
         MainActivity.onKeyEventListener = listener@{ event ->
             val keyCode = event.keyCode
             val action = event.action
+
+            // 🎙️ Phím Micro trên Remote TV (KEYWORDS_VOICE_ASSIST, KEYCODE_ASSIST hoặc KEYCODE_SEARCH):
+            val isVoiceKey = keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+                             keyCode == KeyEvent.KEYCODE_ASSIST ||
+                             keyCode == KeyEvent.KEYCODE_SEARCH
+
+            if (isVoiceKey) {
+                if (action == KeyEvent.ACTION_DOWN) {
+                    if (event.repeatCount == 0) {
+                        // Ẩn tất cả nội dung / OSD để giao diện chuyên nghiệp, sạch sẽ
+                        showControls = false
+                        showChannelRibbon = false
+                        showQuickActionSheet = false
+                        showQualityMenu = false
+
+                        if (voiceManager.state.value is VoiceState.Idle) {
+                            voiceManager.startListening()
+                        }
+                    }
+                } else if (action == KeyEvent.ACTION_UP) {
+                    // Khi nhả phím sau khi bấm giữ: chốt thu âm và nhận diện ngay
+                    if (voiceManager.state.value is VoiceState.Listening) {
+                        voiceManager.stopListening()
+                    }
+                }
+                return@listener true
+            }
+
+            // 🎙️ Nếu Voice Overlay đang hiển thị mà bấm BACK / ESCAPE: Hủy lắng nghe
+            if (voiceManager.state.value !is VoiceState.Idle) {
+                if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        voiceManager.cancel()
+                    }
+                    return@listener true
+                }
+            }
 
             if (currentIsTouchLocked) {
                 if (action == KeyEvent.ACTION_DOWN && (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_BACK)) {
@@ -1728,6 +1822,19 @@ private fun PlayerScreenContent(
                                 return@onKeyEvent true
                             }
                         }
+                        KeyEvent.KEYCODE_VOICE_ASSIST, KeyEvent.KEYCODE_ASSIST, KeyEvent.KEYCODE_SEARCH -> {
+                            showControls = false
+                            showChannelRibbon = false
+                            showQuickActionSheet = false
+                            showQualityMenu = false
+                            val vs = voiceManager.state.value
+                            if (vs is VoiceState.Idle) {
+                                voiceManager.startListening()
+                            } else if (vs is VoiceState.Listening) {
+                                voiceManager.stopListening()
+                            }
+                            return@onKeyEvent true
+                        }
                         KeyEvent.KEYCODE_WINDOW,
                         KeyEvent.KEYCODE_PROG_GREEN,
                         KeyEvent.KEYCODE_CAPTIONS,
@@ -1742,6 +1849,10 @@ private fun PlayerScreenContent(
                             return@onKeyEvent true
                         }
                         KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                            if (voiceManager.state.value !is VoiceState.Idle) {
+                                voiceManager.cancel()
+                                return@onKeyEvent true
+                            }
                             if (showQuickActionSheet) {
                                 showQuickActionSheet = false
                                 return@onKeyEvent true
@@ -2477,6 +2588,12 @@ private fun PlayerScreenContent(
                                 highlight = (currentAspectMode == VideoAspectMode.ZOOM),
                                 onClick = { cycleAspectMode() }
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(
+                                text = "🎙️ GIỌNG NÓI",
+                                highlight = voiceManager.state.value !is VoiceState.Idle,
+                                onClick = { voiceManager.startListening() }
+                            )
                         } else {
                             if (availableEpisodes.size > 1 && currentEpisodeIndex > 0) {
                                 QuickSeekPill(
@@ -2542,6 +2659,12 @@ private fun PlayerScreenContent(
                                 },
                                 highlight = (currentAspectMode == VideoAspectMode.ZOOM),
                                 onClick = { cycleAspectMode() }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            QuickSeekPill(
+                                text = "🎙️ GIỌNG NÓI",
+                                highlight = voiceManager.state.value !is VoiceState.Idle,
+                                onClick = { voiceManager.startListening() }
                             )
                         }
                     }
@@ -2639,11 +2762,27 @@ private fun PlayerScreenContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         GuideItem(key = "MENU", desc = "Băng thông (4K/12K)")
                         Spacer(modifier = Modifier.width(12.dp))
+                        GuideItem(key = "🎙️ MIC", desc = "Nói tên đài")
+                        Spacer(modifier = Modifier.width(12.dp))
                         GuideItem(key = "BACK", desc = "Thoát")
                     }
                 }
             }
         }
+
+        val voiceState by voiceManager.state.collectAsState()
+        LaunchedEffect(voiceState) {
+            if (voiceState !is VoiceState.Idle) {
+                showControls = false
+                showChannelRibbon = false
+                showQuickActionSheet = false
+                showQualityMenu = false
+            }
+        }
+        VoiceOverlay(
+            state = voiceState,
+            onDismiss = { voiceManager.cancel() }
+        )
     }
 }
 

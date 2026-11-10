@@ -103,6 +103,12 @@ class MainActivity : ComponentActivity() {
         } else if (intent.getBooleanExtra("open_home", false)) {
             pendingScreenFromIntent = AppScreen.Home
             intent.removeExtra("open_home")
+        } else if (intent.action == android.content.Intent.ACTION_SEARCH ||
+                   intent.action == android.content.Intent.ACTION_ASSIST) {
+            val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
+            if (onKeyEventListener?.invoke(fakeEvent) != true) {
+                pendingScreenFromIntent = AppScreen.Search
+            }
         }
     }
 
@@ -117,12 +123,62 @@ class MainActivity : ComponentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    private fun isVoiceOrAssistKey(keyCode: Int): Boolean {
+        return keyCode == android.view.KeyEvent.KEYCODE_VOICE_ASSIST ||
+               keyCode == android.view.KeyEvent.KEYCODE_ASSIST ||
+               keyCode == android.view.KeyEvent.KEYCODE_SEARCH
+    }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         lastUserInteractionMs = System.currentTimeMillis()
+        val keyCode = event.keyCode
+        val action = event.action
+
+        // 🎙️ Đánh chặn triệt để phím Micro Remote TV (KEYCODE_VOICE_ASSIST, KEYCODE_ASSIST & KEYCODE_SEARCH):
+        // Luôn tiêu thụ sự kiện để ngăn Google Assistant hệ thống nhảy đè lên màn hình DuyTV!
+        if (isVoiceOrAssistKey(keyCode)) {
+            if (onKeyEventListener?.invoke(event) == true) {
+                return true
+            }
+            if (action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                pendingScreenFromIntent = AppScreen.Search
+            }
+            return true
+        }
+
         if (onKeyEventListener?.invoke(event) == true) {
             return true
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (isVoiceOrAssistKey(keyCode)) {
+            if (onKeyEventListener?.invoke(event) == true) {
+                return true
+            }
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent): Boolean {
+        if (isVoiceOrAssistKey(keyCode)) {
+            if (onKeyEventListener?.invoke(event) == true) {
+                return true
+            }
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onSearchRequested(): Boolean {
+        val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
+        if (onKeyEventListener?.invoke(fakeEvent) == true) {
+            return true
+        }
+        pendingScreenFromIntent = AppScreen.Search
+        return true
     }
 
     override fun onUserLeaveHint() {
@@ -201,6 +257,11 @@ class MainActivity : ComponentActivity() {
                 .build()
             // [✅ ĐÃ CHUẨN - CẤM SỬA]: Không gọi setImageLoader ở đây để giữ nguyên cấu hình chuẩn tại DuyTvApplication.newImageLoader()
         } catch (_: Exception) {}
+
+        // Cấp quyền thu âm micro cho Remote TV điều khiển giọng nói
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 101)
+        }
 
         handleLauncherIntent(intent)
 
