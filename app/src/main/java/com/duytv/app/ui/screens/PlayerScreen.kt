@@ -261,7 +261,10 @@ private fun PlayerScreenContent(
     }
 
     // Danh sách kênh & index hiện tại khi xem truyền hình (-1 nếu là luồng trận bóng đá trực tiếp)
-    val availableChannels = remember { AppCacheManager.activeChannels }
+    val availableChannels = remember {
+        val cached = AppCacheManager.activeChannels
+        if (cached.isNotEmpty()) cached else MovieRepository.getVerifiedOfficialChannels()
+    }
     val initialChIndex = remember(availableChannels, streamUrl, movieTitle) {
         availableChannels.indexOfFirst {
             it.streamUrl == streamUrl ||
@@ -1608,12 +1611,11 @@ private fun PlayerScreenContent(
                                     }
                                 } else {
                                     // Kiểm tra nếu là tên kênh truyền hình
-                                    val chIdx = currentAvailableChannels.indexOfFirst {
-                                        it.name.contains(cmd.query, ignoreCase = true)
-                                    }
-                                    if (chIdx >= 0) {
-                                        speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}")
-                                        switchToChannel(chIdx)
+                                    val safeChannels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
+                                    val matchedCh = VoiceCommandParser.matchTvChannel(cmd.query, safeChannels)
+                                    if (matchedCh != null) {
+                                        speakAndReport("Đang mở: ${matchedCh.channel.name}", "Dạ, đang mở kênh ${matchedCh.channel.name}")
+                                        switchToChannel(matchedCh.index)
                                     } else {
                                         // Smart Fallback to YouTube: Nếu không có kênh và không có phim trong DuyTV, tự động mở YouTube!
                                         speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
@@ -1637,7 +1639,26 @@ private fun PlayerScreenContent(
                         launchSettingIntent(context, cmd.settingType)
                     }
                     is VoiceCommand.Unknown -> {
-                        if (cmd.rawText.isNotBlank()) {
+                        val rawLower = cmd.rawText.lowercase().trim()
+                        val isTvIntent = rawLower.contains("đài") || rawLower.contains("kênh") ||
+                                         rawLower.contains("tivi") || rawLower.contains("truyền hình") ||
+                                         rawLower.contains("vtv") || rawLower.contains("htv") ||
+                                         rawLower.contains("vtc") || rawLower.contains("thvl") ||
+                                         rawLower.contains("sctv") || rawLower.contains("k+") ||
+                                         rawLower.contains("bóng đá") || rawLower.contains("thể thao") ||
+                                         rawLower.contains("đồng tháp") || rawLower.contains("vĩnh long")
+
+                        if (isTvIntent) {
+                            val channels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
+                            val matched = VoiceCommandParser.matchTvChannel(rawLower, channels)
+                            if (matched != null) {
+                                speakAndReport("Đang mở: ${matched.channel.name}", "Dạ, đang mở kênh ${matched.channel.name}")
+                                switchToChannel(matched.index)
+                            } else if (channels.isNotEmpty()) {
+                                speakAndReport("Đang mở: ${channels[0].name}", "Dạ, đang mở truyền hình cho anh")
+                                switchToChannel(0)
+                            }
+                        } else if (cmd.rawText.isNotBlank()) {
                             speakAndReport("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
                                 launchYouTubeSearch(context, cmd.rawText)
                             }
@@ -1648,12 +1669,13 @@ private fun PlayerScreenContent(
                 }
             }
 
-            val bestCandidate = VoiceCommandParser.selectBestCandidate(candidates, currentAvailableChannels)
+            val channels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
+            val bestCandidate = VoiceCommandParser.selectBestCandidate(candidates, channels)
             val rawQuery = (if (bestCandidate.isNotBlank()) bestCandidate else recognizedText).trim()
             android.util.Log.i("VoiceCommandParser", "🎤 [VOICE INPUT BEST]: '$rawQuery' (từ danh sách: $candidates)")
 
             // 1. Phân tích khẩu lệnh cục bộ tức thì 0ms (Zero-Latency Local Reflex)
-            val localCmd = VoiceCommandParser.parse(rawQuery, currentAvailableChannels)
+            val localCmd = VoiceCommandParser.parse(rawQuery, channels)
 
             // 2. NẾU LÀ LỆNH ĐIỀU KHIỂN RÕ RÀNG (Kênh truyền hình, Nhà đài, Âm lượng, Playback, Cài đặt, YouTube, App, Phim rõ ràng):
             // THỰC THI NGAY LẬP TỨC 0ms - TUYỆT ĐỐI KHÔNG CHỜ MẠNG, KHÔNG QUA AI!
@@ -1681,13 +1703,12 @@ private fun PlayerScreenContent(
                             }
                             "play_tv" -> {
                                 val q = aiAction.query ?: rawQuery
-                                val chIdx = currentAvailableChannels.indexOfFirst {
-                                    it.name.contains(q, ignoreCase = true)
-                                }
-                                if (chIdx >= 0) {
-                                    val tts = aiAction.ttsReply ?: "Dạ, đang mở kênh ${currentAvailableChannels[chIdx].name}"
-                                    speakAndReport("Đang mở: ${currentAvailableChannels[chIdx].name}", tts)
-                                    switchToChannel(chIdx)
+                                val safeChannels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
+                                val matched = VoiceCommandParser.matchTvChannel(q, safeChannels)
+                                if (matched != null) {
+                                    val tts = aiAction.ttsReply ?: "Dạ, đang mở kênh ${matched.channel.name}"
+                                    speakAndReport("Đang mở: ${matched.channel.name}", tts)
+                                    switchToChannel(matched.index)
                                 } else {
                                     executeVoiceCommand(localCmd)
                                 }

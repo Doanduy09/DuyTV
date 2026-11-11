@@ -2,6 +2,7 @@ package com.duytv.app.util
 
 import com.duytv.app.data.TvChannel
 import com.duytv.app.data.MovieRepository
+import com.duytv.app.data.AppCacheManager
 import java.text.Normalizer
 import java.util.regex.Pattern
 
@@ -59,6 +60,17 @@ object VoiceCommandParser {
         "hắt tivi" to "htv",
         "hát tv" to "htv",
         "h t v" to "htv",
+        "hát cover" to "htv",
+        "hát sever" to "htv",
+        "hát sevo" to "htv",
+        "hát cever" to "htv",
+        "hát cevo" to "htv",
+        "hát xever" to "htv",
+        "hát xevo" to "htv",
+        "hát tơ ve" to "htv",
+        "hát te ve" to "htv",
+        "hát ti vi" to "htv",
+        "hát tôi vô" to "htv",
 
         // VTV Đài Truyền hình Việt Nam
         "vê tê vê" to "vtv",
@@ -190,11 +202,42 @@ object VoiceCommandParser {
             "hải mở" to "hãy mở",
             "phim long bát bộ" to "thiên long bát bộ",
             "thiên long bát bộc" to "thiên long bát bộ",
-            "thiên long bát bộ của" to "thiên long bát bộ"
+            "thiên long bát bộ của" to "thiên long bát bộ",
+            "hát tôi vô bạn" to "htv7",
+            "hát tôi vô" to "htv7",
+            "mở bài hát tôi vô bạn" to "mở đài htv7",
+            "mở bài hát cover 7" to "mở đài htv7",
+            "mở bài hát sever 7" to "mở đài htv7",
+            "mở bài hát sevo 7" to "mở đài htv7",
+            "mở bài hát bolero 7" to "mở đài htv7",
+            "bài hát cover 7" to "đài htv7",
+            "bài hát sever 7" to "đài htv7",
+            "bài hát sevo 7" to "đài htv7",
+            "bài hát cover" to "đài htv7",
+            "bài hát sever" to "đài htv7",
+            "hát cover 7" to "htv7",
+            "hát sever 7" to "htv7",
+            "hát sevo 7" to "htv7",
+            "em ở đài" to "em mở đài",
+            "ở đài" to "mở đài",
+            "ở kênh" to "mở kênh",
+            "mở bài htv" to "mở đài htv",
+            "mở bài vtv" to "mở đài vtv",
+            "mở bài vtc" to "mở đài vtc",
+            "mở bài thvl" to "mở đài thvl",
+            "mở bài k+" to "mở đài k+",
+            "mở bài đồng tháp" to "mở đài đồng tháp",
+            "mở bài vĩnh long" to "mở đài vĩnh long"
         )
         for ((wrong, right) in corrections) {
             text = text.replace(wrong, right)
         }
+
+        // Tự động sửa lỗi Google STT nhận nhầm "mở đài" thành "ở đài" hoặc "ở kênh"
+        text = text.replace(Regex("\\b(em\\s+)?ở\\s+(đài|kênh)\\b"), "mở $2")
+
+        // Tự động sửa lỗi Google STT nhận nhầm "đài" thành "bài" khi đi cùng tên kênh truyền hình
+        text = text.replace(Regex("\\b(mở|bật|xem|chiếu|chuyển|nghe)?\\s*(bài|bài\\s+hát)\\s+(htv|vtv|vtc|thvl|sctv|k\\+|thdt|đồng tháp|vĩnh long|today|btv|kênh)"), "mở đài $3")
 
         // Tự động sửa lỗi Google STT nhận nhầm "hãy" thành "hải" hoặc "tải" trước các động từ
         text = text.replace(Regex("\\b(hải|tải|thử)\\s+(mở|bật|tăng|giảm|tìm|xem|chiếu|phát|chuyển|chạy|vào)\\b"), "hãy $2")
@@ -255,6 +298,7 @@ object VoiceCommandParser {
         if (candidates.isEmpty()) return ""
         if (candidates.size == 1) return candidates[0].trim()
 
+        val channels = if (availableChannels.isNotEmpty()) availableChannels else MovieRepository.getVerifiedOfficialChannels()
         var bestCandidate = candidates[0].trim()
         var bestScore = -100
 
@@ -264,13 +308,18 @@ object VoiceCommandParser {
             val norm = normalizeQuery(raw)
             var score = 0
 
+            // 0. Khớp chuẩn kênh truyền hình (Ưu tiên tối cao)
+            if (matchTvChannel(norm, channels) != null) {
+                score += 250
+            }
+
             // 1. Khẩu lệnh nhanh 0ms (Ưu tiên tuyệt đối)
             if (isQuickTriggerCommand(norm)) {
                 score += 150
             }
 
-            // 2. Khớp kênh truyền hình
-            val matchesChannel = availableChannels.any { ch ->
+            // 2. Khớp kênh truyền hình theo tên
+            val matchesChannel = channels.any { ch ->
                 val chNorm = normalizeQuery(ch.name)
                 norm == chNorm || norm.startsWith("mở $chNorm") || norm.startsWith("bật $chNorm") || norm.contains(chNorm)
             }
@@ -705,7 +754,21 @@ object VoiceCommandParser {
      * Khớp kênh truyền hình & nhà đài cực nhanh 0ms (VTV, HTV, VTC, THVL, SCTV, K+, BTV, Today...)
      */
     fun matchTvChannel(core: String, availableChannels: List<TvChannel>): VoiceCommand.SwitchChannel? {
-        if (availableChannels.isEmpty()) return null
+        val channels = if (availableChannels.isNotEmpty()) availableChannels else MovieRepository.getVerifiedOfficialChannels()
+        if (channels.isEmpty()) return null
+
+        val trimmed = core.trim()
+        // 0. Khẩu lệnh chung muốn xem truyền hình: "mở đài", "xem đài", "bật đài", "đài", "kênh", "truyền hình", "mở tivi", "bật tivi", "xem tivi"
+        if (trimmed == "đài" || trimmed == "kênh" || trimmed == "truyền hình" ||
+            trimmed == "mở đài" || trimmed == "xem đài" || trimmed == "bật đài" ||
+            trimmed == "mở tivi" || trimmed == "bật tivi" || trimmed == "xem tivi" ||
+            trimmed == "đài truyền hình" || trimmed == "kênh tivi") {
+            val lastIdx = channels.indexOfFirst {
+                it.name.equals(AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+            }
+            val targetIdx = if (lastIdx >= 0) lastIdx else 0
+            return VoiceCommand.SwitchChannel(targetIdx, channels[targetIdx])
+        }
 
         // 1. Loại bỏ tiền tố hành động
         var cleanedTarget = core
@@ -724,58 +787,89 @@ object VoiceCommandParser {
             }
         }
 
+        if (cleanedTarget.isBlank()) {
+            return VoiceCommand.SwitchChannel(0, channels[0])
+        }
+
         // A. Khớp theo số kênh trực tiếp ("kênh 5", "số 10")
         val numberMatch = Regex("^\\s*(?:kênh\\s+|số\\s+)?(\\d{1,3})\\s*$").find(cleanedTarget)
         if (numberMatch != null) {
             val channelNumber = numberMatch.groupValues[1].toIntOrNull()
-            if (channelNumber != null && channelNumber in 1..availableChannels.size) {
+            if (channelNumber != null && channelNumber in 1..channels.size) {
                 val targetIdx = channelNumber - 1
-                return VoiceCommand.SwitchChannel(targetIdx, availableChannels[targetIdx])
+                return VoiceCommand.SwitchChannel(targetIdx, channels[targetIdx])
             }
         }
 
-        // B. Khớp theo mã định danh kênh chuẩn (MovieRepository.normalizeChannelKey)
+        // B. Khớp nhà đài chính khi người dùng không đọc số (Flagship Defaults)
+        val targetNoAccent = removeAccents(cleanedTarget)
+        if (cleanedTarget == "vtv" || targetNoAccent == "vtv") {
+            val idx = channels.indexOfFirst { it.name.startsWith("VTV1", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+        if (cleanedTarget == "htv" || targetNoAccent == "htv") {
+            val idx = channels.indexOfFirst { it.name.startsWith("HTV7", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+        if (cleanedTarget == "vtc" || targetNoAccent == "vtc") {
+            val idx = channels.indexOfFirst { it.name.startsWith("VTC1", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+        if (cleanedTarget == "thvl" || targetNoAccent == "thvl" || cleanedTarget == "vinh long" || targetNoAccent == "vinh long" || cleanedTarget == "vĩnh long") {
+            val idx = channels.indexOfFirst { it.name.startsWith("THVL1", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+        if (cleanedTarget == "k+" || targetNoAccent == "k+") {
+            val idx = channels.indexOfFirst { it.name.contains("K+", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+        if (cleanedTarget.contains("đồng tháp") || targetNoAccent.contains("dong thap") || targetNoAccent.contains("thdt") || targetNoAccent.contains("dongthap")) {
+            val idx = channels.indexOfFirst { it.name.contains("Đồng Tháp", ignoreCase = true) || it.name.contains("THĐT", ignoreCase = true) }
+            if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
+        }
+
+        // C. Khớp theo mã định danh kênh chuẩn (MovieRepository.normalizeChannelKey)
         val normalizedTargetKey = MovieRepository.normalizeChannelKey(cleanedTarget)
         if (normalizedTargetKey.isNotBlank()) {
-            val directKeyMatchIdx = availableChannels.indexOfFirst { ch ->
+            val directKeyMatchIdx = channels.indexOfFirst { ch ->
                 val chKey = MovieRepository.normalizeChannelKey(ch.name)
                 chKey == normalizedTargetKey
             }
             if (directKeyMatchIdx >= 0) {
-                return VoiceCommand.SwitchChannel(directKeyMatchIdx, availableChannels[directKeyMatchIdx])
+                return VoiceCommand.SwitchChannel(directKeyMatchIdx, channels[directKeyMatchIdx])
             }
         }
 
-        // C. Khớp mờ theo khoảng cách ngữ âm Levenshtein & Substring
+        // D. Khớp mờ theo khoảng cách ngữ âm Levenshtein & Substring
         val compactTarget = cleanedTarget.replace(Regex("[^a-z0-9]"), "")
         if (compactTarget.isNotBlank()) {
-            val fuzzyIdx = fuzzyMatchChannel(compactTarget, availableChannels)
+            val fuzzyIdx = fuzzyMatchChannel(compactTarget, channels)
             if (fuzzyIdx >= 0) {
-                return VoiceCommand.SwitchChannel(fuzzyIdx, availableChannels[fuzzyIdx])
+                return VoiceCommand.SwitchChannel(fuzzyIdx, channels[fuzzyIdx])
             }
 
             // Thử khớp theo tên gốc không dấu
             val targetNoAccent = removeAccents(cleanedTarget)
             if (targetNoAccent.length >= 2) {
-                val nameMatchIdx = availableChannels.indexOfFirst { ch ->
+                val nameMatchIdx = channels.indexOfFirst { ch ->
                     val chNoAccent = removeAccents(ch.name)
                     chNoAccent.contains(targetNoAccent, ignoreCase = true) || targetNoAccent.contains(chNoAccent, ignoreCase = true)
                 }
                 if (nameMatchIdx >= 0) {
-                    return VoiceCommand.SwitchChannel(nameMatchIdx, availableChannels[nameMatchIdx])
+                    return VoiceCommand.SwitchChannel(nameMatchIdx, channels[nameMatchIdx])
                 }
             }
         }
 
-        // D. Khớp từ khóa thể thao / bóng đá
+        // E. Khớp từ khóa thể thao / bóng đá
         if (core.contains("bóng đá") || core.contains("thể thao") || core.contains("ngoại hạng")) {
-            val sportsIdx = availableChannels.indexOfFirst { ch ->
+            val sportsIdx = channels.indexOfFirst { ch ->
                 val group = ch.groupTitle?.uppercase() ?: ""
                 val name = ch.name.uppercase()
                 group.contains("THỂ THAO") || group.contains("SPORTS") || name.contains("SPORTS") || name.contains("ON FOOTBALL") || name.contains("ON SPORTS")
             }
             if (sportsIdx >= 0) {
-                return VoiceCommand.SwitchChannel(sportsIdx, availableChannels[sportsIdx])
+                return VoiceCommand.SwitchChannel(sportsIdx, channels[sportsIdx])
             }
         }
 

@@ -1,7 +1,7 @@
 {
-  "versionCode": 53,
-  "versionName": "2.2.1",
+  "versionCode": 54,
+  "versionName": "2.2.2",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Nâng Cấp v2.2.1 (Build #53): Tối ưu chuyển kênh truyền hình 0ms tức thì không độ trễ; Giữ giao diện thuần Gemini Pro Brain chuyên nghiệp trên TV; Điều phối hội đồng trí tuệ nhân tạo PC; Sửa triệt để độ trễ nhận diện giọng nói nhà đài."
+  "releaseNotes": "Bản Nâng Cấp v2.2.2 (Build #54): Khắc phục triệt để mọi sự nhầm lẫn nhận diện giọng nói; Tự động nạp danh sách kênh dự phòng không bao giờ rỗng; Tự sửa lỗi Google STT 'mở bài' -> 'mở đài' HTV7, VTV, THVL, Đồng Tháp; Xử lý khẩu lệnh chung 'mở đài' mở ngay truyền hình, tuyệt đối không nhảy YouTube."
 }
