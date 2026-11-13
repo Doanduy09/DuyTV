@@ -1,7 +1,7 @@
 {
-  "versionCode": 57,
-  "versionName": "2.3.2",
+  "versionCode": 58,
+  "versionName": "2.3.3",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Chuẩn Phát Hành v2.3.2 (Build #57): Ký bằng chữ ký số Release Keystore cố định (duytv-release.jks) chuẩn v1/v2/v3 đồng bộ cả PC & GitHub Actions, giữ nguyên 100% tính năng giọng nói và hệ sinh thái DuyTV."
+  "releaseNotes": "Bản Nâng Cấp Thông Minh & Tiện Ích v2.3.3 (Build #58): Tối ưu giải phóng RAM Coil, lưu bền vững cài đặt Player (tốc độ phát, bỏ qua mở đầu, lọc thoại DRC, bộ lọc điện ảnh, ambilight), đồng bộ LoudnessEnhancer +8dB/+15dB chống clipping âm thanh, bổ sung danh mục Phim Yêu Thích riêng biệt, nút xóa lịch sử xem 1 chạm, nút ✕ xóa nhanh và xóa lịch sử tìm kiếm, mở rộng Trợ lý giọng nói AI (hẹn giờ ngủ, chế độ dịu mắt ban đêm, tắt màn hình chỉ nghe tiếng, khóa trẻ em) cùng bảng chẩn đoán phần cứng và luồng phát thời gian thực."
 }

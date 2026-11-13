@@ -212,7 +212,7 @@ private fun PlayerScreenContent(
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var lastSeekTimestamp by remember { mutableLongStateOf(0L) }
     var seekConsecutiveCount by remember { mutableIntStateOf(0) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var playbackSpeed by remember { mutableFloatStateOf(AppCacheManager.getPreferredPlaybackSpeed(context)) }
 
     var currentTitle by remember(movieTitle) { mutableStateOf(movieTitle) }
     var currentEpisodeName by remember(episodeName) { mutableStateOf(episodeName) }
@@ -328,11 +328,14 @@ private fun PlayerScreenContent(
     var previousVisitedChannelIndex by remember { mutableIntStateOf(-1) }
     var isScreenOffAudioMode by remember { mutableStateOf(false) }
     var isNightWarmMode by remember { mutableStateOf(AppCacheManager.getPreferredNightMode(context)) }
-    var cinematicFilter by remember { mutableStateOf(CinematicFilter.OFF) }
-    var isAmbilightEnabled by remember { mutableStateOf(false) }
-    var isDrcVoiceEnabled by remember { mutableStateOf(false) }
+    var cinematicFilter by remember {
+        val saved = AppCacheManager.getPreferredCinematicFilter(context)
+        mutableStateOf(CinematicFilter.values().firstOrNull { it.name == saved } ?: CinematicFilter.OFF)
+    }
+    var isAmbilightEnabled by remember { mutableStateOf(AppCacheManager.getPreferredAmbilight(context)) }
+    var isDrcVoiceEnabled by remember { mutableStateOf(AppCacheManager.getPreferredDrcVoice(context)) }
     var zeroStallFailoverEnabled by remember { mutableStateOf(true) }
-    var autoSkipIntroEnabled by remember { mutableStateOf(false) }
+    var autoSkipIntroEnabled by remember { mutableStateOf(AppCacheManager.getPreferredAutoSkipIntro(context)) }
     var isHlsAdBlockEnabled by remember { mutableStateOf(com.duytv.app.util.HlsAdBlockEngine.isEnabled) }
     var adsBlockedSessionCount by remember { mutableIntStateOf(com.duytv.app.util.HlsAdBlockEngine.totalAdsBlocked.get()) }
     var activeSubtitleData by remember(subtitleUrl) { mutableStateOf(subtitleUrl) }
@@ -1088,8 +1091,8 @@ private fun PlayerScreenContent(
                     loudnessEnhancer = LoudnessEnhancer(sessionId)
                 }
                 val gainmB = when (nextBoost) {
-                    150 -> 600  // +6 dB
-                    200 -> 1200 // +12 dB
+                    150 -> 800  // +8 dB
+                    200 -> 1500 // +15 dB
                     else -> 0
                 }
                 loudnessEnhancer?.setTargetGain(gainmB)
@@ -1112,8 +1115,8 @@ private fun PlayerScreenContent(
                     le.enabled = true
                 } else if (audioBoostPercent > 100) {
                     val gainMilliBels = when (audioBoostPercent) {
-                        150 -> 1000
-                        200 -> 1800
+                        150 -> 800
+                        200 -> 1500
                         else -> 0
                     }
                     le.setTargetGain(gainMilliBels)
@@ -1518,6 +1521,35 @@ private fun PlayerScreenContent(
                         cycleAudioBoost()
                         speakAndReport("Khuếch đại âm lượng: $audioBoostPercent%", "Dạ, đã đổi mức khuếch đại âm lượng $audioBoostPercent phần trăm")
                     }
+                    is VoiceCommand.SetSleepTimer -> {
+                        sleepTimerMinutes = cmd.minutes
+                        aspectBadgeText = if (cmd.minutes > 0) "⏲️ HẸN GIỜ TẮT: ${cmd.label}" else "⏲️ HẸN GIỜ TẮT: ĐÃ TẮT"
+                        speakAndReport(aspectBadgeText ?: "", if (cmd.minutes > 0) "Dạ, đã hẹn giờ tắt sau ${cmd.label}" else "Dạ, đã tắt hẹn giờ")
+                        scope.launch {
+                            delay(2200)
+                            aspectBadgeText = null
+                        }
+                    }
+                    VoiceCommand.ToggleNightMode -> {
+                        val nextMode = !isNightWarmMode
+                        isNightWarmMode = nextMode
+                        AppCacheManager.savePreferredNightMode(context, nextMode)
+                        val msg = if (nextMode) "Chế độ dịu mắt: BẬT" else "Chế độ dịu mắt: TẮT"
+                        speakAndReport(msg, "Dạ, đã ${if (nextMode) "bật chế độ dịu mắt ban đêm" else "tắt chế độ dịu mắt"}")
+                    }
+                    VoiceCommand.ActivateScreenOffAudio -> {
+                        isScreenOffAudioMode = true
+                        showQuickActionSheet = false
+                        showControls = false
+                        speakAndReport("Tắt màn hình chỉ nghe tiếng", "Dạ, em tắt màn hình để anh nghe âm thanh")
+                    }
+                    VoiceCommand.ToggleTouchLock -> {
+                        isTouchLocked = true
+                        showQuickActionSheet = false
+                        showControls = false
+                        showUnlockPill = true
+                        speakAndReport("Đã khóa cảm ứng", "Dạ, đã khóa cảm ứng màn hình")
+                    }
                     is VoiceCommand.SwitchEpisode -> {
                         if (!isLive && availableEpisodes.isNotEmpty()) {
                             val targetIdx = availableEpisodes.indexOfFirst {
@@ -1672,6 +1704,19 @@ private fun PlayerScreenContent(
                             "chat" -> {
                                 val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
                                 speakAndReport(reply, reply)
+                            }
+                            "playback_control", "system_action" -> {
+                                val fallbackText = aiAction.query ?: rawQuery
+                                val reParsedCmd = VoiceCommandParser.parse(fallbackText, currentAvailableChannels)
+                                val tts = aiAction.ttsReply
+                                if (!tts.isNullOrBlank()) {
+                                    speakAndReport(tts, tts)
+                                }
+                                if (reParsedCmd !is VoiceCommand.Unknown) {
+                                    executeVoiceCommand(reParsedCmd)
+                                } else {
+                                    executeVoiceCommand(localCmd)
+                                }
                             }
                             else -> {
                                 executeVoiceCommand(localCmd)
@@ -2387,13 +2432,22 @@ private fun PlayerScreenContent(
                 quickActionTab = quickActionTab,
                 onSelectTab = { quickActionTab = it },
                 cinematicFilter = cinematicFilter,
-                onSelectCinematicFilter = { cinematicFilter = it },
+                onSelectCinematicFilter = { filter ->
+                    cinematicFilter = filter
+                    AppCacheManager.savePreferredCinematicFilter(context, filter.name)
+                },
                 isAmbilightEnabled = isAmbilightEnabled,
-                onSetAmbilight = { isAmbilightEnabled = it },
+                onSetAmbilight = { enabled ->
+                    isAmbilightEnabled = enabled
+                    AppCacheManager.savePreferredAmbilight(context, enabled)
+                },
                 currentAspectMode = currentAspectMode,
                 onSelectAspectMode = { currentAspectMode = it },
                 isNightWarmMode = isNightWarmMode,
-                onSetNightWarmMode = { isNightWarmMode = it },
+                onSetNightWarmMode = { enabled ->
+                    isNightWarmMode = enabled
+                    AppCacheManager.savePreferredNightMode(context, enabled)
+                },
                 selectedQualityMode = selectedQualityMode,
                 onSelectQuality = { applyQualitySetting(it) },
                 audioBoostPercent = audioBoostPercent,
@@ -2401,8 +2455,13 @@ private fun PlayerScreenContent(
                 onSelectAudioBoost = { boost ->
                     isDrcVoiceEnabled = false
                     audioBoostPercent = boost
+                    AppCacheManager.savePreferredAudioBoost(context, boost)
+                    AppCacheManager.savePreferredDrcVoice(context, false)
                 },
-                onSetDrcVoice = { isDrcVoiceEnabled = it },
+                onSetDrcVoice = { enabled ->
+                    isDrcVoiceEnabled = enabled
+                    AppCacheManager.savePreferredDrcVoice(context, enabled)
+                },
                 sleepTimerMinutes = sleepTimerMinutes,
                 onSelectSleepTimer = { sleepTimerMinutes = it },
                 onActivateScreenOffAudio = {
@@ -2419,12 +2478,16 @@ private fun PlayerScreenContent(
                 playbackSpeed = playbackSpeed,
                 onSelectPlaybackSpeed = { spd ->
                     playbackSpeed = spd
+                    AppCacheManager.savePreferredPlaybackSpeed(context, spd)
                     exoPlayer.playbackParameters = PlaybackParameters(spd)
                 },
                 zeroStallFailoverEnabled = zeroStallFailoverEnabled,
                 onSetZeroStallFailover = { zeroStallFailoverEnabled = it },
                 autoSkipIntroEnabled = autoSkipIntroEnabled,
-                onSetAutoSkipIntro = { autoSkipIntroEnabled = it },
+                onSetAutoSkipIntro = { enabled ->
+                    autoSkipIntroEnabled = enabled
+                    AppCacheManager.savePreferredAutoSkipIntro(context, enabled)
+                },
                 isLive = isLive,
                 activeChannelTotalSources = activeChannelTotalSources,
                 currentBackupIndex = currentBackupIndex,
@@ -3466,7 +3529,7 @@ private fun PlayerQuickActionSheet(
                         }
                     }
                     3 -> {
-                        SettingSectionHeader("📱 REMOTE ẢO QUA MẠNG WI-FI")
+                        SettingSectionHeader("📊 THÔNG TIN LUỒNG PHÁT & PHẦN CỨNG")
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -3475,25 +3538,28 @@ private fun PlayerQuickActionSheet(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                text = "📱 Dùng điện thoại / tablet làm Remote điều khiển:",
-                                color = Color.White,
+                                text = "⚡ Tình trạng luồng: ${if (isLive) "Trực Tiếp (HLS Low-Latency)" else "VOD Chuẩn Điện Ảnh"}",
+                                color = Color(0xFF00E676),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Kết nối cùng mạng Wi-Fi, mở trình duyệt trên điện thoại và gõ IP của thiết bị để điều khiển điều hướng D-pad, âm lượng và nhảy kênh mượt mà.",
+                                text = "• Độ phân giải luồng: $selectedQualityMode • Tốc độ: ${playbackSpeed}x\n" +
+                                        "• Quảng cáo HLS đã chặn: $adsBlockedSessionCount • Server khả dụng: $activeChannelTotalSources\n" +
+                                        "• Khuếch đại âm lượng: $audioBoostPercent% • Lọc thoại DRC: ${if (isDrcVoiceEnabled) "BẬT" else "TẮT"}",
                                 color = Color(0xFFA0AAB8),
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
                             )
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        SettingSectionHeader("🔒 KHÓA CẢM ỨNG MÀN HÌNH")
+                        SettingSectionHeader("🔒 BẢO VỆ MÀN HÌNH & CHỐNG CHẠM NHẦM")
                         Row(modifier = Modifier.fillMaxWidth()) {
                             SettingChoicePill(
-                                title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Chống chạm nhầm)",
+                                title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Khóa cảm ứng / Chế độ trẻ em)",
                                 isSelected = false,
                                 modifier = Modifier.fillMaxWidth(),
                                 onClick = onActivateTouchLock

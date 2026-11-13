@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -201,7 +202,7 @@ fun SearchScreen(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { performSearch(query) }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                     decorationBox = { innerTextField ->
                         if (query.isEmpty()) {
                             Text("Nhập tên bộ phim bạn muốn tìm kiếm (tìm đồng thời mọi nguồn: Phim Rạp, 4K Cinema, KKPhim, Nguồn C)...", color = TextDim, fontSize = 13.sp)
@@ -209,6 +210,22 @@ fun SearchScreen(
                         innerTextField()
                     }
                 )
+                if (query.isNotEmpty()) {
+                    val clearInputInter = remember { MutableInteractionSource() }
+                    val clearInputFoc by clearInputInter.collectIsFocusedAsState()
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (clearInputFoc) AccentRed else Color(0x33FFFFFF))
+                            .clickable(interactionSource = clearInputInter, indication = null) {
+                                query = ""
+                                performSearch("")
+                            }
+                            .padding(6.dp)
+                    ) {
+                        Text("✕", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 
@@ -216,6 +233,29 @@ fun SearchScreen(
 
         // Quick Suggestion Chips
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (recentSearches.isNotEmpty()) {
+                item {
+                    val clearRecentInter = remember { MutableInteractionSource() }
+                    val clearRecentFoc by clearRecentInter.collectIsFocusedAsState()
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (clearRecentFoc) AccentRed else Color(0x33E50914))
+                            .border(
+                                width = if (clearRecentFoc) 1.5.dp else 1.dp,
+                                color = if (clearRecentFoc) Color.White else AccentRed,
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            .clickable(interactionSource = clearRecentInter, indication = null) {
+                                com.duytv.app.data.AppCacheManager.clearRecentSearches(context)
+                                recentSearches = emptyList()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(text = "🗑️ Xóa lịch sử tìm", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             items(popularKeywords) { tag ->
                 val tagInter = remember { MutableInteractionSource() }
                 val tagFoc by tagInter.collectIsFocusedAsState()

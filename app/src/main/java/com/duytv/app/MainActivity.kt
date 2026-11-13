@@ -370,22 +370,8 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = android.graphics.Color.BLACK
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Khởi tạo đồng bộ Coil với RGB_565 và tắt Hardware Bitmap để ngăn tràn bộ nhớ đồ họa
-        // GraphicBuffer (EGL_BAD_ALLOC 12291) trên GPU MediaTek mt5891 khi mở song song ExoPlayer
-        try {
-            val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(applicationContext)
-            val imageLoader = coil.ImageLoader.Builder(applicationContext)
-                .allowHardware(hwProfile.allowHardwareBitmaps)
-                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-                .crossfade(false)
-                .memoryCache {
-                    coil.memory.MemoryCache.Builder(applicationContext)
-                        .maxSizeBytes(12 * 1024 * 1024)
-                        .build()
-                }
-                .build()
-            // [✅ ĐÃ CHUẨN - CẤM SỬA]: Không gọi setImageLoader ở đây để giữ nguyên cấu hình chuẩn tại DuyTvApplication.newImageLoader()
-        } catch (_: Exception) {}
+        // [✅ ĐÃ CHUẨN - CẤM SỬA]: Coil Singleton chuẩn đã được khởi tạo tối ưu tại DuyTvApplication.newImageLoader()
+        // với RGB_565, tắt Hardware Bitmaps trên TV RAM yếu để ngăn tràn bộ nhớ đồ họa EGL_BAD_ALLOC 12291.
 
         // Cấp quyền thu âm micro cho Remote TV điều khiển giọng nói
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {

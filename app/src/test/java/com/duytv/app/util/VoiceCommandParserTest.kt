@@ -101,4 +101,24 @@ class VoiceCommandParserTest {
         assertTrue(movie is VoiceCommand.OpenMovie)
         assertNotNull(movie)
     }
+
+    @Test
+    fun testSmartUtilitiesVoiceCommands() {
+        val sleepCmd = VoiceCommandParser.parse("hẹn giờ tắt 30 phút", channels)
+        assertTrue(sleepCmd is VoiceCommand.SetSleepTimer)
+        assertEquals(30, (sleepCmd as VoiceCommand.SetSleepTimer).minutes)
+
+        val cancelSleepCmd = VoiceCommandParser.parse("tắt hẹn giờ", channels)
+        assertTrue(cancelSleepCmd is VoiceCommand.SetSleepTimer)
+        assertEquals(0, (cancelSleepCmd as VoiceCommand.SetSleepTimer).minutes)
+
+        val nightCmd = VoiceCommandParser.parse("bật chế độ dịu mắt ban đêm", channels)
+        assertTrue(nightCmd is VoiceCommand.ToggleNightMode)
+
+        val screenOffCmd = VoiceCommandParser.parse("tắt màn hình chỉ nghe tiếng", channels)
+        assertTrue(screenOffCmd is VoiceCommand.ActivateScreenOffAudio)
+
+        val lockCmd = VoiceCommandParser.parse("khóa trẻ em", channels)
+        assertTrue(lockCmd is VoiceCommand.ToggleTouchLock)
+    }
 }

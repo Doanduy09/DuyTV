@@ -72,6 +72,7 @@ data class NavCategory(
 
 val NAV_CATEGORIES = listOf(
     NavCategory("all", "🔥 TẤT CẢ", ""),
+    NavCategory("fav-movies", "❤️ PHIM YÊU THÍCH", "fav-movies"),
     NavCategory("tv-live", "⚽ BÓNG ĐÁ & TV", "tv-live"),
     NavCategory("co-trang", "🏯 CỔ TRANG & TVB", "the-loai/co-trang"),
     NavCategory("phim-chieu-rap", "🎟️ PHIM CHIẾU RẠP", "phim-chieu-rap"),
@@ -307,7 +308,12 @@ fun HomeScreen(
     // When switching category tabs
     fun switchCategory(category: NavCategory) {
         selectedCategory = category
-        if (category.id == "tv-live") {
+        if (category.id == "fav-movies") {
+            favoriteMoviesList = AppCacheManager.favoriteMovies
+            categoryPage = 1
+            categoryMovies = favoriteMoviesList
+            isCategoryLoadingMore = false
+        } else if (category.id == "tv-live") {
             if (tvSportsData == null) {
                 scope.launch {
                     isCategoryLoadingMore = true
@@ -757,13 +763,37 @@ fun HomeScreen(
                     if (watchHistory.isNotEmpty()) {
                         item {
                             Column {
-                                Text(
-                                    text = "⏱️ TIẾP TỤC XEM (TỰ NHỚ TẬP & PHÚT ĐANG COI)",
-                                    color = TextWhite,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "⏱️ TIẾP TỤC XEM (TỰ NHỚ TẬP & PHÚT ĐANG COI)",
+                                        color = TextWhite,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    val clearHistInter = remember { MutableInteractionSource() }
+                                    val clearHistFoc by clearHistInter.collectIsFocusedAsState()
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (clearHistFoc) AccentRed else Color(0x33FFFFFF))
+                                            .clickable(interactionSource = clearHistInter, indication = null) {
+                                                WatchHistoryManager.clearAllHistory(context)
+                                                watchHistory = emptyList()
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "🗑️ Xóa lịch sử",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                     items(watchHistory, key = { it.slug + it.episodeName }) { item ->
                                         val itemInter = remember { MutableInteractionSource() }
@@ -846,8 +876,13 @@ fun HomeScreen(
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                     Spacer(modifier = Modifier.height(2.dp))
+                                                    val epLabel = if (item.episodeName.startsWith("Tập", ignoreCase = true) || item.episodeName.startsWith("Full", ignoreCase = true)) {
+                                                        item.episodeName
+                                                    } else {
+                                                        "Tập ${item.episodeName}"
+                                                    }
                                                     Text(
-                                                        text = "▶ Tập ${item.episodeName} • $minStr",
+                                                        text = "▶ $epLabel • $minStr",
                                                         color = Color(0xFF00E676),
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold
@@ -883,7 +918,10 @@ fun HomeScreen(
                                 movies = favoriteMoviesList,
                                 onMovieClick = onMovieSelected,
                                 onSeeAllClick = {
-                                    if (favoriteMoviesList.isNotEmpty()) {
+                                    val favCat = NAV_CATEGORIES.firstOrNull { it.id == "fav-movies" }
+                                    if (favCat != null) {
+                                        switchCategory(favCat)
+                                    } else if (favoriteMoviesList.isNotEmpty()) {
                                         onMovieSelected(favoriteMoviesList.first().slug)
                                     }
                                 }

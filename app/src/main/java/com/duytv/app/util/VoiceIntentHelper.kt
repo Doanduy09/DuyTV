@@ -448,6 +448,22 @@ object VoiceIntentHelper {
                                 onExternalActionDone()
                             }
                         }
+                        "playback_control", "system_action" -> {
+                            val fallbackText = aiAction.query ?: rawQuery
+                            val reParsedCmd = VoiceCommandParser.parse(fallbackText, channels)
+                            if (reParsedCmd !is VoiceCommand.Unknown) {
+                                val tts = aiAction.ttsReply
+                                if (!tts.isNullOrBlank()) {
+                                    speak(tts, tts) {
+                                        runAppCommand(reParsedCmd)
+                                    }
+                                } else {
+                                    runAppCommand(reParsedCmd)
+                                }
+                            } else {
+                                runAppCommand(localCmd)
+                            }
+                        }
                         else -> runAppCommand(localCmd)
                     }
                 } else {

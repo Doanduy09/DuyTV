@@ -306,4 +306,59 @@ object AppCacheManager {
         context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
             .edit().putString("recent_search_keywords", updated.joinToString("|||")).apply()
     }
+
+    fun clearRecentSearches(context: Context) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().remove("recent_search_keywords").apply()
+    }
+
+    fun getPreferredPlaybackSpeed(context: Context): Float {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getFloat("pref_playback_speed", 1.0f).coerceIn(0.5f, 2.0f)
+    }
+
+    fun savePreferredPlaybackSpeed(context: Context, speed: Float) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putFloat("pref_playback_speed", speed.coerceIn(0.5f, 2.0f)).apply()
+    }
+
+    fun getPreferredAutoSkipIntro(context: Context): Boolean {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getBoolean("pref_auto_skip_intro", false)
+    }
+
+    fun savePreferredAutoSkipIntro(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("pref_auto_skip_intro", enabled).apply()
+    }
+
+    fun getPreferredDrcVoice(context: Context): Boolean {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getBoolean("pref_drc_voice", false)
+    }
+
+    fun savePreferredDrcVoice(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("pref_drc_voice", enabled).apply()
+    }
+
+    fun getPreferredCinematicFilter(context: Context): String {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getString("pref_cinematic_filter", "NONE") ?: "NONE"
+    }
+
+    fun savePreferredCinematicFilter(context: Context, filterName: String) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putString("pref_cinematic_filter", filterName).apply()
+    }
+
+    fun getPreferredAmbilight(context: Context): Boolean {
+        return context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .getBoolean("pref_ambilight", false)
+    }
+
+    fun savePreferredAmbilight(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("pref_ambilight", enabled).apply()
+    }
 }

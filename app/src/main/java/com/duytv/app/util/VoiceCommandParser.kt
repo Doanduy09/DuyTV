@@ -30,6 +30,12 @@ sealed class VoiceCommand {
     object SwitchAudioTrack : VoiceCommand()
     object SkipIntro : VoiceCommand()
 
+    // 💡 Tiện ích thông minh (Smart Utilities)
+    data class SetSleepTimer(val minutes: Int, val label: String) : VoiceCommand()
+    object ToggleNightMode : VoiceCommand()
+    object ActivateScreenOffAudio : VoiceCommand()
+    object ToggleTouchLock : VoiceCommand()
+
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
     enum class SettingType { WIFI, BLUETOOTH, SOUND, DISPLAY, APPS, SYSTEM, DATE }
@@ -383,7 +389,11 @@ object VoiceCommandParser {
             return VoiceCommand.ToggleMute
         }
 
-        // II. LỆNH ĐIỀU KHIỂN HỆ THỐNG TIVI (HOME, BACK, POWER)
+        // II. LỆNH ĐIỀU KHIỂN HỆ THỐNG TIVI (HOME, BACK, POWER) & TIỆN ÍCH MÀN HÌNH
+        if (core.contains("tắt màn hình nghe nhạc") || core.contains("tắt màn hình chỉ nghe tiếng") || core.contains("chỉ nghe tiếng") ||
+            core.contains("nghe nhạc tắt màn hình") || core.contains("tắt màn hình nghe âm thanh")) {
+            return VoiceCommand.ActivateScreenOffAudio
+        }
         if (core.contains("về trang chủ") || core.contains("về màn hình chính") || core.contains("màn hình chính") || core.contains("về home") || core == "home" || core == "trang chủ") {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.HOME)
         }
@@ -467,6 +477,39 @@ object VoiceCommandParser {
         }
 
         // III.C. LỆNH ĐIỀU KHIỂN TÍNH NĂNG XEM PHIM NÂNG CAO
+        // 0. Tiện ích hẹn giờ ngủ (Sleep Timer)
+        if (core.contains("hẹn giờ") || core.contains("tắt sau") || core.contains("tự tắt")) {
+            val sleepMatch = Regex("(?:hẹn\\s+giờ\\s+tắt|hẹn\\s+giờ\\s+ngủ|tắt\\s+sau|hẹn\\s+giờ)\\s*(\\d+)?\\s*(phút|tiếng|giờ)?").find(core)
+            val num = sleepMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+            val unit = sleepMatch?.groupValues?.getOrNull(2)
+            if (core.contains("tắt hẹn giờ") || core.contains("hủy hẹn giờ") || (num == 0)) {
+                return VoiceCommand.SetSleepTimer(0, "Tắt hẹn giờ")
+            } else if (num != null && num > 0) {
+                val mins = if (unit == "tiếng" || unit == "giờ") num * 60 else num
+                return VoiceCommand.SetSleepTimer(mins, "${mins} phút")
+            } else if (core.contains("30 phút")) {
+                return VoiceCommand.SetSleepTimer(30, "30 phút")
+            } else if (core.contains("60 phút") || core.contains("1 tiếng") || core.contains("1 giờ")) {
+                return VoiceCommand.SetSleepTimer(60, "60 phút")
+            }
+        }
+
+        // 0.1 Chế độ ban đêm / Dịu mắt / Lọc ánh sáng xanh
+        if (core.contains("chế độ ban đêm") || core.contains("dịu mắt") || core.contains("lọc ánh sáng xanh") || core.contains("chống mỏi mắt")) {
+            return VoiceCommand.ToggleNightMode
+        }
+
+        // 0.2 Tắt màn hình chỉ nghe tiếng (Audio Only / Screen Off Saver)
+        if (core.contains("tắt màn hình nghe nhạc") || core.contains("tắt màn hình chỉ nghe tiếng") || core.contains("chỉ nghe tiếng") ||
+            core.contains("nghe nhạc tắt màn hình") || core.contains("tắt màn hình nghe âm thanh")) {
+            return VoiceCommand.ActivateScreenOffAudio
+        }
+
+        // 0.3 Khóa trẻ em / Khóa cảm ứng
+        if (core.contains("khóa màn hình") || core.contains("khóa trẻ em") || core.contains("khóa cảm ứng") || core.contains("chế độ trẻ em")) {
+            return VoiceCommand.ToggleTouchLock
+        }
+
         // 1. Bỏ qua mở đầu (Skip Intro)
         if (core.contains("bỏ qua mở đầu") || core.contains("skip intro") || core.contains("qua phần mở đầu") ||
             core.contains("bỏ qua giới thiệu") || core.contains("bỏ giới thiệu") || core.contains("qua mở đầu")) {

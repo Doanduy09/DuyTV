@@ -73,6 +73,11 @@ object WatchHistoryManager {
         getPrefs(context).edit().putString(KEY_HISTORY, json).apply()
     }
 
+    fun clearAllHistory(context: Context) {
+        memoryCache = emptyList()
+        getPrefs(context).edit().remove(KEY_HISTORY).apply()
+    }
+
     fun getHistory(context: Context): List<WatchHistoryItem> {
         memoryCache?.let { return it }
         val json = getPrefs(context).getString(KEY_HISTORY, null) ?: return emptyList()
