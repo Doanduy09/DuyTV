@@ -250,4 +250,210 @@ object VoiceIntentHelper {
             Log.e(TAG, "Lỗi mở YouTube Search: ${e.message}")
         }
     }
+
+    /**
+     * Bộ xử lý hợp nhất cho Global Voice (dùng chung cho MainActivity và VoiceOverlayActivity).
+     * Tách biệt rõ: lệnh mở nội dung DuyTV mới gọi [onNavigateScreen]; mọi lệnh ngoài/âm lượng/hủy
+     * giữ nguyên ứng dụng hiện tại đang xem (YouTube, Launcher...) rồi báo qua [onExternalActionDone].
+     */
+    fun handleRecognizedVoiceCommand(
+        appContext: Context,
+        repository: MovieRepository,
+        voiceManager: VoiceAssistantManager,
+        ttsAssistant: VoiceTtsFeedback,
+        scope: CoroutineScope,
+        recognizedText: String,
+        candidates: List<String>,
+        onNavigateScreen: (target: AppScreen, ttsPhrase: String?) -> Unit,
+        onSystemHome: () -> Unit,
+        onSystemBack: () -> Unit,
+        onExternalActionDone: () -> Unit = {}
+    ) {
+        fun speak(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
+            speakAndReport(
+                voiceManager = voiceManager,
+                ttsAssistant = ttsAssistant,
+                scope = scope,
+                message = message,
+                ttsPhrase = ttsPhrase,
+                onDone = onDone
+            )
+        }
+
+        val channels = AppCacheManager.activeChannels.ifEmpty {
+            MovieRepository.getVerifiedOfficialChannels()
+        }
+        val bestCandidate = VoiceCommandParser.selectBestCandidate(candidates, channels)
+        val rawQuery = (if (bestCandidate.isNotBlank()) bestCandidate else recognizedText).trim()
+        val localCmd = VoiceCommandParser.parse(rawQuery, channels)
+
+        fun runAppCommand(cmd: VoiceCommand) {
+            when (cmd) {
+                is VoiceCommand.SwitchChannel -> {
+                    onNavigateScreen(
+                        buildChannelPlayerScreen(cmd.channel),
+                        "Dạ, đang mở kênh ${cmd.channel.name}"
+                    )
+                }
+                is VoiceCommand.OpenMovie -> {
+                    speak("Đang tìm: ${cmd.query}", "Dạ, em đang tìm ${cmd.query}")
+                    scope.launch {
+                        try {
+                            val resolved = resolveOpenMovieScreen(repository, cmd.query)
+                            if (resolved != null) {
+                                onNavigateScreen(resolved.second, "Dạ, đang mở phim ${resolved.first}")
+                            } else {
+                                val matchedCh = VoiceCommandParser.matchTvChannel(cmd.query, channels)
+                                if (matchedCh != null) {
+                                    onNavigateScreen(
+                                        buildChannelPlayerScreen(matchedCh.channel),
+                                        "Dạ, đang mở kênh ${matchedCh.channel.name}"
+                                    )
+                                } else {
+                                    speak("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                        launchYouTubeSearch(appContext, cmd.query)
+                                        onExternalActionDone()
+                                    }
+                                }
+                            }
+                        } catch (_: Exception) {
+                            speak("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                launchYouTubeSearch(appContext, cmd.query)
+                                onExternalActionDone()
+                            }
+                        }
+                    }
+                }
+                is VoiceCommand.SearchMovie -> {
+                    onNavigateScreen(AppScreen.SearchQuery(cmd.query), "Dạ, đang tìm kiếm ${cmd.query}")
+                }
+                is VoiceCommand.BrowseCategory -> {
+                    onNavigateScreen(AppScreen.CategoryHome(cmd.categoryId), "Dạ, đang mở danh mục ${cmd.categoryName}")
+                }
+                is VoiceCommand.OpenApp -> {
+                    speak("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
+                        launchAppByQuery(appContext, cmd.target)
+                        onExternalActionDone()
+                    }
+                }
+                is VoiceCommand.YouTubeSearch -> {
+                    speak("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
+                        launchYouTubeSearch(appContext, cmd.query)
+                        onExternalActionDone()
+                    }
+                }
+                is VoiceCommand.OpenSetting -> {
+                    speak("Đang mở cài đặt...", "Dạ, đang mở cài đặt") {
+                        launchSettingIntent(appContext, cmd.settingType)
+                        onExternalActionDone()
+                    }
+                }
+                is VoiceCommand.AdjustVolume -> {
+                    adjustSystemVolume(appContext, cmd.isIncrease)
+                    val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng rồi anh nhé" else "Dạ, đã giảm âm lượng"
+                    speak(if (cmd.isIncrease) "Đã tăng âm lượng (+3)" else "Đã giảm âm lượng (-3)", phrase) {
+                        onExternalActionDone()
+                    }
+                }
+                VoiceCommand.ToggleMute -> {
+                    toggleSystemMute(appContext)
+                    speak("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng") {
+                        onExternalActionDone()
+                    }
+                }
+                is VoiceCommand.SystemAction -> {
+                    when (cmd.type) {
+                        VoiceCommand.SystemActionType.HOME,
+                        VoiceCommand.SystemActionType.POWER -> {
+                            speak("Về trang chủ", "Dạ, về trang chủ") {
+                                onSystemHome()
+                            }
+                        }
+                        VoiceCommand.SystemActionType.BACK -> {
+                            speak("Quay lại", "Dạ, quay lại") {
+                                onSystemBack()
+                            }
+                        }
+                    }
+                }
+                is VoiceCommand.Unknown -> {
+                    val rawLower = cmd.rawText.lowercase().trim()
+                    if (isTvIntentQuery(rawLower)) {
+                        val matched = VoiceCommandParser.matchTvChannel(rawLower, channels)
+                        if (matched != null) {
+                            onNavigateScreen(
+                                buildChannelPlayerScreen(matched.channel),
+                                "Dạ, đang mở kênh ${matched.channel.name}"
+                            )
+                        } else if (channels.isNotEmpty()) {
+                            onNavigateScreen(
+                                buildChannelPlayerScreen(channels[0]),
+                                "Dạ, đang mở truyền hình cho anh"
+                            )
+                        } else {
+                            onExternalActionDone()
+                        }
+                    } else if (cmd.rawText.isNotBlank()) {
+                        speak("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
+                            launchYouTubeSearch(appContext, cmd.rawText)
+                            onExternalActionDone()
+                        }
+                    } else {
+                        speak("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này") {
+                            onExternalActionDone()
+                        }
+                    }
+                }
+                else -> {
+                    speak("Dùng khi đang phát video", "Dạ, lệnh này dùng khi đang phát phim hoặc tivi ạ") {
+                        onExternalActionDone()
+                    }
+                }
+            }
+        }
+
+        if (localCmd !is VoiceCommand.Unknown) {
+            runAppCommand(localCmd)
+        } else {
+            scope.launch {
+                val aiAction = GeminiVoiceClient.query(rawQuery, VoiceContext())
+                if (aiAction != null) {
+                    when (aiAction.action) {
+                        "search_youtube" -> {
+                            val q = aiAction.query ?: rawQuery
+                            speak("YouTube: ${q.uppercase()}", aiAction.ttsReply ?: "Dạ, em mở trên YouTube cho anh") {
+                                launchYouTubeSearch(appContext, q)
+                                onExternalActionDone()
+                            }
+                        }
+                        "play_tv" -> {
+                            val q = aiAction.query ?: rawQuery
+                            val matched = VoiceCommandParser.matchTvChannel(q, channels)
+                            if (matched != null) {
+                                onNavigateScreen(
+                                    buildChannelPlayerScreen(matched.channel),
+                                    aiAction.ttsReply ?: "Dạ, đang mở kênh ${matched.channel.name}"
+                                )
+                            } else {
+                                runAppCommand(localCmd)
+                            }
+                        }
+                        "play_movie" -> {
+                            val q = aiAction.query ?: rawQuery
+                            runAppCommand(VoiceCommand.OpenMovie(q))
+                        }
+                        "chat" -> {
+                            val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
+                            speak(reply, reply) {
+                                onExternalActionDone()
+                            }
+                        }
+                        else -> runAppCommand(localCmd)
+                    }
+                } else {
+                    runAppCommand(localCmd)
+                }
+            }
+        }
+    }
 }

@@ -92,6 +92,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Transparent Voice Overlay (keeps YouTube/other apps visible until a DuyTV command is spoken) -->
+        <activity
+            android:name=".VoiceOverlayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.DuyTV.VoiceTranslucent"
+            android:taskAffinity="com.duytv.app.voice"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:configChanges="density|fontScale|keyboard|keyboardHidden|layoutDirection|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
