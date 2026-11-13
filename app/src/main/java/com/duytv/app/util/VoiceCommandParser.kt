@@ -150,7 +150,7 @@ object VoiceCommandParser {
         "hãy mở cho anh ứng dụng ", "hãy mở ứng dụng ", "hãy mở app ", "hãy mở cho anh ", "hãy mở cho em ",
         "hãy mở đài ", "hãy mở kênh ", "hãy mở phim ", "hãy mở ",
         "em mở cho anh kênh ", "em mở cho anh đài ", "em mở cho anh ứng dụng ", "em mở ứng dụng ", "em mở app ",
-        "em mở cho anh ", "em mở phim ", "em mở ",
+        "em mở cho anh ", "em mở đài ", "em mở kênh ", "em mở phim ", "em mở ",
         "anh muốn xem kênh ", "anh muốn xem đài ", "anh muốn xem phim ", "anh muốn xem ", "anh muốn mở ",
         "cho anh xem phim ", "cho anh xem kênh ", "cho anh xem đài ", "cho anh xem ", "cho em xem ",
         "chuyển sang kênh ", "chuyển qua kênh ", "chuyển đến kênh ", "chuyển tới kênh ",
@@ -218,9 +218,6 @@ object VoiceCommandParser {
             "hát cover 7" to "htv7",
             "hát sever 7" to "htv7",
             "hát sevo 7" to "htv7",
-            "em ở đài" to "em mở đài",
-            "ở đài" to "mở đài",
-            "ở kênh" to "mở kênh",
             "mở bài htv" to "mở đài htv",
             "mở bài vtv" to "mở đài vtv",
             "mở bài vtc" to "mở đài vtc",
@@ -233,8 +230,8 @@ object VoiceCommandParser {
             text = text.replace(wrong, right)
         }
 
-        // Tự động sửa lỗi Google STT nhận nhầm "mở đài" thành "ở đài" hoặc "ở kênh"
-        text = text.replace(Regex("\\b(em\\s+)?ở\\s+(đài|kênh)\\b"), "mở $2")
+        // Tự động sửa lỗi Google STT nhận nhầm "mở đài" thành "ở đài" hoặc "ở kênh" (dùng ranh giới Unicode tránh hỏng "mở đài" -> "mmở đài")
+        text = text.replace(Regex("(?<!\\p{L})(em\\s+)?ở\\s+(đài|kênh)(?!\\p{L})"), "mở $2")
 
         // Tự động sửa lỗi Google STT nhận nhầm "đài" thành "bài" khi đi cùng tên kênh truyền hình
         text = text.replace(Regex("\\b(mở|bật|xem|chiếu|chuyển|nghe)?\\s*(bài|bài\\s+hát)\\s+(htv|vtv|vtc|thvl|sctv|k\\+|thdt|đồng tháp|vĩnh long|today|btv|kênh)"), "mở đài $3")
@@ -250,11 +247,11 @@ object VoiceCommandParser {
 
         // 3. Chuyển đổi chữ số tiếng Việt sang số (chín -> 9, một -> 1, hai -> 2...)
         for ((word, digit) in VIETNAMESE_NUMBERS) {
-            text = text.replace(Regex("\\b$word\\b"), digit)
+            text = text.replace(Regex("(?<!\\p{L})$word(?!\\p{L})"), digit)
         }
 
-        // 4. Gom chữ viết tắt đài với chữ số liền nhau ("htv 9" -> "htv9", "vtv 1" -> "vtv1")
-        text = text.replace(Regex("([a-z]+)\\s+(\\d+)"), "$1$2")
+        // 4. Gom chữ viết tắt đài với chữ số liền nhau ("htv 9" -> "htv9", "vtv 1" -> "vtv1") — không gom chữ tiếng Việt như "tập 12"
+        text = text.replace(Regex("(?<!\\p{L})(vtv|htv|vtc|thvl|sctv|btv|thdt|on|k)\\s+(\\d+)"), "$1$2")
 
         // 5. Chuẩn hóa tên ứng dụng thông dụng
         text = text.replace("you tube", "youtube")
@@ -430,7 +427,7 @@ object VoiceCommandParser {
             return VoiceCommand.PreviousEpisode
         }
 
-        val epMatch = Regex("(?:mở\\s+tập|xem\\s+tập|phát\\s+tập|chuyển\\s+tập|tập\\s+số|tập)\\s+(\\d+)").find(core)
+        val epMatch = Regex("(?:mở\\s+tập|xem\\s+tập|phát\\s+tập|chuyển\\s+tập|tập\\s+số|tập)\\s*(\\d+)").find(core)
         if (epMatch != null) {
             val epNum = epMatch.groupValues[1].toIntOrNull()
             if (epNum != null && epNum > 0) {
@@ -438,10 +435,10 @@ object VoiceCommandParser {
             }
         }
 
-        val seekToMatch = Regex("(?:tua\\s+(?:tới|đến|qua)|nhảy\\s+(?:tới|đến))\\s*(?:(\\d+)\\s*(?:giờ|tiếng))?\\s*(\\d+)?\\s*(?:phút|p)?").find(core)
+        val seekToMatch = Regex("(?:tua\\s+(?:tới|đến|qua)|nhảy\\s+(?:tới|đến))\\s*(?:(\\d+)\\s*(?:giờ|tiếng)\\s*(?:(\\d+)\\s*(?:phút|p)?)?|(?:phút\\s+(?:thứ\\s+)?|giây\\s+thứ\\s+)(\\d+))").find(core)
         if (seekToMatch != null && (core.contains("phút") || core.contains("giờ") || core.contains("tiếng"))) {
             val hours = seekToMatch.groupValues[1].toIntOrNull() ?: 0
-            val minutes = seekToMatch.groupValues[2].toIntOrNull() ?: 0
+            val minutes = seekToMatch.groupValues[2].toIntOrNull() ?: seekToMatch.groupValues[3].toIntOrNull() ?: 0
             if (hours > 0 || minutes > 0) {
                 val totalMs = (hours * 3600L + minutes * 60L) * 1000L
                 val label = if (hours > 0) "${hours}h${minutes}p" else "phút thứ $minutes"
@@ -787,8 +784,14 @@ object VoiceCommandParser {
             }
         }
 
-        if (cleanedTarget.isBlank()) {
-            return VoiceCommand.SwitchChannel(0, channels[0])
+        if (cleanedTarget.isBlank() || cleanedTarget == "đài" || cleanedTarget == "kênh" ||
+            cleanedTarget == "tivi" || cleanedTarget == "tv" || cleanedTarget == "truyền hình" ||
+            cleanedTarget == "đài truyền hình" || cleanedTarget == "kênh tivi") {
+            val lastIdx = channels.indexOfFirst {
+                it.name.equals(AppCacheManager.lastWatchedChannelName, ignoreCase = true)
+            }
+            val targetIdx = if (lastIdx >= 0) lastIdx else 0
+            return VoiceCommand.SwitchChannel(targetIdx, channels[targetIdx])
         }
 
         // A. Khớp theo số kênh trực tiếp ("kênh 5", "số 10")

@@ -1376,30 +1376,15 @@ private fun PlayerScreenContent(
         VoiceAssistantManager(context) { recognizedText, candidates ->
             val player = currentExoPlayer
             fun speakAndReport(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
-                reportSuccess(message)
-                player?.volume = 0.05f
-                val executed = java.util.concurrent.atomic.AtomicBoolean(false)
-                val safeDone = {
-                    if (executed.compareAndSet(false, true)) {
-                        player?.volume = 1.0f
-                        onDone?.invoke()
-                    }
-                }
-                ttsAssistant.speak(
-                    text = ttsPhrase,
-                    onStart = {
-                        player?.volume = 0.05f
-                    },
-                    onDone = {
-                        safeDone()
-                    }
+                com.duytv.app.util.VoiceIntentHelper.speakAndReport(
+                    voiceManager = this,
+                    ttsAssistant = ttsAssistant,
+                    scope = scope,
+                    message = message,
+                    ttsPhrase = ttsPhrase,
+                    onAudioDuck = { duck -> player?.volume = if (duck) 0.05f else 1.0f },
+                    onDone = onDone
                 )
-                if (onDone != null) {
-                    scope.launch {
-                        delay(1200)
-                        safeDone()
-                    }
-                }
             }
 
             val executeVoiceCommand: (VoiceCommand) -> Unit = { cmd ->
@@ -1410,20 +1395,16 @@ private fun PlayerScreenContent(
                     }
                     is VoiceCommand.OpenApp -> {
                         speakAndReport("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
-                            launchAppByQuery(context, cmd.target)
+                            com.duytv.app.util.VoiceIntentHelper.launchAppByQuery(context, cmd.target)
                         }
                     }
                     is VoiceCommand.YouTubeSearch -> {
                         speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
-                            launchYouTubeSearch(context, cmd.query)
+                            com.duytv.app.util.VoiceIntentHelper.launchYouTubeSearch(context, cmd.query)
                         }
                     }
                     is VoiceCommand.AdjustVolume -> {
-                        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                        val direction = if (cmd.isIncrease) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-                        repeat(3) {
-                            audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, AudioManager.FLAG_SHOW_UI)
-                        }
+                        com.duytv.app.util.VoiceIntentHelper.adjustSystemVolume(context, cmd.isIncrease)
                         if (cmd.isIncrease && audioBoostPercent < 150) {
                             audioBoostPercent = 150
                             AppCacheManager.savePreferredAudioBoost(context, 150)
@@ -1432,8 +1413,7 @@ private fun PlayerScreenContent(
                         speakAndReport(if (cmd.isIncrease) "Đã tăng âm lượng (+3)" else "Đã giảm âm lượng (-3)", phrase)
                     }
                     VoiceCommand.ToggleMute -> {
-                        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                        audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+                        com.duytv.app.util.VoiceIntentHelper.toggleSystemMute(context)
                         speakAndReport("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
                     }
                     is VoiceCommand.SystemAction -> {
@@ -1584,48 +1564,26 @@ private fun PlayerScreenContent(
                         scope.launch {
                             try {
                                 val repo = repository ?: MovieRepository()
-                                val results = repo.searchMovies(cmd.query)
-                                val first = results.firstOrNull()
-                                if (first != null) {
-                                    val detail = repo.getMovieDetail(first.slug)
-                                    val epList = detail?.episodes?.firstOrNull()?.serverData.orEmpty()
-                                    val ep1 = epList.firstOrNull()
-                                    if (ep1 != null && !ep1.linkM3u8.isNullOrBlank()) {
-                                        speakAndReport("Đang chiếu: ${first.name} - ${ep1.name}", "Dạ, đang chiếu phim ${first.name}")
-                                        onNavigate?.invoke(
-                                            com.duytv.app.AppScreen.Player(
-                                                slug = first.slug,
-                                                movieTitle = first.name,
-                                                episodeName = ep1.name,
-                                                streamUrl = ep1.linkM3u8,
-                                                posterUrl = first.posterUrl ?: first.thumbUrl,
-                                                subtitleUrl = null,
-                                                initialPositionMs = 0L,
-                                                backupUrls = ep1.backupStreams,
-                                                episodes = epList
-                                            )
-                                        )
-                                    } else {
-                                        speakAndReport("Đang mở: ${first.name}", "Dạ, đang mở phim ${first.name}")
-                                        onNavigate?.invoke(com.duytv.app.AppScreen.Detail(first.slug))
-                                    }
+                                val resolved = com.duytv.app.util.VoiceIntentHelper.resolveOpenMovieScreen(repo, cmd.query)
+                                if (resolved != null) {
+                                    val (movieName, targetScreen) = resolved
+                                    speakAndReport("Đang mở: $movieName", "Dạ, đang mở phim $movieName")
+                                    onNavigate?.invoke(targetScreen)
                                 } else {
-                                    // Kiểm tra nếu là tên kênh truyền hình
                                     val safeChannels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
                                     val matchedCh = VoiceCommandParser.matchTvChannel(cmd.query, safeChannels)
                                     if (matchedCh != null) {
                                         speakAndReport("Đang mở: ${matchedCh.channel.name}", "Dạ, đang mở kênh ${matchedCh.channel.name}")
                                         switchToChannel(matchedCh.index)
                                     } else {
-                                        // Smart Fallback to YouTube: Nếu không có kênh và không có phim trong DuyTV, tự động mở YouTube!
                                         speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
-                                            launchYouTubeSearch(context, cmd.query)
+                                            com.duytv.app.util.VoiceIntentHelper.launchYouTubeSearch(context, cmd.query)
                                         }
                                     }
                                 }
                             } catch (e: Exception) {
                                 speakAndReport("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
-                                    launchYouTubeSearch(context, cmd.query)
+                                    com.duytv.app.util.VoiceIntentHelper.launchYouTubeSearch(context, cmd.query)
                                 }
                             }
                         }
@@ -1636,19 +1594,11 @@ private fun PlayerScreenContent(
                     }
                     is VoiceCommand.OpenSetting -> {
                         speakAndReport("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
-                        launchSettingIntent(context, cmd.settingType)
+                        com.duytv.app.util.VoiceIntentHelper.launchSettingIntent(context, cmd.settingType)
                     }
                     is VoiceCommand.Unknown -> {
                         val rawLower = cmd.rawText.lowercase().trim()
-                        val isTvIntent = rawLower.contains("đài") || rawLower.contains("kênh") ||
-                                         rawLower.contains("tivi") || rawLower.contains("truyền hình") ||
-                                         rawLower.contains("vtv") || rawLower.contains("htv") ||
-                                         rawLower.contains("vtc") || rawLower.contains("thvl") ||
-                                         rawLower.contains("sctv") || rawLower.contains("k+") ||
-                                         rawLower.contains("bóng đá") || rawLower.contains("thể thao") ||
-                                         rawLower.contains("đồng tháp") || rawLower.contains("vĩnh long")
-
-                        if (isTvIntent) {
+                        if (com.duytv.app.util.VoiceIntentHelper.isTvIntentQuery(rawLower)) {
                             val channels = if (currentAvailableChannels.isNotEmpty()) currentAvailableChannels else MovieRepository.getVerifiedOfficialChannels()
                             val matched = VoiceCommandParser.matchTvChannel(rawLower, channels)
                             if (matched != null) {
@@ -1660,7 +1610,7 @@ private fun PlayerScreenContent(
                             }
                         } else if (cmd.rawText.isNotBlank()) {
                             speakAndReport("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
-                                launchYouTubeSearch(context, cmd.rawText)
+                                com.duytv.app.util.VoiceIntentHelper.launchYouTubeSearch(context, cmd.rawText)
                             }
                         } else {
                             speakAndReport("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này")
@@ -1698,7 +1648,7 @@ private fun PlayerScreenContent(
                                 val q = aiAction.query ?: rawQuery
                                 val tts = aiAction.ttsReply ?: "Dạ, em mở ngay trên YouTube cho anh"
                                 speakAndReport("YouTube: ${q.uppercase()}", tts) {
-                                    launchYouTubeSearch(context, q)
+                                    com.duytv.app.util.VoiceIntentHelper.launchYouTubeSearch(context, q)
                                 }
                             }
                             "play_tv" -> {
@@ -3804,149 +3754,4 @@ private fun createConfiguredExoPlayer(
             }
             playWhenReady = true
         }
-}
-
-private fun launchAppByQuery(context: Context, query: String) {
-    try {
-        val pm = context.packageManager
-        val q = query.lowercase().trim()
-        val directPkg = when {
-            q.contains("youtube music") || q.contains("yt music") -> "com.google.android.youtube.tvmusic"
-            q.contains("youtube") || q.contains("you tube") -> "com.google.android.youtube.tv"
-            q.contains("smarttube") || q.contains("smart tube") -> "com.liskovsoft.smarttubetv.beta"
-            q.contains("netflix") -> "com.netflix.ninja"
-            q.contains("ott navigator") || q.contains("ott") -> "studio.scillarium.ottnavigator"
-            q.contains("xplore") || q.contains("x-plore") -> "com.lonelycatgames.Xplore"
-            q.contains("kodi") -> "org.xbmc.kodi"
-            q.contains("vlc") -> "org.videolan.vlc"
-            q.contains("spotify") -> "com.spotify.tv.android"
-            q.contains("ch play") || q.contains("google play") || q.contains("cửa hàng") -> "com.android.vending"
-            q.contains("vieon") || q.contains("vie on") -> "com.vieon"
-            q.contains("fpt play") || q.contains("fpt") -> "com.fptplay.activity"
-            q.contains("tv360") -> "com.viettel.tv360"
-            q.contains("vtvgo") || q.contains("vtv go") -> "vn.vtv.vtvgo"
-            q.contains("monster tv") -> "com.monstertv.app"
-            q.contains("facebook") || q.contains("fb") -> "com.facebook.katana"
-            q.contains("chrome") || q.contains("trình duyệt") -> "com.android.chrome"
-            q.contains("cài đặt") || q.contains("settings") -> "com.android.tv.settings"
-            else -> null
-        }
-
-        var intent: Intent? = null
-        if (directPkg != null) {
-            intent = pm.getLeanbackLaunchIntentForPackage(directPkg) ?: pm.getLaunchIntentForPackage(directPkg)
-            // Đặc biệt với YouTube trên TV: ShellActivity hoặc Component trực tiếp
-            if (intent == null && (directPkg == "com.google.android.youtube.tv" || directPkg == "com.google.android.youtube")) {
-                val shellIntent = Intent(Intent.ACTION_MAIN).apply {
-                    component = ComponentName("com.google.android.youtube.tv", "com.google.android.apps.youtube.tv.activity.ShellActivity")
-                    addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                }
-                if (shellIntent.resolveActivity(pm) != null) {
-                    intent = shellIntent
-                } else {
-                    intent = pm.getLeanbackLaunchIntentForPackage("com.liskovsoft.smarttubetv.beta")
-                        ?: pm.getLaunchIntentForPackage("com.liskovsoft.smarttubetv.beta")
-                        ?: pm.getLeanbackLaunchIntentForPackage("com.liskovsoft.videomanager")
-                        ?: pm.getLaunchIntentForPackage("com.google.android.youtube")
-                }
-            }
-        }
-        if (intent == null) {
-            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-            }
-            val apps = pm.queryIntentActivities(mainIntent, 0)
-            val matched = apps.find { 
-                val label = it.loadLabel(pm).toString().lowercase()
-                label.contains(q) || q.contains(label)
-            }
-            if (matched != null) {
-                val pkg = matched.activityInfo.packageName
-                intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
-            }
-        }
-        if (intent == null) {
-            val stdIntent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            val stdApps = pm.queryIntentActivities(stdIntent, 0)
-            val matched = stdApps.find { 
-                val label = it.loadLabel(pm).toString().lowercase()
-                label.contains(q) || q.contains(label)
-            }
-            if (matched != null) {
-                val pkg = matched.activityInfo.packageName
-                intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg)
-            }
-        }
-        // Fallback chung cho YouTube nếu chưa có Intent Launcher nào
-        if (intent == null && (q.contains("youtube") || q.contains("you tube"))) {
-            intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com"))
-        }
-
-        if (intent != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            android.util.Log.i("PlayerScreen", "Khởi chạy ứng dụng thành công: $intent")
-            context.startActivity(intent)
-        } else {
-            android.util.Log.w("PlayerScreen", "Không tìm thấy ứng dụng phù hợp cho: $query")
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("PlayerScreen", "Lỗi launchAppByQuery: ${e.message}", e)
-    }
-}
-
-private fun launchSettingIntent(context: Context, type: VoiceCommand.SettingType) {
-    try {
-        val action = when (type) {
-            VoiceCommand.SettingType.WIFI -> android.provider.Settings.ACTION_WIFI_SETTINGS
-            VoiceCommand.SettingType.BLUETOOTH -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
-            VoiceCommand.SettingType.SOUND -> android.provider.Settings.ACTION_SOUND_SETTINGS
-            VoiceCommand.SettingType.DISPLAY -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
-            VoiceCommand.SettingType.APPS -> android.provider.Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS
-            VoiceCommand.SettingType.DATE -> android.provider.Settings.ACTION_DATE_SETTINGS
-            VoiceCommand.SettingType.SYSTEM -> android.provider.Settings.ACTION_SETTINGS
-        }
-        val intent = Intent(action).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        try {
-            val fallback = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(fallback)
-        } catch (_: Exception) {}
-    }
-}
-
-private fun launchYouTubeSearch(context: Context, query: String) {
-    try {
-        val uri = android.net.Uri.parse("https://www.youtube.com/results?search_query=" + android.net.Uri.encode(query))
-        val pm = context.packageManager
-        val candidatePkgs = listOf(
-            "com.google.android.youtube.tv",
-            "com.liskovsoft.smarttubetv.beta",
-            "com.teamsmart.videomanager.tv",
-            "com.google.android.youtube"
-        )
-        val installedPkg = candidatePkgs.find { pkg ->
-            try {
-                pm.getPackageInfo(pkg, 0)
-                true
-            } catch (_: Exception) {
-                false
-            }
-        }
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            if (installedPkg != null) {
-                setPackage(installedPkg)
-            }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        android.util.Log.e("PlayerScreen", "Lỗi mở YouTube Search: ${e.message}")
-    }
 }

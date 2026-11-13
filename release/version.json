@@ -1,7 +1,7 @@
 {
-  "versionCode": 54,
-  "versionName": "2.2.2",
+  "versionCode": 55,
+  "versionName": "2.3.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Nâng Cấp v2.2.2 (Build #54): Khắc phục triệt để mọi sự nhầm lẫn nhận diện giọng nói; Tự động nạp danh sách kênh dự phòng không bao giờ rỗng; Tự sửa lỗi Google STT 'mở bài' -> 'mở đài' HTV7, VTV, THVL, Đồng Tháp; Xử lý khẩu lệnh chung 'mở đài' mở ngay truyền hình, tuyệt đối không nhảy YouTube."
+  "releaseNotes": "Bản Nâng Cấp v2.3.0 (Build #55): Kích hoạt Global Voice Overlay (bấm Micro ở mọi màn hình Home/Chi tiết/Tìm kiếm không bị nhảy ngang); Thêm giao diện cấu hình Gemini API Key & LAN Host lưu bền vững; Tối ưu hóa mã nguồn R8/ProGuard giúp APK gọn nhẹ & bảo mật hơn; Bổ sung bộ Unit Test tự động cho Voice & Chặn quảng cáo HLS."
 }

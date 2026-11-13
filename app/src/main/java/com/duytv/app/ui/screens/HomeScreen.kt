@@ -2054,6 +2054,8 @@ fun SourceSettingsDialog(
 ) {
     val context = LocalContext.current
     var inputUrl by remember { mutableStateOf("") }
+    var lanAiUrl by remember { mutableStateOf(com.duytv.app.util.GeminiVoiceClient.hermesHostUrl) }
+    var geminiApiKey by remember { mutableStateOf(com.duytv.app.util.GeminiVoiceClient.geminiDirectApiKey) }
     val currentSources = remember { RemoteConfigManager.getSavedCustomSources(context) }
 
     Dialog(
@@ -2301,6 +2303,117 @@ fun SourceSettingsDialog(
                     ) {
                         currentSources.forEach { (name, url) ->
                             SourceItemRow(name = name, url = url)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Gemini Pro Brain Configuration
+                    Text(
+                        text = "CẤU HÌNH TRỢ LÝ AI (GOOGLE GEMINI PRO BRAIN):",
+                        color = Color(0xFF00E5FF),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = lanAiUrl,
+                        onValueChange = { lanAiUrl = it },
+                        label = { Text("Cổng LAN AI Bridge (VD: 192.168.1.189:8100)", color = Color(0xFF8892B0), fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF0F1118),
+                            unfocusedContainerColor = Color(0xFF0F1118),
+                            focusedIndicatorColor = Color(0xFF00E5FF),
+                            unfocusedIndicatorColor = Color(0xFF333A4D)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = geminiApiKey,
+                        onValueChange = { geminiApiKey = it },
+                        label = { Text("Google Gemini API Key (Chạy trực tiếp khi vắng PC LAN)", color = Color(0xFF8892B0), fontSize = 11.sp) },
+                        placeholder = { Text("AIzaSy...", color = Color(0xFF6E7687), fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedContainerColor = Color(0xFF0F1118),
+                            unfocusedContainerColor = Color(0xFF0F1118),
+                            focusedIndicatorColor = Color(0xFF00E5FF),
+                            unfocusedIndicatorColor = Color(0xFF333A4D)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val saveAiInter = remember { MutableInteractionSource() }
+                        val isSaveAiFoc by saveAiInter.collectIsFocusedAsState()
+                        Box(
+                            modifier = Modifier
+                                .weight(1.5f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSaveAiFoc) Color(0xFF00B8D4) else Color(0xFF007791))
+                                .border(
+                                    width = if (isSaveAiFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable(interactionSource = saveAiInter, indication = null) {
+                                    com.duytv.app.util.GeminiVoiceClient.saveConfig(context, lanAiUrl, geminiApiKey)
+                                    lanAiUrl = com.duytv.app.util.GeminiVoiceClient.hermesHostUrl
+                                    geminiApiKey = com.duytv.app.util.GeminiVoiceClient.geminiDirectApiKey
+                                    Toast.makeText(context, "✅ Đã lưu cấu hình Gemini AI!", Toast.LENGTH_SHORT).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🤖 LƯU CẤU HÌNH GEMINI",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        val resetAiInter = remember { MutableInteractionSource() }
+                        val isResetAiFoc by resetAiInter.collectIsFocusedAsState()
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isResetAiFoc) Color(0xFF4A5568) else Color(0xFF2D3748))
+                                .border(
+                                    width = if (isResetAiFoc) 2.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable(interactionSource = resetAiInter, indication = null) {
+                                    com.duytv.app.util.GeminiVoiceClient.resetConfig(context)
+                                    lanAiUrl = com.duytv.app.util.GeminiVoiceClient.hermesHostUrl
+                                    geminiApiKey = com.duytv.app.util.GeminiVoiceClient.geminiDirectApiKey
+                                    Toast.makeText(context, "🔄 Đã đặt lại Gemini mặc định!", Toast.LENGTH_SHORT).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "MẶC ĐỊNH AI",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }

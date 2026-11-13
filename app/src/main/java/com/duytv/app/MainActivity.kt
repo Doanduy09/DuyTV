@@ -4,16 +4,28 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import com.duytv.app.data.AppCacheManager
 import com.duytv.app.data.EpisodeItemDto
 import com.duytv.app.data.MovieRepository
+import com.duytv.app.ui.components.VoiceOverlay
 import com.duytv.app.ui.screens.HomeScreen
 import com.duytv.app.ui.screens.MovieDetailScreen
 import com.duytv.app.ui.screens.PlayerScreen
 import com.duytv.app.ui.screens.SearchScreen
 import com.duytv.app.ui.theme.DuyTvTheme
+import com.duytv.app.util.GeminiVoiceClient
+import com.duytv.app.util.VoiceAssistantManager
+import com.duytv.app.util.VoiceCommand
+import com.duytv.app.util.VoiceCommandParser
+import com.duytv.app.util.VoiceContext
+import com.duytv.app.util.VoiceIntentHelper
+import com.duytv.app.util.VoiceState
+import com.duytv.app.util.VoiceTtsFeedback
+import kotlinx.coroutines.launch
 
 sealed class AppScreen {
     object Home : AppScreen()
@@ -88,6 +100,8 @@ class MainActivity : ComponentActivity() {
 
     private val repository = MovieRepository()
     private var pendingScreenFromIntent by mutableStateOf<AppScreen?>(null)
+    private var onGlobalVoiceKeyEvent: ((android.view.KeyEvent) -> Boolean)? = null
+    private var globalVoiceTriggerTick by mutableIntStateOf(0)
     private val idleHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var backgroundedAtMs: Long = 0L
 
@@ -151,32 +165,9 @@ class MainActivity : ComponentActivity() {
             lastVoiceTriggerMs = now
             val fakeEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_VOICE_ASSIST)
             if (onKeyEventListener?.invoke(fakeEvent) != true) {
-                pendingVoiceTrigger = true
-                if (!isVideoActivelyPlaying && onKeyEventListener == null) {
-                    val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
-                        com.duytv.app.data.AppCacheManager.activeChannels
-                    } else {
-                        MovieRepository.getVerifiedOfficialChannels()
-                    }
-                    val targetCh = channels.find {
-                        it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
-                    } ?: channels.firstOrNull()
-                    if (targetCh != null) {
-                        val allUrls = targetCh.allStreamUrls()
-                        val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
-                        pendingScreenFromIntent = AppScreen.Player(
-                            slug = "live_${targetCh.id}",
-                            movieTitle = targetCh.name,
-                            episodeName = "TRỰC TIẾP",
-                            streamUrl = primary,
-                            posterUrl = targetCh.logoUrl,
-                            subtitleUrl = null,
-                            initialPositionMs = 0L,
-                            backupUrls = allUrls.drop(1)
-                        )
-                    } else {
-                        pendingScreenFromIntent = AppScreen.Search
-                    }
+                if (onGlobalVoiceKeyEvent?.invoke(fakeEvent) != true) {
+                    pendingVoiceTrigger = true
+                    globalVoiceTriggerTick++
                 }
             }
             intent.removeExtra("trigger_voice")
@@ -219,34 +210,12 @@ class MainActivity : ComponentActivity() {
             if (onKeyEventListener?.invoke(event) == true) {
                 return true
             }
+            if (onGlobalVoiceKeyEvent?.invoke(event) == true) {
+                return true
+            }
             if (action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 pendingVoiceTrigger = true
-                if (!isVideoActivelyPlaying && onKeyEventListener == null) {
-                    val channels = if (com.duytv.app.data.AppCacheManager.activeChannels.isNotEmpty()) {
-                        com.duytv.app.data.AppCacheManager.activeChannels
-                    } else {
-                        MovieRepository.getVerifiedOfficialChannels()
-                    }
-                    val targetCh = channels.find {
-                        it.name.equals(com.duytv.app.data.AppCacheManager.lastWatchedChannelName, ignoreCase = true)
-                    } ?: channels.firstOrNull()
-                    if (targetCh != null) {
-                        val allUrls = targetCh.allStreamUrls()
-                        val primary = allUrls.firstOrNull() ?: targetCh.streamUrl
-                        pendingScreenFromIntent = AppScreen.Player(
-                            slug = "live_${targetCh.id}",
-                            movieTitle = targetCh.name,
-                            episodeName = "TRỰC TIẾP",
-                            streamUrl = primary,
-                            posterUrl = targetCh.logoUrl,
-                            subtitleUrl = null,
-                            initialPositionMs = 0L,
-                            backupUrls = allUrls.drop(1)
-                        )
-                    } else {
-                        pendingScreenFromIntent = AppScreen.Search
-                    }
-                }
+                globalVoiceTriggerTick++
             }
             return true
         }
@@ -378,6 +347,210 @@ class MainActivity : ComponentActivity() {
             val appContext = applicationContext
             DuyTvTheme {
                 var currentScreen by remember { mutableStateOf<AppScreen>(pendingScreenFromIntent ?: AppScreen.Home) }
+                val rootScope = rememberCoroutineScope()
+                val globalTts = remember { VoiceTtsFeedback(appContext) }
+                val currentScreenState by rememberUpdatedState(currentScreen)
+
+                val globalVoiceManager = remember {
+                    VoiceAssistantManager(appContext) { recognizedText, candidates ->
+                        fun speakGlobal(message: String, ttsPhrase: String = message, onDone: (() -> Unit)? = null) {
+                            VoiceIntentHelper.speakAndReport(
+                                voiceManager = this,
+                                ttsAssistant = globalTts,
+                                scope = rootScope,
+                                message = message,
+                                ttsPhrase = ttsPhrase,
+                                onDone = onDone
+                            )
+                        }
+
+                        val channels = AppCacheManager.activeChannels.ifEmpty {
+                            MovieRepository.getVerifiedOfficialChannels()
+                        }
+                        val bestCandidate = VoiceCommandParser.selectBestCandidate(candidates, channels)
+                        val rawQuery = (if (bestCandidate.isNotBlank()) bestCandidate else recognizedText).trim()
+                        val localCmd = VoiceCommandParser.parse(rawQuery, channels)
+
+                        fun runAppCommand(cmd: VoiceCommand) {
+                            when (cmd) {
+                                is VoiceCommand.SwitchChannel -> {
+                                    speakGlobal("Đang mở: ${cmd.channel.name}", "Dạ, đang mở kênh ${cmd.channel.name}")
+                                    currentScreen = VoiceIntentHelper.buildChannelPlayerScreen(cmd.channel)
+                                }
+                                is VoiceCommand.OpenMovie -> {
+                                    speakGlobal("Đang tìm: ${cmd.query}", "Dạ, em đang tìm ${cmd.query}")
+                                    rootScope.launch {
+                                        try {
+                                            val resolved = VoiceIntentHelper.resolveOpenMovieScreen(repository, cmd.query)
+                                            if (resolved != null) {
+                                                speakGlobal("Đang mở: ${resolved.first}", "Dạ, đang mở phim ${resolved.first}")
+                                                currentScreen = resolved.second
+                                            } else {
+                                                val matchedCh = VoiceCommandParser.matchTvChannel(cmd.query, channels)
+                                                if (matchedCh != null) {
+                                                    speakGlobal("Đang mở: ${matchedCh.channel.name}", "Dạ, đang mở kênh ${matchedCh.channel.name}")
+                                                    currentScreen = VoiceIntentHelper.buildChannelPlayerScreen(matchedCh.channel)
+                                                } else {
+                                                    speakGlobal("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                                        VoiceIntentHelper.launchYouTubeSearch(appContext, cmd.query)
+                                                    }
+                                                }
+                                            }
+                                        } catch (_: Exception) {
+                                            speakGlobal("YouTube: ${cmd.query.uppercase()}", "Dạ, em mở ${cmd.query} trên YouTube cho anh") {
+                                                VoiceIntentHelper.launchYouTubeSearch(appContext, cmd.query)
+                                            }
+                                        }
+                                    }
+                                }
+                                is VoiceCommand.SearchMovie -> {
+                                    speakGlobal("Tìm kiếm: ${cmd.query}", "Dạ, đang tìm kiếm ${cmd.query}")
+                                    currentScreen = AppScreen.SearchQuery(cmd.query)
+                                }
+                                is VoiceCommand.BrowseCategory -> {
+                                    speakGlobal("Đang mở: ${cmd.categoryName}", "Dạ, đang mở danh mục ${cmd.categoryName}")
+                                    currentScreen = AppScreen.CategoryHome(cmd.categoryId)
+                                }
+                                is VoiceCommand.OpenApp -> {
+                                    speakGlobal("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
+                                        VoiceIntentHelper.launchAppByQuery(appContext, cmd.target)
+                                    }
+                                }
+                                is VoiceCommand.YouTubeSearch -> {
+                                    speakGlobal("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
+                                        VoiceIntentHelper.launchYouTubeSearch(appContext, cmd.query)
+                                    }
+                                }
+                                is VoiceCommand.OpenSetting -> {
+                                    speakGlobal("Đang mở cài đặt...", "Dạ, đang mở cài đặt")
+                                    VoiceIntentHelper.launchSettingIntent(appContext, cmd.settingType)
+                                }
+                                is VoiceCommand.AdjustVolume -> {
+                                    VoiceIntentHelper.adjustSystemVolume(appContext, cmd.isIncrease)
+                                    val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng rồi anh nhé" else "Dạ, đã giảm âm lượng"
+                                    speakGlobal(if (cmd.isIncrease) "Đã tăng âm lượng (+3)" else "Đã giảm âm lượng (-3)", phrase)
+                                }
+                                VoiceCommand.ToggleMute -> {
+                                    VoiceIntentHelper.toggleSystemMute(appContext)
+                                    speakGlobal("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
+                                }
+                                is VoiceCommand.SystemAction -> {
+                                    when (cmd.type) {
+                                        VoiceCommand.SystemActionType.HOME,
+                                        VoiceCommand.SystemActionType.POWER -> {
+                                            speakGlobal("Về trang chủ", "Dạ, về trang chủ")
+                                            currentScreen = AppScreen.Home
+                                            moveTaskToBack(true)
+                                        }
+                                        VoiceCommand.SystemActionType.BACK -> {
+                                            speakGlobal("Quay lại", "Dạ, quay lại")
+                                            if (currentScreenState !is AppScreen.Home) currentScreen = AppScreen.Home
+                                        }
+                                    }
+                                }
+                                is VoiceCommand.Unknown -> {
+                                    val rawLower = cmd.rawText.lowercase().trim()
+                                    if (VoiceIntentHelper.isTvIntentQuery(rawLower)) {
+                                        val matched = VoiceCommandParser.matchTvChannel(rawLower, channels)
+                                        if (matched != null) {
+                                            speakGlobal("Đang mở: ${matched.channel.name}", "Dạ, đang mở kênh ${matched.channel.name}")
+                                            currentScreen = VoiceIntentHelper.buildChannelPlayerScreen(matched.channel)
+                                        } else if (channels.isNotEmpty()) {
+                                            speakGlobal("Đang mở: ${channels[0].name}", "Dạ, đang mở truyền hình cho anh")
+                                            currentScreen = VoiceIntentHelper.buildChannelPlayerScreen(channels[0])
+                                        }
+                                    } else if (cmd.rawText.isNotBlank()) {
+                                        speakGlobal("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
+                                            VoiceIntentHelper.launchYouTubeSearch(appContext, cmd.rawText)
+                                        }
+                                    } else {
+                                        speakGlobal("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này")
+                                    }
+                                }
+                                else -> {
+                                    speakGlobal("Dùng khi đang phát video", "Dạ, lệnh này dùng khi đang phát phim hoặc tivi ạ")
+                                }
+                            }
+                        }
+
+                        if (localCmd !is VoiceCommand.Unknown) {
+                            runAppCommand(localCmd)
+                        } else {
+                            rootScope.launch {
+                                val aiAction = GeminiVoiceClient.query(rawQuery, VoiceContext())
+                                if (aiAction != null) {
+                                    when (aiAction.action) {
+                                        "search_youtube" -> {
+                                            val q = aiAction.query ?: rawQuery
+                                            speakGlobal("YouTube: ${q.uppercase()}", aiAction.ttsReply ?: "Dạ, em mở trên YouTube cho anh") {
+                                                VoiceIntentHelper.launchYouTubeSearch(appContext, q)
+                                            }
+                                        }
+                                        "play_tv" -> {
+                                            val q = aiAction.query ?: rawQuery
+                                            val matched = VoiceCommandParser.matchTvChannel(q, channels)
+                                            if (matched != null) {
+                                                speakGlobal("Đang mở: ${matched.channel.name}", aiAction.ttsReply ?: "Dạ, đang mở kênh ${matched.channel.name}")
+                                                currentScreen = VoiceIntentHelper.buildChannelPlayerScreen(matched.channel)
+                                            } else {
+                                                runAppCommand(localCmd)
+                                            }
+                                        }
+                                        "play_movie" -> {
+                                            val q = aiAction.query ?: rawQuery
+                                            speakGlobal("Đang tìm: $q", aiAction.ttsReply ?: "Dạ, đang mở phim $q")
+                                            runAppCommand(VoiceCommand.OpenMovie(q))
+                                        }
+                                        "chat" -> {
+                                            val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
+                                            speakGlobal(reply, reply)
+                                        }
+                                        else -> runAppCommand(localCmd)
+                                    }
+                                } else {
+                                    runAppCommand(localCmd)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                DisposableEffect(Unit) {
+                    var globalDownAtMs = 0L
+                    onGlobalVoiceKeyEvent = listener@{ event ->
+                        if (currentScreenState is AppScreen.Player) return@listener false
+                        val now = System.currentTimeMillis()
+                        if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                            globalDownAtMs = now
+                            if (globalVoiceManager.state.value is VoiceState.Idle) {
+                                globalVoiceManager.startListening()
+                            }
+                            return@listener true
+                        } else if (event.action == android.view.KeyEvent.ACTION_UP) {
+                            if (now - globalDownAtMs > 350L && globalVoiceManager.state.value is VoiceState.Listening) {
+                                globalVoiceManager.stopListening()
+                            }
+                            return@listener true
+                        }
+                        true
+                    }
+                    onDispose {
+                        onGlobalVoiceKeyEvent = null
+                        globalVoiceManager.destroy()
+                        globalTts.destroy()
+                    }
+                }
+
+                LaunchedEffect(globalVoiceTriggerTick, currentScreen is AppScreen.Player) {
+                    if (currentScreen !is AppScreen.Player && pendingVoiceTrigger) {
+                        pendingVoiceTrigger = false
+                        if (globalVoiceManager.state.value is VoiceState.Idle) {
+                            globalVoiceManager.startListening()
+                        }
+                    }
+                }
+
+                val globalVoiceState by globalVoiceManager.state.collectAsState()
 
                 // Giải phóng tức thì bộ nhớ đệm ảnh poster khi bước vào trình phát PlayerScreen
                 // để nhường 100% tài nguyên VRAM / GraphicBuffer cho bộ giải mã phần cứng MediaCodec
@@ -426,7 +599,12 @@ class MainActivity : ComponentActivity() {
                     moveTaskToBack(true)
                 }
 
-                when (val screen = currentScreen) {
+                BackHandler(enabled = currentScreen !is AppScreen.Player && globalVoiceState !is VoiceState.Idle) {
+                    globalVoiceManager.cancel()
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (val screen = currentScreen) {
                     is AppScreen.Home -> {
                         HomeScreen(
                             repository = repository,
@@ -591,6 +769,13 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = targetScreen
                             },
                             modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                    if (currentScreen !is AppScreen.Player) {
+                        VoiceOverlay(
+                            state = globalVoiceState,
+                            onDismiss = { globalVoiceManager.cancel() }
                         )
                     }
                 }
