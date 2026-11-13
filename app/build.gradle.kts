@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,11 +14,39 @@ android {
         applicationId = "com.duytv.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 56
-        versionName = "2.3.1"
+        versionCode = 57
+        versionName = "2.3.2"
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    val keystoreProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    val relStorePath = System.getenv("DUYTV_STORE_FILE") ?: keystoreProps.getProperty("storeFile")
+    val relStorePass = System.getenv("DUYTV_STORE_PASSWORD") ?: keystoreProps.getProperty("storePassword")
+    val relKeyAlias = System.getenv("DUYTV_KEY_ALIAS") ?: keystoreProps.getProperty("keyAlias")
+    val relKeyPass = System.getenv("DUYTV_KEY_PASSWORD") ?: keystoreProps.getProperty("keyPassword")
+    val hasReleaseKeystore = !relStorePath.isNullOrBlank() &&
+        !relStorePass.isNullOrBlank() &&
+        !relKeyAlias.isNullOrBlank() &&
+        !relKeyPass.isNullOrBlank() &&
+        rootProject.file(relStorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(relStorePath!!)
+                storePassword = relStorePass
+                keyAlias = relKeyAlias
+                keyPassword = relKeyPass
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
         }
     }
 
@@ -24,7 +54,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

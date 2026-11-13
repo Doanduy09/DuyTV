@@ -78,6 +78,22 @@ jobs:
       - name: Cấp quyền thực thi cho Gradle Wrapper
         run: chmod +x gradlew
 
+      - name: Khôi phục Release Keystore từ GitHub Secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p keystore
+            echo "$KEYSTORE_BASE64" | base64 -d > keystore/duytv-release.jks
+            echo "DUYTV_STORE_FILE=keystore/duytv-release.jks" >> "$GITHUB_ENV"
+            echo "DUYTV_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "DUYTV_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "DUYTV_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          fi
+
       - name: Biên dịch gói APK Android
         run: ./gradlew :app:assembleRelease --stacktrace
 

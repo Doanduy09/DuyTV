@@ -18,3 +18,7 @@ app/build
 */build
 launcher/build
 .gradle
+*.jks
+*.keystore
+keystore.properties
+keystore/

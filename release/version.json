@@ -1,7 +1,7 @@
 {
-  "versionCode": 56,
-  "versionName": "2.3.1",
+  "versionCode": 57,
+  "versionName": "2.3.2",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Sửa Lỗi v2.3.1 (Build #56): Tách VoiceOverlayActivity trong suốt nổi đè trực tiếp trên YouTube & app khác khi bấm Micro — giữ nguyên màn hình đang xem, chỉ chuyển vào DuyTV sau khi nhận đúng khẩu lệnh."
+  "releaseNotes": "Bản Chuẩn Phát Hành v2.3.2 (Build #57): Ký bằng chữ ký số Release Keystore cố định (duytv-release.jks) chuẩn v1/v2/v3 đồng bộ cả PC & GitHub Actions, giữ nguyên 100% tính năng giọng nói và hệ sinh thái DuyTV."
 }
