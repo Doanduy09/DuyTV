@@ -60,18 +60,33 @@ async function run() {
         }
     }
 
-    // 2. OPhim
+    // 2. OPhim (hỗ trợ kiểm tra tuần tự qua các mirror như trong app)
     const ophim = config.sources.ophim;
     if (ophim && ophim.enabled) {
-        process.stdout.write(`Đang kiểm tra [${ophim.name}] (${ophim.api_base})... `);
-        const res = await checkUrl(`${ophim.api_base}/danh-sach/phim-moi-cap-nhat?page=1`);
-        if (res.ok) {
-            console.log(`✅ HOẠT ĐỘNG TỐT (${res.latency}ms)`);
-            results.push({ name: ophim.name, url: ophim.api_base, status: 'OK', latency: res.latency });
-        } else {
-            console.log(`❌ BỊ LỖI: ${res.error}`);
+        const ophimMirrors = Array.isArray(ophim.mirrors) && ophim.mirrors.length > 0
+            ? ophim.mirrors
+            : [ophim.api_base];
+        let ophimOk = false;
+        let lastErr = '';
+        for (const mirror of ophimMirrors) {
+            process.stdout.write(`Đang kiểm tra [${ophim.name}] (${mirror})... `);
+            let res = await checkUrl(`${mirror}/danh-sach/phim-moi-cap-nhat?page=1`);
+            if (!res.ok && res.status === 404) {
+                res = await checkUrl(mirror);
+            }
+            if (res.ok) {
+                console.log(`✅ HOẠT ĐỘNG TỐT (${res.latency}ms)`);
+                results.push({ name: `${ophim.name} (${mirror})`, url: mirror, status: 'OK', latency: res.latency });
+                ophimOk = true;
+                break;
+            } else {
+                console.log(`⚠️ Mirror lỗi: ${res.error}`);
+                lastErr = res.error;
+            }
+        }
+        if (!ophimOk) {
             hasFailure = true;
-            results.push({ name: ophim.name, url: ophim.api_base, status: 'FAILED', error: res.error });
+            results.push({ name: ophim.name, url: ophimMirrors.join(', '), status: 'FAILED', error: lastErr || 'Tất cả mirror OPhim đều lỗi' });
         }
     }
 

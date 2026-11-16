@@ -120,5 +120,18 @@ class VoiceCommandParserTest {
 
         val lockCmd = VoiceCommandParser.parse("khóa trẻ em", channels)
         assertTrue(lockCmd is VoiceCommand.ToggleTouchLock)
+
+        val pipCmd = VoiceCommandParser.parse("thu nhỏ màn hình", channels)
+        assertTrue(pipCmd is VoiceCommand.EnterPip)
+
+        val filterCmd = VoiceCommandParser.parse("đổi bộ lọc điện ảnh", channels)
+        assertTrue(filterCmd is VoiceCommand.CycleCinematicFilter)
+
+        val diagCmd = VoiceCommandParser.parse("kiểm tra thông số luồng", channels)
+        assertTrue(diagCmd is VoiceCommand.ShowDiagnostics)
+
+        val favCatCmd = VoiceCommandParser.parse("mở phim yêu thích", channels)
+        assertTrue(favCatCmd is VoiceCommand.BrowseCategory)
+        assertEquals("fav-movies", (favCatCmd as VoiceCommand.BrowseCategory).categoryId)
     }
 }

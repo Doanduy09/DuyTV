@@ -1,14 +1,14 @@
-## ⚠️ Cảnh Báo Sập Nguồn Phim DuyTV (2026-11-05T14:02:41.139Z)
+## ⚠️ Cảnh Báo Sập Nguồn Phim DuyTV (2026-11-16T10:08:51.904Z)
 
 Hệ thống kiểm tra tự động phát hiện một hoặc nhiều nguồn phim không phản hồi:
 
 | Nguồn | URL | Trạng Thái | Chi Tiết |
 |---|---|---|---|
-| KKPhim (Nguồn Chính) | https://phimapi.com | ✅ Sống | 1060ms |
-| OPhim | https://ophim1.com | ❌ SẬP | HTTP 404 |
-| NguonC | https://phim.nguonc.com/api/film | ✅ Sống | 3720ms |
-| CoBePhim (Cổ Trang & Xưa) | https://cobephim.mom | ✅ Sống | 6398ms |
-| YTS 4K Ultra HD (https://yts.gg) | https://yts.gg | ✅ Sống | 1051ms |
+| KKPhim | https://phimapi.com | ✅ Sống | 687ms |
+| OPhim | https://ophim1.com, https://ophim17.cc, https://ophim16.cc | ❌ SẬP | connect ECONNREFUSED 127.0.0.1:443 |
+| NguonC | https://phim.nguonc.com/api/film | ✅ Sống | 710ms |
+| CoBePhim | https://cobephim.mom | ❌ SẬP | connect ECONNREFUSED 127.0.0.1:443 |
+| YTS 4K Ultra HD Cinema (https://yts.gg) | https://yts.gg | ✅ Sống | 1541ms |
 
 ### 🛠️ Hướng Dẫn Sửa Đổi:
 1. Mở file `config/sources.json` trên GitHub.

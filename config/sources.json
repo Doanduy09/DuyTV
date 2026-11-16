@@ -12,7 +12,12 @@
     },
     "ophim": {
       "name": "OPhim",
-      "api_base": "https://ophim.cc",
+      "api_base": "https://ophim1.com",
+      "mirrors": [
+        "https://ophim1.com",
+        "https://ophim17.cc",
+        "https://ophim16.cc"
+      ],
       "enabled": true
     },
     "nguonc": {

@@ -1106,25 +1106,64 @@ private fun PlayerScreenContent(
         }
     }
 
-    // DRC Voice & Audio Gain
+    // DRC Voice & Audio Gain (Debounce 250ms chống xung đột driver ALSA khi chuyển kênh liên thanh)
     LaunchedEffect(isDrcVoiceEnabled, audioBoostPercent, loudnessEnhancer) {
-        loudnessEnhancer?.let { le ->
-            try {
-                if (isDrcVoiceEnabled) {
-                    le.setTargetGain(1200)
-                    le.enabled = true
-                } else if (audioBoostPercent > 100) {
-                    val gainMilliBels = when (audioBoostPercent) {
-                        150 -> 800
-                        200 -> 1500
-                        else -> 0
-                    }
-                    le.setTargetGain(gainMilliBels)
-                    le.enabled = (gainMilliBels > 0)
-                } else {
-                    le.enabled = false
+        val le = loudnessEnhancer ?: return@LaunchedEffect
+        delay(250L)
+        try {
+            if (isDrcVoiceEnabled) {
+                le.setTargetGain(1200)
+                le.enabled = true
+            } else if (audioBoostPercent > 100) {
+                val gainMilliBels = when (audioBoostPercent) {
+                    150 -> 800
+                    200 -> 1500
+                    else -> 0
                 }
+                le.setTargetGain(gainMilliBels)
+                le.enabled = (gainMilliBels > 0)
+            } else {
+                le.enabled = false
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Hạ độ sáng tấm nền phần cứng (Hardware Backlight Dimming) khi bật chế độ Tắt màn hình chỉ nghe tiếng
+    DisposableEffect(isScreenOffAudioMode) {
+        val window = (context as? Activity)?.window
+        if (isScreenOffAudioMode && window != null) {
+            try {
+                val lp = window.attributes
+                lp.screenBrightness = 0.01f
+                window.attributes = lp
             } catch (_: Exception) {}
+        }
+        onDispose {
+            if (window != null) {
+                try {
+                    val lp = window.attributes
+                    lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                    window.attributes = lp
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun enterPictureInPictureSafe(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return false
+        val act = context as? Activity ?: return false
+        showControls = false
+        showQuickActionSheet = false
+        showChannelRibbon = false
+        showQualityMenu = false
+        return try {
+            val pipParams = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(android.util.Rational(16, 9))
+                .build()
+            act.enterPictureInPictureMode(pipParams)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -1549,6 +1588,25 @@ private fun PlayerScreenContent(
                         showControls = false
                         showUnlockPill = true
                         speakAndReport("Đã khóa cảm ứng", "Dạ, đã khóa cảm ứng màn hình")
+                    }
+                    VoiceCommand.EnterPip -> {
+                        if (enterPictureInPictureSafe()) {
+                            speakAndReport("Thu nhỏ PiP", "Dạ, đã thu nhỏ màn hình")
+                        } else {
+                            speakAndReport("Thiết bị không hỗ trợ PiP", "Dạ, thiết bị này không hỗ trợ thu nhỏ màn hình")
+                        }
+                    }
+                    VoiceCommand.CycleCinematicFilter -> {
+                        val filters = CinematicFilter.values()
+                        val nextFilter = filters[(cinematicFilter.ordinal + 1) % filters.size]
+                        cinematicFilter = nextFilter
+                        AppCacheManager.savePreferredCinematicFilter(context, nextFilter.name)
+                        speakAndReport("Bộ lọc: ${nextFilter.title}", "Dạ, đã chuyển bộ lọc ${nextFilter.title}")
+                    }
+                    VoiceCommand.ShowDiagnostics -> {
+                        quickActionTab = 3
+                        showQuickActionSheet = true
+                        speakAndReport("Thông số luồng phát", "Dạ, đây là bảng thông số luồng phát")
                     }
                     is VoiceCommand.SwitchEpisode -> {
                         if (!isLive && availableEpisodes.isNotEmpty()) {
@@ -2492,6 +2550,11 @@ private fun PlayerScreenContent(
                 activeChannelTotalSources = activeChannelTotalSources,
                 currentBackupIndex = currentBackupIndex,
                 onSwitchBackupSource = { switchBackupSource() },
+                videoResolution = videoResolution,
+                bufferAheadSec = ((exoPlayer.bufferedPosition - exoPlayer.currentPosition).coerceAtLeast(0L) / 1000L).toInt(),
+                droppedFrames = exoPlayer.videoDecoderCounters?.droppedBufferCount ?: 0,
+                canEnterPip = !com.duytv.app.util.HardwareOptimizer.isTvDevice(context) && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O,
+                onEnterPip = { enterPictureInPictureSafe() },
                 onActivateTouchLock = {
                     isTouchLocked = true
                     showQuickActionSheet = false
@@ -2507,6 +2570,26 @@ private fun PlayerScreenContent(
         val screenWidthDp = LocalConfiguration.current.screenWidthDp
         val hudHorizontalPad = if (screenWidthDp < 600) 16.dp else if (screenWidthDp < 900) 24.dp else 48.dp
         val hudVerticalPad = if (screenWidthDp < 600) 14.dp else 28.dp
+
+        // ⏲️ Nhãn đếm ngược Hẹn giờ tắt gọn nhẹ ở góc trên phải khi đang kích hoạt
+        if (sleepTimerMinutes > 0 && !isScreenOffAudioMode && !showControls && !showQuickActionSheet) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 18.dp, end = 22.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x99101622))
+                    .border(1.dp, Color(0x55FFD600), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "⏲️ ${sleepTimerMinutes}p",
+                    color = Color(0xFFFFD600),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
 
         // 🌆 Lớp Lọc Ánh Sáng Xanh Ban Đêm (Night Warm Eye-Care Filter)
         if (isNightWarmMode && !isScreenOffAudioMode) {
@@ -3204,6 +3287,11 @@ private fun PlayerQuickActionSheet(
     activeChannelTotalSources: Int,
     currentBackupIndex: Int,
     onSwitchBackupSource: () -> Unit,
+    videoResolution: String,
+    bufferAheadSec: Int,
+    droppedFrames: Int,
+    canEnterPip: Boolean,
+    onEnterPip: () -> Unit,
     onActivateTouchLock: () -> Unit,
     closeFocusRequester: FocusRequester,
     onCloseSheet: () -> Unit
@@ -3529,7 +3617,7 @@ private fun PlayerQuickActionSheet(
                         }
                     }
                     3 -> {
-                        SettingSectionHeader("📊 THÔNG TIN LUỒNG PHÁT & PHẦN CỨNG")
+                        SettingSectionHeader("📊 CHẨN ĐOÁN LUỒNG PHÁT & PHẦN CỨNG THỰC TẾ")
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -3538,14 +3626,15 @@ private fun PlayerQuickActionSheet(
                                 .padding(14.dp)
                         ) {
                             Text(
-                                text = "⚡ Tình trạng luồng: ${if (isLive) "Trực Tiếp (HLS Low-Latency)" else "VOD Chuẩn Điện Ảnh"}",
+                                text = "⚡ Luồng: ${if (isLive) "Trực Tiếp (HLS Low-Latency)" else "VOD Chuẩn Điện Ảnh"} • $videoResolution",
                                 color = Color(0xFF00E676),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "• Độ phân giải luồng: $selectedQualityMode • Tốc độ: ${playbackSpeed}x\n" +
+                                text = "• Bộ đệm (Buffer): ${bufferAheadSec}s • Khung hình rớt: $droppedFrames frames\n" +
+                                        "• Chất lượng khóa: $selectedQualityMode • Tốc độ: ${playbackSpeed}x\n" +
                                         "• Quảng cáo HLS đã chặn: $adsBlockedSessionCount • Server khả dụng: $activeChannelTotalSources\n" +
                                         "• Khuếch đại âm lượng: $audioBoostPercent% • Lọc thoại DRC: ${if (isDrcVoiceEnabled) "BẬT" else "TẮT"}",
                                 color = Color(0xFFA0AAB8),
@@ -3556,12 +3645,28 @@ private fun PlayerQuickActionSheet(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        SettingSectionHeader("🔒 BẢO VỆ MÀN HÌNH & CHỐNG CHẠM NHẦM")
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        SettingSectionHeader("🎛️ TIỆN ÍCH NHANH & BẢO VỆ MÀN HÌNH")
+                        if (canEnterPip) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                                SettingChoicePill(
+                                    title = "🖼️ THU NHỎ MÀN HÌNH (HÌNH TRONG HÌNH - PiP)",
+                                    isSelected = false,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = onEnterPip
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             SettingChoicePill(
-                                title = "🔒 KÍCH HOẠT KHÓA MÀN HÌNH (Khóa cảm ứng / Chế độ trẻ em)",
+                                title = "🌙 TẮT MÀN HÌNH (NGHE TIẾNG)",
                                 isSelected = false,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.weight(1f),
+                                onClick = onActivateScreenOffAudio
+                            )
+                            SettingChoicePill(
+                                title = "🔒 KHÓA CẢM ỨNG (TRẺ EM)",
+                                isSelected = false,
+                                modifier = Modifier.weight(1f),
                                 onClick = onActivateTouchLock
                             )
                         }

@@ -35,6 +35,9 @@ sealed class VoiceCommand {
     object ToggleNightMode : VoiceCommand()
     object ActivateScreenOffAudio : VoiceCommand()
     object ToggleTouchLock : VoiceCommand()
+    object EnterPip : VoiceCommand()
+    object CycleCinematicFilter : VoiceCommand()
+    object ShowDiagnostics : VoiceCommand()
 
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
@@ -510,6 +513,21 @@ object VoiceCommandParser {
             return VoiceCommand.ToggleTouchLock
         }
 
+        // 0.4 Hình trong hình (Picture-in-Picture / Thu nhỏ màn hình)
+        if (core.contains("thu nhỏ màn hình") || core.contains("hình trong hình") || core.contains("chế độ pip") || core.contains("cửa sổ nổi") || core == "pip") {
+            return VoiceCommand.EnterPip
+        }
+
+        // 0.5 Bộ lọc màu điện ảnh (Cinematic Filter)
+        if (core.contains("đổi bộ lọc") || core.contains("bộ lọc điện ảnh") || core.contains("màu điện ảnh") || core.contains("chế độ điện ảnh")) {
+            return VoiceCommand.CycleCinematicFilter
+        }
+
+        // 0.6 Chẩn đoán luồng phát & Phần cứng (Diagnostics HUD)
+        if (core.contains("thông số luồng") || core.contains("kiểm tra luồng") || core.contains("chẩn đoán mạng") || core.contains("xem thông số") || core.contains("thông số phát")) {
+            return VoiceCommand.ShowDiagnostics
+        }
+
         // 1. Bỏ qua mở đầu (Skip Intro)
         if (core.contains("bỏ qua mở đầu") || core.contains("skip intro") || core.contains("qua phần mở đầu") ||
             core.contains("bỏ qua giới thiệu") || core.contains("bỏ giới thiệu") || core.contains("qua mở đầu")) {
@@ -576,6 +594,9 @@ object VoiceCommandParser {
         val isCategoryIntent = core.contains("kiểm tra ") || core.contains("danh mục ") || core.contains("thể loại ") ||
                                core.contains("danh sách ") || core.startsWith("xem danh mục") || core.startsWith("chọn thể loại")
 
+        if (core.contains("phim yêu thích") || core.contains("tủ phim yêu thích") || (isCategoryIntent && core.contains("yêu thích"))) {
+            return VoiceCommand.BrowseCategory("fav-movies", "Phim Yêu Thích")
+        }
         if (core.contains("phim mới") || (isCategoryIntent && core.contains("mới"))) {
             return VoiceCommand.BrowseCategory("all", "Phim Mới Cập Nhật")
         }
