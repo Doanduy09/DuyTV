@@ -1,7 +1,7 @@
 {
   "app_name": "DuyTV Full Edition",
   "version": "1.6.0",
-  "last_updated": "2026-11-13",
+  "last_updated": "2026-11-16",
   "huong_dan_nhanh": "Khi một nguồn bị đổi domain hoặc sập, anh chỉ cần sửa lại link ở dòng 'api_base' tương ứng, sau đó bấm 'Commit changes' trên GitHub là app sẽ tự động build lại ngay lập tức!",
   "sources": {
     "kkphim": {
@@ -12,12 +12,7 @@
     },
     "ophim": {
       "name": "OPhim",
-      "api_base": "https://ophim1.com",
-      "mirrors": [
-        "https://ophim1.com",
-        "https://ophim17.cc",
-        "https://ophim16.cc"
-      ],
+      "api_base": "https://ophim.cc",
       "enabled": true
     },
     "nguonc": {
