@@ -509,7 +509,7 @@ fun HomeScreen(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
-                                        .widthIn(max = 175.dp)
+                                        .widthIn(max = 135.dp)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (lastChActive) AccentRed else Color(0xFF065F46))
                                         .border(

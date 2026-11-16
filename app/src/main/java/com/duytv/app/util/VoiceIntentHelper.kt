@@ -404,6 +404,14 @@ object VoiceIntentHelper {
                         }
                     }
                 }
+                VoiceCommand.ToggleNightMode -> {
+                    val nextMode = !AppCacheManager.getPreferredNightMode(appContext)
+                    AppCacheManager.savePreferredNightMode(appContext, nextMode)
+                    val msg = if (nextMode) "Chế độ dịu mắt: BẬT" else "Chế độ dịu mắt: TẮT"
+                    speak(msg, "Dạ, đã ${if (nextMode) "bật chế độ dịu mắt ban đêm" else "tắt chế độ dịu mắt"}") {
+                        onExternalActionDone()
+                    }
+                }
                 else -> {
                     speak("Dùng khi đang phát video", "Dạ, lệnh này dùng khi đang phát phim hoặc tivi ạ") {
                         onExternalActionDone()

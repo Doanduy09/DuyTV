@@ -212,7 +212,9 @@ private fun PlayerScreenContent(
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var lastSeekTimestamp by remember { mutableLongStateOf(0L) }
     var seekConsecutiveCount by remember { mutableIntStateOf(0) }
-    var playbackSpeed by remember { mutableFloatStateOf(AppCacheManager.getPreferredPlaybackSpeed(context)) }
+    var playbackSpeed by remember {
+        mutableFloatStateOf(if (isLive) 1.0f else AppCacheManager.getPreferredPlaybackSpeed(context))
+    }
 
     var currentTitle by remember(movieTitle) { mutableStateOf(movieTitle) }
     var currentEpisodeName by remember(episodeName) { mutableStateOf(episodeName) }
@@ -1002,7 +1004,7 @@ private fun PlayerScreenContent(
                     loadLiveStreamUrl(allUrls[nextBackupIdx])
                 } else {
                     if (!isLive) {
-                        errorMessage = "Lỗi đường truyền: ${error.errorCodeName}. Đang tự động đổi Server / kết nối lại..."
+                        errorMessage = "Đang làm mới luồng phát dự phòng..."
                     }
                     errorRetryJob?.cancel()
                     errorRetryJob = scope.launch {
@@ -1104,6 +1106,14 @@ private fun PlayerScreenContent(
             delay(2000)
             aspectBadgeText = null
         }
+    }
+
+    // Áp dụng tốc độ phát đã nhớ cho VOD và khóa cứng 1.0x cho Live TV tránh cạn buffer
+    LaunchedEffect(exoPlayer, isLive) {
+        try {
+            val targetSpeed = if (isLive) 1.0f else playbackSpeed
+            exoPlayer.setPlaybackSpeed(targetSpeed)
+        } catch (_: Exception) {}
     }
 
     // DRC Voice & Audio Gain (Debounce 250ms chống xung đột driver ALSA khi chuyển kênh liên thanh)
@@ -3560,15 +3570,17 @@ private fun PlayerQuickActionSheet(
                             )
                         }
 
-                        SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                            listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
-                                SettingChoicePill(
-                                    title = "${spd}x",
-                                    isSelected = (playbackSpeed == spd),
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { onSelectPlaybackSpeed(spd) }
-                                )
+                        if (!isLive) {
+                            SettingSectionHeader("⚡ TỐC ĐỘ PHÁT (NHỚ RIÊNG CHO PHIM BỘ)")
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
+                                    SettingChoicePill(
+                                        title = "${spd}x",
+                                        isSelected = (playbackSpeed == spd),
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onSelectPlaybackSpeed(spd) }
+                                    )
+                                }
                             }
                         }
 

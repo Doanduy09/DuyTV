@@ -1,7 +1,7 @@
 {
-  "versionCode": 59,
-  "versionName": "2.3.4",
+  "versionCode": 60,
+  "versionName": "2.3.5",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Nâng Cấp Thông Minh v2.3.4 (Build #59): Hạ độ sáng tấm nền phần cứng khi tắt màn hình nghe tiếng, debounce gắn LoudnessEnhancer chống spam chuyển kênh, nhãn đếm ngược hẹn giờ ngủ trên góc màn hình, HUD chẩn đoán Buffer/Dropped Frames thời gian thực, thu nhỏ Hình Trong Hình (PiP) 1-chạm & giọng nói, khẩu lệnh đổi bộ lọc điện ảnh/xem thông số/mở phim yêu thích, và đồng bộ kiểm tra mirror OPhim trên GitHub."
+  "releaseNotes": "Bản Hoàn Thiện Ổn Định Dài Hạn v2.3.5 (Build #60): Khóa cứng tốc độ 1.0x cho Truyền hình trực tiếp (giữ tốc độ riêng cho Phim bộ VOD), căn chỉnh gọn Top Bar HomeScreen không che badge phiên bản khi tên kênh dài, thông báo làm mới đường truyền dịu mắt khi tự động đổi link VOD hết hạn, và hỗ trợ giọng nói bật/tắt chế độ dịu mắt ngay tại màn hình chính."
 }
