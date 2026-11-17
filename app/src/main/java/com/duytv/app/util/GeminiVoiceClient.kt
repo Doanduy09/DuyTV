@@ -82,6 +82,11 @@ object GeminiVoiceClient {
         }
     }
 
+    fun recordTurn(userText: String, assistantSummary: String) {
+        if (userText.isBlank() || assistantSummary.isBlank()) return
+        appendHistoryTurn(userText.trim(), assistantSummary.trim())
+    }
+
     private fun appendHistoryTurn(userText: String, assistantSummary: String) {
         synchronized(conversationHistory) {
             lastTurnTimestampMs = System.currentTimeMillis()
@@ -154,39 +159,16 @@ object GeminiVoiceClient {
         }
 
         return """
-            Bạn là Trợ lý AI DuyTV thông minh toàn năng cho Anh Duy trên Android TV.
-            
-            Ngữ cảnh thiết bị hiện tại:$contextInfo
-            
-            Nhiệm vụ: Hiểu khẩu lệnh tiếng Việt tự nhiên (kể cả câu hỏi nối tiếp hoặc câu ghép nhiều bước) và trả về JSON hành động chính xác.
-            
-            Các giá trị `action` hợp lệ:
-            - "play_tv": Mở kênh truyền hình VN (query = tên kênh, vd "VTV1", "HTV7").
-            - "play_movie": Tìm/mở phim trong DuyTV (query = tên phim sạch).
-            - "search_youtube": Tìm/nghe nhạc, karaoke, video trên YouTube (query = từ khóa sạch).
-            - "open_app": Mở ứng dụng trên TV (target = tên app, vd "YouTube", "TV360", "Netflix", "Cài đặt").
-            - "open_setting": Mở mục cài đặt (target = "wifi"|"bluetooth"|"sound"|"display"|"apps"|"date"|"accessibility"|"system").
-            - "set_volume_percent": Đặt âm lượng theo % (target = số 0..100).
-            - "adjust_volume": Tăng/giảm âm lượng (target = "up"|"down"|"mute").
-            - "switch_hdmi": Chuyển cổng đầu vào TV (target = "hdmi 1"|"hdmi 2"|"av").
-            - "media_control": Điều khiển phát media toàn cục (target = "play_pause"|"next"|"previous"|"fast_forward"|"rewind").
-            - "system_action": Điều khiển hệ thống TV (target = "home"|"back"|"recents"|"quick_settings"|"screenshot"|"power").
-            - "ui_click": Bấm vào nút/chữ đang hiện trên màn hình TV (target = chữ trên nút).
-            - "ui_scroll": Cuộn màn hình hiện tại (target = "down"|"up").
-            - "night_mode": Bật/tắt chế độ dịu mắt ban đêm.
-            - "sleep_timer": Hẹn giờ tắt (target = số phút, vd "30").
-            - "playback_control": Điều khiển trình phát DuyTV (query = câu lệnh chuẩn).
-            - "chat": Trả lời câu hỏi kiến thức, gợi ý phim, tóm tắt phim, trò chuyện tự nhiên.
-            
-            Nếu người dùng yêu cầu nhiều bước liên tiếp (vd: "giảm âm lượng 30% rồi mở VTV1"), trả về mảng `actions`.
-            Bắt buộc trả về đúng JSON:
-            {
-              "action": "...",
-              "query": "...",
-              "target": "...",
-              "tts_reply": "câu trả lời ngắn gọn, tự nhiên, xưng em với anh Duy",
-              "actions": [{"action": "...", "query": "...", "target": "..."}]
-            }
+            Trợ lý AI DuyTV cho Anh Duy trên Android TV. Ngữ cảnh:$contextInfo
+            Trả về JSON hợp lệ theo schema:
+            {"action":"...","query":"...","target":"...","tts_reply":"1 câu thân mật xưng em với anh Duy","actions":[{"action":"...","query":"...","target":"..."}]}
+            Actions:
+            - play_tv(query=tên kênh VN), play_movie(query=tên phim), search_youtube(query=từ khóa)
+            - open_app(target=tên app), open_setting(target=wifi|bluetooth|sound|display|apps|date|accessibility|system)
+            - set_volume_percent(target=0..100), adjust_volume(target=up|down|mute), switch_hdmi(target=hdmi 1|hdmi 2|av)
+            - media_control(target=play_pause|next|previous|fast_forward|rewind), system_action(target=home|back|recents|quick_settings|screenshot|power)
+            - ui_click(target=chữ trên nút), ui_scroll(target=down|up), night_mode, sleep_timer(target=phút), playback_control(query=lệnh), chat
+            Nếu câu ghép nhiều bước -> điền mảng actions.
         """.trimIndent()
     }
 

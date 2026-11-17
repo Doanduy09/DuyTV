@@ -331,10 +331,10 @@ class MovieRepository {
             return when {
                 // Loại bỏ hoàn toàn các domain chết hoặc đã hết hạn
                 u.contains("vmttv.dpdns.org") || u.contains("dead.link") -> -1000
+                u.contains("a3iptv.goitoi.co") -> -500
                 // Ưu tiên cực đại: Luồng Full HD 8.5Mbps / 9.5Mbps / 1080p tốc độ cao
                 u.contains("9.5mbps") || u.contains("8.5mbps") || u.contains("8mbps") || u.contains("6mbps") -> 1000
                 u.contains("1080p") || u.contains("1080") || u.contains("fhd") || u.contains("fullhd") -> 950
-                u.contains("a3iptv.goitoi.co") -> 900
                 u.contains("cdn-fpt") -> 850
                 u.contains("vtvprime.vn") -> 800
                 u.contains("vtvdigital.vn") || u.contains("truyenhinhso.vn") -> 750
@@ -575,76 +575,76 @@ class MovieRepository {
                 id = "vtv1_hd",
                 name = "VTV1 HD",
                 logoUrl = "https://i.postimg.cc/F1FvzstX/V1.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV1%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV1%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv2_hd",
                 name = "VTV2 HD",
                 logoUrl = "https://i.postimg.cc/yDR4tDRm/V2.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV2%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv2/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv2/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV2%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv3_hd",
                 name = "VTV3 HD",
                 logoUrl = "https://i.postimg.cc/B8cWZRM0/V3.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV3%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv3/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv3/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV3%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv4_hd",
                 name = "VTV4 HD",
                 logoUrl = "https://i.postimg.cc/Wqzxnzj0/V4.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV4%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV4%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv5_tnb",
                 name = "VTV5 Tây Nam Bộ",
                 logoUrl = "https://i.postimg.cc/68ngzDsM/V5TNB.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV5%20T%C3%A2y%20Nam%20B%E1%BB%99%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV5%20T%C3%A2y%20Nam%20B%E1%BB%99%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv6_hd",
                 name = "VTV6 HD (VTV Cần Thơ)",
                 logoUrl = "https://i.postimg.cc/t7Jc81QZ/V6.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV6%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://live.canthotv.vn/live/tv/chunklist.m3u8",
                 groupTitle = "VTV Quốc Gia",
                 backupUrls = listOf(
-                    "https://live.canthotv.vn/live/tv/chunklist.m3u8",
-                    "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8"
+                    "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
+                    "https://a3iptv.goitoi.co/VTV/VTV6%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid"
                 )
             ),
             TvChannel(
                 id = "vtv7_hd",
                 name = "VTV7 HD",
                 logoUrl = "https://i.postimg.cc/ykSbYwN8/V7.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV7%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV7%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv8_hd",
                 name = "VTV8 HD",
                 logoUrl = "https://i.postimg.cc/k2QYWK8w/V8.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV8%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV8%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "vtv9_hd",
                 name = "VTV9 HD",
                 logoUrl = "https://i.postimg.cc/phT0NSS6/V9.png",
-                streamUrl = "https://a3iptv.goitoi.co/VTV/VTV9%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv9/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv9/master.m3u8")
+                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV9%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
             ),
             TvChannel(
                 id = "antv_hd",

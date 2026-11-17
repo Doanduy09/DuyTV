@@ -399,14 +399,14 @@ object VoiceIntentHelper {
                     onNavigateScreen(AppScreen.CategoryHome(cmd.categoryId), "Dạ, đang mở danh mục ${cmd.categoryName}")
                 }
                 is VoiceCommand.OpenApp -> {
+                    launchAppByQuery(appContext, cmd.target)
                     speak("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
-                        launchAppByQuery(appContext, cmd.target)
                         onExternalActionDone()
                     }
                 }
                 is VoiceCommand.YouTubeSearch -> {
+                    launchYouTubeSearch(appContext, cmd.query)
                     speak("YouTube: ${cmd.query.uppercase()}", "Dạ, đang tìm trên YouTube: ${cmd.query}") {
-                        launchYouTubeSearch(appContext, cmd.query)
                         onExternalActionDone()
                     }
                 }
@@ -736,6 +736,7 @@ object VoiceIntentHelper {
         }
 
         if (localCmd !is VoiceCommand.Unknown) {
+            GeminiVoiceClient.recordTurn(rawQuery, localCmd::class.simpleName ?: "Executed")
             runAppCommand(localCmd)
         } else {
             scope.launch {

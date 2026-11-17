@@ -288,6 +288,8 @@ object VoiceCommandParser {
         }
         return t == "dừng" || t == "tạm dừng" || t == "pause" ||
                t == "tiếp tục" || t == "phát tiếp" || t == "play" || t == "phát" ||
+               t == "mở youtube" || t == "bật youtube" || t == "vào youtube" ||
+               t == "mở phim lẻ" || t == "mở phim bộ" || t == "mở phim bộ thuyết minh" ||
                t.startsWith("tăng âm") || t.startsWith("tăng loa") || t == "to hơn" || t == "to lên" || t == "lớn hơn" ||
                t.startsWith("giảm âm") || t.startsWith("giảm loa") || t == "nhỏ hơn" || t == "nhỏ lại" || t == "nhỏ xuống" ||
                t == "tắt tiếng" || t == "bật tiếng" || t == "câm tiếng" || t == "mute" ||
@@ -392,7 +394,7 @@ object VoiceCommandParser {
         }
 
         // I. LỆNH ĐIỀU KHIỂN ÂM LƯỢNG & LOA TIVI
-        val volPctMatch = Regex("(?:âm lượng|loa|tiếng|volume)(?:\\s+(?:lên|xuống|mức|về|là|còn))?\\s*(\\d{1,3})\\s*(?:%|phần trăm)?").find(core)
+        val volPctMatch = Regex("(?:(?:âm lượng|loa|tiếng|volume)(?:\\s+(?:lên|xuống|mức|về|là|còn))?|(?:tăng|giảm|đặt|chỉnh|mở)?\\s*(?:lên|xuống|mức))\\s*(\\d{1,3})\\s*(?:%|phần trăm)?").find(core)
         if (volPctMatch != null) {
             val pct = volPctMatch.groupValues[1].toIntOrNull()?.coerceIn(0, 100)
             if (pct != null) {

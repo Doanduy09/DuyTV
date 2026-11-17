@@ -141,6 +141,10 @@ class VoiceCommandParserTest {
         assertTrue(volPct is VoiceCommand.SetVolumePercent)
         assertEquals(40, (volPct as VoiceCommand.SetVolumePercent).percent)
 
+        val followUpVol = VoiceCommandParser.parse("em tăng lên 80% cho anh", channels)
+        assertTrue(followUpVol is VoiceCommand.SetVolumePercent)
+        assertEquals(80, (followUpVol as VoiceCommand.SetVolumePercent).percent)
+
         val hdmi = VoiceCommandParser.parse("chuyển sang hdmi 1", channels)
         assertTrue(hdmi is VoiceCommand.SwitchHdmiInput)
         assertEquals("hdmi 1", (hdmi as VoiceCommand.SwitchHdmiInput).inputQuery)

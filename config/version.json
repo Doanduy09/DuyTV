@@ -1,7 +1,7 @@
 {
-  "versionCode": 69,
-  "versionName": "2.5.3",
+  "versionCode": 70,
+  "versionName": "2.5.4",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Tăng Tốc AI Gemini 4 Flash v2.5.3 (Build #69): Chuyển model LAN AI Pool sang gemini-4-flash (nhanh gấp 3.4x) và nâng readTimeout lên 12s để AI luôn trả lời thành công thay vì bị timeout."
+  "releaseNotes": "Bản Tối Ưu Tốc Độ TV, YouTube 0ms & Trí Nhớ Hội Thoại v2.5.4 (Build #70): Thay thế link a3iptv chết bằng link sống 0.8s (hết 6s vòng xoay đen khi mở VTV1..VTV9), mở YouTube tức thì 0ms, ghi nhớ toàn bộ lịch sử lệnh cục bộ + AI và rút gọn prompt Gemini."
 }
