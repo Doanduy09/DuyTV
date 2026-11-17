@@ -1,7 +1,7 @@
 {
-  "versionCode": 65,
-  "versionName": "2.4.0",
+  "versionCode": 66,
+  "versionName": "2.5.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật Phim Bộ Thuyết Minh v2.4.0 (Build #65): Thay thế mục Hoạt Hình bằng mục Phim Bộ Thuyết Minh (phim-thuyet-minh) trên thanh điều hướng và màn hình chính, tối ưu cài đặt & hiển thị trên Sharp AQUOS 4K TV."
+  "releaseNotes": "Bản Trợ Lý AI Toàn Năng v2.5.0 (Build #66): Tích hợp AI Agent nhận diện ngữ cảnh màn hình TV, trí nhớ hội thoại 5 lượt, chuỗi đa hành động, điều khiển HDMI/Media/Âm lượng % và bấm UI toàn hệ thống."
 }

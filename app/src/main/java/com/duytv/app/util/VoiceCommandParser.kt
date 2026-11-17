@@ -41,13 +41,19 @@ sealed class VoiceCommand {
 
     // 🌐 Lệnh điều khiển toàn năng hệ thống TV & Mở mọi ứng dụng
     data class OpenApp(val target: String) : VoiceCommand()
-    enum class SettingType { WIFI, BLUETOOTH, SOUND, DISPLAY, APPS, SYSTEM, DATE }
+    enum class SettingType { WIFI, BLUETOOTH, SOUND, DISPLAY, APPS, SYSTEM, DATE, ACCESSIBILITY }
     data class OpenSetting(val settingType: SettingType) : VoiceCommand()
     data class YouTubeSearch(val query: String) : VoiceCommand()
     data class AdjustVolume(val isIncrease: Boolean) : VoiceCommand()
+    data class SetVolumePercent(val percent: Int) : VoiceCommand()
     object ToggleMute : VoiceCommand()
-    enum class SystemActionType { HOME, BACK, POWER }
+    enum class SystemActionType { HOME, BACK, POWER, RECENTS, QUICK_SETTINGS, SCREENSHOT }
     data class SystemAction(val type: SystemActionType) : VoiceCommand()
+    data class SwitchHdmiInput(val inputQuery: String) : VoiceCommand()
+    enum class MediaKeyAction { PLAY_PAUSE, NEXT, PREVIOUS, FAST_FORWARD, REWIND }
+    data class GlobalMediaControl(val action: MediaKeyAction) : VoiceCommand()
+    data class UiClickText(val targetText: String) : VoiceCommand()
+    data class UiScroll(val forward: Boolean) : VoiceCommand()
     
     data class Unknown(val rawText: String) : VoiceCommand()
 }
@@ -382,6 +388,13 @@ object VoiceCommandParser {
         }
 
         // I. LỆNH ĐIỀU KHIỂN ÂM LƯỢNG & LOA TIVI
+        val volPctMatch = Regex("(?:âm lượng|loa|tiếng|volume)(?:\\s+(?:lên|xuống|mức|về|là|còn))?\\s*(\\d{1,3})\\s*(?:%|phần trăm)?").find(core)
+        if (volPctMatch != null) {
+            val pct = volPctMatch.groupValues[1].toIntOrNull()?.coerceIn(0, 100)
+            if (pct != null) {
+                return VoiceCommand.SetVolumePercent(pct)
+            }
+        }
         if (core.contains("tăng âm") || core.contains("tăng loa") || core.contains("lớn hơn") || core.contains("to hơn") || core.contains("tăng volume") || core == "to lên") {
             return VoiceCommand.AdjustVolume(isIncrease = true)
         }
@@ -405,6 +418,40 @@ object VoiceCommandParser {
         }
         if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") || core.contains("đi ngủ")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.POWER)
+        }
+        if (core.contains("đa nhiệm") || core.contains("ứng dụng gần đây") || core.contains("các app đang mở")) {
+            return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.RECENTS)
+        }
+        if (core.contains("cài đặt nhanh") || core.contains("bảng điều khiển nhanh") || core.contains("thanh thông báo")) {
+            return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.QUICK_SETTINGS)
+        }
+        if (core.contains("chụp màn hình") || core.contains("chụp ảnh màn hình")) {
+            return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.SCREENSHOT)
+        }
+
+        // II.B. CHUYỂN CỔNG HDMI / AV & ĐIỀU KHIỂN MEDIA / UI TOÀN CỤC
+        val hdmiMatch = Regex("(?:chuyển|mở|vào|sang|đổi)\\s*(?:cổng|đầu vào|ngõ)?\\s*(hdmi\\s*\\d*|av\\s*\\d*|tivi tuner|đầu thu)").find(core)
+        if (hdmiMatch != null) {
+            return VoiceCommand.SwitchHdmiInput(hdmiMatch.groupValues[1].trim())
+        }
+        if (core == "qua bài" || core == "bài tiếp theo" || core == "bài sau" || core == "video tiếp theo") {
+            return VoiceCommand.GlobalMediaControl(VoiceCommand.MediaKeyAction.NEXT)
+        }
+        if (core == "bài trước" || core == "lùi bài" || core == "video trước") {
+            return VoiceCommand.GlobalMediaControl(VoiceCommand.MediaKeyAction.PREVIOUS)
+        }
+        val uiClickMatch = Regex("^(?:bấm vào|nhấn vào|chọn mục|bấm nút|nhấn nút|chọn nút|bấm|nhấn)\\s+(.+)$").find(core)
+        if (uiClickMatch != null) {
+            val target = uiClickMatch.groupValues[1].trim()
+            if (target.isNotBlank() && !target.contains("tập ") && !target.contains("kênh ")) {
+                return VoiceCommand.UiClickText(target)
+            }
+        }
+        if (core == "cuộn xuống" || core == "kéo xuống" || core == "lướt xuống" || core == "xuống dưới") {
+            return VoiceCommand.UiScroll(forward = true)
+        }
+        if (core == "cuộn lên" || core == "kéo lên" || core == "lướt lên" || core == "lên trên") {
+            return VoiceCommand.UiScroll(forward = false)
         }
         if (core.contains("mở tivi") || core.contains("bật tivi") || core.contains("xem tivi") || core.contains("bật tv") || core.contains("mở tv")) {
             return VoiceCommand.Resume
@@ -584,6 +631,9 @@ object VoiceCommandParser {
         }
         if (core.contains("cài đặt ngày giờ") || core.contains("chỉnh giờ")) {
             return VoiceCommand.OpenSetting(VoiceCommand.SettingType.DATE)
+        }
+        if (core.contains("trợ năng") || core.contains("accessibility")) {
+            return VoiceCommand.OpenSetting(VoiceCommand.SettingType.ACCESSIBILITY)
         }
         if (core.contains("cài đặt hệ thống") || core.contains("cài đặt tivi") || core == "cài đặt" || core == "settings" ||
             core.startsWith("mở cài đặt") || core.startsWith("vào cài đặt")) {

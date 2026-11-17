@@ -1,16 +1,23 @@
 package com.duytv.app.util
 
+import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.media.tv.TvContract
+import android.media.tv.TvInputManager
 import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import com.duytv.app.AppScreen
 import com.duytv.app.data.AppCacheManager
 import com.duytv.app.data.MovieRepository
 import com.duytv.app.data.TvChannel
+import com.duytv.app.service.DuyVoiceAccessibilityService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,6 +67,62 @@ object VoiceIntentHelper {
     fun toggleSystemMute(context: Context) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_TOGGLE_MUTE, AudioManager.FLAG_SHOW_UI)
+    }
+
+    fun getSystemVolumePercent(context: Context): Int {
+        return try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return -1
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (max <= 0) return -1
+            ((am.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f) / max).toInt().coerceIn(0, 100)
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    fun setSystemVolumePercent(context: Context, percent: Int) {
+        try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (max <= 0) return
+            val target = ((percent.coerceIn(0, 100) / 100f) * max).toInt().coerceIn(0, max)
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI)
+        } catch (e: Exception) {
+            Log.w(TAG, "setSystemVolumePercent error: ${e.message}")
+        }
+    }
+
+    fun dispatchGlobalMediaKey(context: Context, keyCode: Int) {
+        try {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val now = SystemClock.uptimeMillis()
+            am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
+            am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
+        } catch (e: Exception) {
+            Log.w(TAG, "dispatchGlobalMediaKey error: ${e.message}")
+        }
+    }
+
+    fun switchTvInput(context: Context, inputQuery: String): String? {
+        return try {
+            val tim = context.getSystemService(Context.TV_INPUT_SERVICE) as? TvInputManager ?: return null
+            val q = inputQuery.lowercase().replace(" ", "").trim()
+            val inputs = tim.tvInputList
+            val matched = inputs.firstOrNull { info ->
+                val label = info.loadLabel(context)?.toString()?.lowercase()?.replace(" ", "").orEmpty()
+                val id = info.id.lowercase()
+                label.contains(q) || id.contains(q)
+            } ?: return null
+            val uri = TvContract.buildChannelUriForPassthroughInput(matched.id)
+            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            matched.loadLabel(context)?.toString() ?: inputQuery.uppercase()
+        } catch (e: Exception) {
+            Log.w(TAG, "switchTvInput error: ${e.message}")
+            null
+        }
     }
 
     suspend fun resolveOpenMovieScreen(
@@ -217,6 +280,7 @@ object VoiceIntentHelper {
                 VoiceCommand.SettingType.DISPLAY -> Settings.ACTION_DISPLAY_SETTINGS
                 VoiceCommand.SettingType.APPS -> Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS
                 VoiceCommand.SettingType.DATE -> Settings.ACTION_DATE_SETTINGS
+                VoiceCommand.SettingType.ACCESSIBILITY -> Settings.ACTION_ACCESSIBILITY_SETTINGS
                 VoiceCommand.SettingType.SYSTEM -> Settings.ACTION_SETTINGS
             }
             context.startActivity(Intent(action).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
@@ -359,23 +423,118 @@ object VoiceIntentHelper {
                         onExternalActionDone()
                     }
                 }
+                is VoiceCommand.SetVolumePercent -> {
+                    setSystemVolumePercent(appContext, cmd.percent)
+                    speak("Âm lượng ${cmd.percent}%", "Dạ, đã đặt âm lượng ${cmd.percent} phần trăm") {
+                        onExternalActionDone()
+                    }
+                }
                 VoiceCommand.ToggleMute -> {
                     toggleSystemMute(appContext)
                     speak("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng") {
                         onExternalActionDone()
                     }
                 }
+                is VoiceCommand.SwitchHdmiInput -> {
+                    val switched = switchTvInput(appContext, cmd.inputQuery)
+                    if (switched != null) {
+                        speak("Chuyển cổng: $switched", "Dạ, đang chuyển sang $switched") {
+                            onExternalActionDone()
+                        }
+                    } else {
+                        speak("Chưa tìm thấy cổng ${cmd.inputQuery}", "Dạ, TV chưa nhận hoặc không tìm thấy cổng ${cmd.inputQuery}") {
+                            onExternalActionDone()
+                        }
+                    }
+                }
+                is VoiceCommand.GlobalMediaControl -> {
+                    val keyCode = when (cmd.action) {
+                        VoiceCommand.MediaKeyAction.PLAY_PAUSE -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                        VoiceCommand.MediaKeyAction.NEXT -> KeyEvent.KEYCODE_MEDIA_NEXT
+                        VoiceCommand.MediaKeyAction.PREVIOUS -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                        VoiceCommand.MediaKeyAction.FAST_FORWARD -> KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                        VoiceCommand.MediaKeyAction.REWIND -> KeyEvent.KEYCODE_MEDIA_REWIND
+                    }
+                    dispatchGlobalMediaKey(appContext, keyCode)
+                    speak("Đã điều khiển phát", "Dạ, xong rồi ạ") {
+                        onExternalActionDone()
+                    }
+                }
+                VoiceCommand.Pause, VoiceCommand.Resume -> {
+                    dispatchGlobalMediaKey(appContext, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    val label = if (cmd is VoiceCommand.Pause) "Đã tạm dừng" else "Đang phát tiếp"
+                    speak(label, "Dạ, $label") {
+                        onExternalActionDone()
+                    }
+                }
+                is VoiceCommand.UiClickText -> {
+                    val clicked = DuyVoiceAccessibilityService.clickNodeByText(cmd.targetText)
+                    if (clicked) {
+                        speak("Đã bấm: ${cmd.targetText}", "Dạ, đã bấm ${cmd.targetText}") {
+                            onExternalActionDone()
+                        }
+                    } else {
+                        speak("Không thấy nút ${cmd.targetText}", "Dạ, trên màn hình không có mục ${cmd.targetText}") {
+                            onExternalActionDone()
+                        }
+                    }
+                }
+                is VoiceCommand.UiScroll -> {
+                    DuyVoiceAccessibilityService.scrollWindow(cmd.forward)
+                    val msg = if (cmd.forward) "Đã cuộn xuống" else "Đã cuộn lên"
+                    speak(msg, "Dạ, $msg") {
+                        onExternalActionDone()
+                    }
+                }
                 is VoiceCommand.SystemAction -> {
                     when (cmd.type) {
-                        VoiceCommand.SystemActionType.HOME,
-                        VoiceCommand.SystemActionType.POWER -> {
+                        VoiceCommand.SystemActionType.HOME -> {
                             speak("Về trang chủ", "Dạ, về trang chủ") {
-                                onSystemHome()
+                                if (!DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)) {
+                                    onSystemHome()
+                                } else {
+                                    onExternalActionDone()
+                                }
+                            }
+                        }
+                        VoiceCommand.SystemActionType.POWER -> {
+                            speak("Tắt màn hình", "Dạ, tạm nghỉ màn hình") {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                                    DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                                ) {
+                                    onExternalActionDone()
+                                } else {
+                                    onSystemHome()
+                                }
                             }
                         }
                         VoiceCommand.SystemActionType.BACK -> {
                             speak("Quay lại", "Dạ, quay lại") {
-                                onSystemBack()
+                                if (!DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)) {
+                                    onSystemBack()
+                                } else {
+                                    onExternalActionDone()
+                                }
+                            }
+                        }
+                        VoiceCommand.SystemActionType.RECENTS -> {
+                            speak("Ứng dụng gần đây", "Dạ, mở đa nhiệm") {
+                                DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                                onExternalActionDone()
+                            }
+                        }
+                        VoiceCommand.SystemActionType.QUICK_SETTINGS -> {
+                            speak("Cài đặt nhanh", "Dạ, mở bảng điều khiển nhanh") {
+                                DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+                                onExternalActionDone()
+                            }
+                        }
+                        VoiceCommand.SystemActionType.SCREENSHOT -> {
+                            speak("Chụp màn hình", "Dạ, đã chụp màn hình") {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                    DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
+                                }
+                                onExternalActionDone()
                             }
                         }
                     }
@@ -424,60 +583,171 @@ object VoiceIntentHelper {
             }
         }
 
+        fun mapAiStepToCommand(step: GeminiVoiceAction): VoiceCommand? {
+            val target = step.target?.lowercase()?.trim().orEmpty()
+            val q = step.query?.trim().orEmpty()
+            return when (step.action) {
+                "open_app" -> if (target.isNotBlank() || q.isNotBlank()) VoiceCommand.OpenApp(target.ifBlank { q }) else null
+                "open_setting" -> {
+                    val st = when {
+                        target.contains("wifi") -> VoiceCommand.SettingType.WIFI
+                        target.contains("bluetooth") -> VoiceCommand.SettingType.BLUETOOTH
+                        target.contains("sound") || target.contains("âm") -> VoiceCommand.SettingType.SOUND
+                        target.contains("display") || target.contains("màn") -> VoiceCommand.SettingType.DISPLAY
+                        target.contains("app") || target.contains("ứng dụng") -> VoiceCommand.SettingType.APPS
+                        target.contains("date") || target.contains("giờ") -> VoiceCommand.SettingType.DATE
+                        target.contains("access") || target.contains("trợ năng") -> VoiceCommand.SettingType.ACCESSIBILITY
+                        else -> VoiceCommand.SettingType.SYSTEM
+                    }
+                    VoiceCommand.OpenSetting(st)
+                }
+                "set_volume_percent" -> target.toIntOrNull()?.let { VoiceCommand.SetVolumePercent(it.coerceIn(0, 100)) }
+                "adjust_volume" -> when {
+                    target.contains("mute") -> VoiceCommand.ToggleMute
+                    target.contains("down") -> VoiceCommand.AdjustVolume(false)
+                    else -> VoiceCommand.AdjustVolume(true)
+                }
+                "switch_hdmi" -> VoiceCommand.SwitchHdmiInput(target.ifBlank { q }.ifBlank { "hdmi" })
+                "media_control" -> {
+                    val act = when {
+                        target.contains("next") -> VoiceCommand.MediaKeyAction.NEXT
+                        target.contains("prev") -> VoiceCommand.MediaKeyAction.PREVIOUS
+                        target.contains("fast") || target.contains("forward") -> VoiceCommand.MediaKeyAction.FAST_FORWARD
+                        target.contains("rewind") -> VoiceCommand.MediaKeyAction.REWIND
+                        else -> VoiceCommand.MediaKeyAction.PLAY_PAUSE
+                    }
+                    VoiceCommand.GlobalMediaControl(act)
+                }
+                "system_action" -> {
+                    val sysType = when {
+                        target.contains("back") -> VoiceCommand.SystemActionType.BACK
+                        target.contains("power") || target.contains("lock") -> VoiceCommand.SystemActionType.POWER
+                        target.contains("recent") -> VoiceCommand.SystemActionType.RECENTS
+                        target.contains("quick") -> VoiceCommand.SystemActionType.QUICK_SETTINGS
+                        target.contains("screen") -> VoiceCommand.SystemActionType.SCREENSHOT
+                        else -> VoiceCommand.SystemActionType.HOME
+                    }
+                    VoiceCommand.SystemAction(sysType)
+                }
+                "ui_click" -> if (target.isNotBlank() || q.isNotBlank()) VoiceCommand.UiClickText(target.ifBlank { q }) else null
+                "ui_scroll" -> VoiceCommand.UiScroll(forward = !target.contains("up"))
+                "night_mode" -> VoiceCommand.ToggleNightMode
+                else -> null
+            }
+        }
+
+        suspend fun executeAiAction(aiAction: GeminiVoiceAction) {
+            val steps = aiAction.actions.ifEmpty { listOf(aiAction) }
+            val tts = aiAction.ttsReply
+            if (steps.size > 1) {
+                if (!tts.isNullOrBlank()) {
+                    speak(tts, tts)
+                }
+                for (step in steps) {
+                    val mapped = mapAiStepToCommand(step)
+                    if (mapped != null) {
+                        when (mapped) {
+                            is VoiceCommand.SetVolumePercent -> setSystemVolumePercent(appContext, mapped.percent)
+                            is VoiceCommand.AdjustVolume -> adjustSystemVolume(appContext, mapped.isIncrease)
+                            VoiceCommand.ToggleMute -> toggleSystemMute(appContext)
+                            is VoiceCommand.OpenApp -> launchAppByQuery(appContext, mapped.target)
+                            is VoiceCommand.OpenSetting -> launchSettingIntent(appContext, mapped.settingType)
+                            is VoiceCommand.SwitchHdmiInput -> switchTvInput(appContext, mapped.inputQuery)
+                            is VoiceCommand.UiClickText -> DuyVoiceAccessibilityService.clickNodeByText(mapped.targetText)
+                            is VoiceCommand.UiScroll -> DuyVoiceAccessibilityService.scrollWindow(mapped.forward)
+                            VoiceCommand.ToggleNightMode -> {
+                                val nextMode = !AppCacheManager.getPreferredNightMode(appContext)
+                                AppCacheManager.savePreferredNightMode(appContext, nextMode)
+                            }
+                            else -> runAppCommand(mapped)
+                        }
+                    } else if (step.action == "play_tv") {
+                        val q = step.query ?: rawQuery
+                        VoiceCommandParser.matchTvChannel(q, channels)?.let {
+                            onNavigateScreen(buildChannelPlayerScreen(it.channel), null)
+                        }
+                    } else if (step.action == "play_movie") {
+                        val q = step.query ?: rawQuery
+                        runAppCommand(VoiceCommand.OpenMovie(q))
+                    } else if (step.action == "search_youtube") {
+                        launchYouTubeSearch(appContext, step.query ?: rawQuery)
+                    }
+                    delay(250)
+                }
+                onExternalActionDone()
+                return
+            }
+
+            val mapped = mapAiStepToCommand(aiAction)
+            if (mapped != null) {
+                if (!tts.isNullOrBlank()) {
+                    speak(tts, tts) { runAppCommand(mapped) }
+                } else {
+                    runAppCommand(mapped)
+                }
+                return
+            }
+
+            when (aiAction.action) {
+                "search_youtube" -> {
+                    val q = aiAction.query ?: rawQuery
+                    speak("YouTube: ${q.uppercase()}", aiAction.ttsReply ?: "Dạ, em mở trên YouTube cho anh") {
+                        launchYouTubeSearch(appContext, q)
+                        onExternalActionDone()
+                    }
+                }
+                "play_tv" -> {
+                    val q = aiAction.query ?: rawQuery
+                    val matched = VoiceCommandParser.matchTvChannel(q, channels)
+                    if (matched != null) {
+                        onNavigateScreen(
+                            buildChannelPlayerScreen(matched.channel),
+                            aiAction.ttsReply ?: "Dạ, đang mở kênh ${matched.channel.name}"
+                        )
+                    } else {
+                        runAppCommand(localCmd)
+                    }
+                }
+                "play_movie" -> {
+                    val q = aiAction.query ?: rawQuery
+                    runAppCommand(VoiceCommand.OpenMovie(q))
+                }
+                "chat" -> {
+                    val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
+                    speak(reply, reply) {
+                        onExternalActionDone()
+                    }
+                }
+                "playback_control" -> {
+                    val fallbackText = aiAction.query ?: rawQuery
+                    val reParsedCmd = VoiceCommandParser.parse(fallbackText, channels)
+                    if (reParsedCmd !is VoiceCommand.Unknown) {
+                        if (!tts.isNullOrBlank()) {
+                            speak(tts, tts) { runAppCommand(reParsedCmd) }
+                        } else {
+                            runAppCommand(reParsedCmd)
+                        }
+                    } else {
+                        runAppCommand(localCmd)
+                    }
+                }
+                else -> runAppCommand(localCmd)
+            }
+        }
+
         if (localCmd !is VoiceCommand.Unknown) {
             runAppCommand(localCmd)
         } else {
             scope.launch {
-                val aiAction = GeminiVoiceClient.query(rawQuery, VoiceContext())
+                val screenSnap = DuyVoiceAccessibilityService.captureScreenContext()
+                val liveContext = VoiceContext(
+                    activePackage = screenSnap.activePackage,
+                    screenLabels = screenSnap.visibleLabels,
+                    volumePercent = getSystemVolumePercent(appContext)
+                )
+                val aiAction = GeminiVoiceClient.query(rawQuery, liveContext)
                 if (aiAction != null) {
-                    when (aiAction.action) {
-                        "search_youtube" -> {
-                            val q = aiAction.query ?: rawQuery
-                            speak("YouTube: ${q.uppercase()}", aiAction.ttsReply ?: "Dạ, em mở trên YouTube cho anh") {
-                                launchYouTubeSearch(appContext, q)
-                                onExternalActionDone()
-                            }
-                        }
-                        "play_tv" -> {
-                            val q = aiAction.query ?: rawQuery
-                            val matched = VoiceCommandParser.matchTvChannel(q, channels)
-                            if (matched != null) {
-                                onNavigateScreen(
-                                    buildChannelPlayerScreen(matched.channel),
-                                    aiAction.ttsReply ?: "Dạ, đang mở kênh ${matched.channel.name}"
-                                )
-                            } else {
-                                runAppCommand(localCmd)
-                            }
-                        }
-                        "play_movie" -> {
-                            val q = aiAction.query ?: rawQuery
-                            runAppCommand(VoiceCommand.OpenMovie(q))
-                        }
-                        "chat" -> {
-                            val reply = aiAction.ttsReply ?: "Dạ, em nghe đây anh Duy"
-                            speak(reply, reply) {
-                                onExternalActionDone()
-                            }
-                        }
-                        "playback_control", "system_action" -> {
-                            val fallbackText = aiAction.query ?: rawQuery
-                            val reParsedCmd = VoiceCommandParser.parse(fallbackText, channels)
-                            if (reParsedCmd !is VoiceCommand.Unknown) {
-                                val tts = aiAction.ttsReply
-                                if (!tts.isNullOrBlank()) {
-                                    speak(tts, tts) {
-                                        runAppCommand(reParsedCmd)
-                                    }
-                                } else {
-                                    runAppCommand(reParsedCmd)
-                                }
-                            } else {
-                                runAppCommand(localCmd)
-                            }
-                        }
-                        else -> runAppCommand(localCmd)
-                    }
+                    executeAiAction(aiAction)
                 } else {
                     runAppCommand(localCmd)
                 }

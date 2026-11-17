@@ -134,4 +134,58 @@ class VoiceCommandParserTest {
         assertTrue(favCatCmd is VoiceCommand.BrowseCategory)
         assertEquals("fav-movies", (favCatCmd as VoiceCommand.BrowseCategory).categoryId)
     }
+
+    @Test
+    fun `test universal TV control and accessibility commands`() {
+        val volPct = VoiceCommandParser.parse("đặt âm lượng 40%", channels)
+        assertTrue(volPct is VoiceCommand.SetVolumePercent)
+        assertEquals(40, (volPct as VoiceCommand.SetVolumePercent).percent)
+
+        val hdmi = VoiceCommandParser.parse("chuyển sang hdmi 1", channels)
+        assertTrue(hdmi is VoiceCommand.SwitchHdmiInput)
+        assertEquals("hdmi 1", (hdmi as VoiceCommand.SwitchHdmiInput).inputQuery)
+
+        val nextMedia = VoiceCommandParser.parse("qua bài", channels)
+        assertTrue(nextMedia is VoiceCommand.GlobalMediaControl)
+        assertEquals(VoiceCommand.MediaKeyAction.NEXT, (nextMedia as VoiceCommand.GlobalMediaControl).action)
+
+        val clickUi = VoiceCommandParser.parse("bấm vào bỏ qua quảng cáo", channels)
+        assertTrue(clickUi is VoiceCommand.UiClickText)
+        assertEquals("bỏ qua quảng cáo", (clickUi as VoiceCommand.UiClickText).targetText)
+
+        val scrollDown = VoiceCommandParser.parse("cuộn xuống", channels)
+        assertTrue(scrollDown is VoiceCommand.UiScroll)
+        assertTrue((scrollDown as VoiceCommand.UiScroll).forward)
+
+        val recents = VoiceCommandParser.parse("mở đa nhiệm", channels)
+        assertTrue(recents is VoiceCommand.SystemAction)
+        assertEquals(VoiceCommand.SystemActionType.RECENTS, (recents as VoiceCommand.SystemAction).type)
+
+        val screenshot = VoiceCommandParser.parse("chụp màn hình", channels)
+        assertTrue(screenshot is VoiceCommand.SystemAction)
+        assertEquals(VoiceCommand.SystemActionType.SCREENSHOT, (screenshot as VoiceCommand.SystemAction).type)
+    }
+
+    @Test
+    fun `test GeminiVoiceClient multi-action JSON parsing`() {
+        val json = """
+            ```json
+            {
+              "action": "system_action",
+              "tts_reply": "Dạ, em giảm âm lượng 30% rồi mở VTV1 cho anh",
+              "actions": [
+                {"action": "set_volume_percent", "target": "30"},
+                {"action": "play_tv", "query": "VTV1"}
+              ]
+            }
+            ```
+        """.trimIndent()
+        val parsed = GeminiVoiceClient.parseResponseJson(json)
+        assertNotNull(parsed)
+        assertEquals(2, parsed!!.actions.size)
+        assertEquals("set_volume_percent", parsed.actions[0].action)
+        assertEquals("30", parsed.actions[0].target)
+        assertEquals("play_tv", parsed.actions[1].action)
+        assertEquals("VTV1", parsed.actions[1].query)
+    }
 }

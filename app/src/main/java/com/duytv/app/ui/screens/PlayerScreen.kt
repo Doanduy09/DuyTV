@@ -1466,9 +1466,64 @@ private fun PlayerScreenContent(
                         val phrase = if (cmd.isIncrease) "Dạ, đã tăng âm lượng to rõ rồi anh nhé" else "Dạ, đã giảm âm lượng"
                         speakAndReport(if (cmd.isIncrease) "Đã tăng âm lượng (+3)" else "Đã giảm âm lượng (-3)", phrase)
                     }
+                    is VoiceCommand.SetVolumePercent -> {
+                        com.duytv.app.util.VoiceIntentHelper.setSystemVolumePercent(context, cmd.percent)
+                        speakAndReport("Âm lượng ${cmd.percent}%", "Dạ, đã đặt âm lượng ${cmd.percent} phần trăm")
+                    }
                     VoiceCommand.ToggleMute -> {
                         com.duytv.app.util.VoiceIntentHelper.toggleSystemMute(context)
                         speakAndReport("Đã bật/tắt tiếng", "Dạ, đã bật tắt tiếng")
+                    }
+                    is VoiceCommand.SwitchHdmiInput -> {
+                        val switched = com.duytv.app.util.VoiceIntentHelper.switchTvInput(context, cmd.inputQuery)
+                        if (switched != null) {
+                            speakAndReport("Chuyển cổng: $switched", "Dạ, đang chuyển sang $switched")
+                        } else {
+                            speakAndReport("Chưa tìm thấy cổng ${cmd.inputQuery}", "Dạ, TV không tìm thấy cổng ${cmd.inputQuery}")
+                        }
+                    }
+                    is VoiceCommand.GlobalMediaControl -> {
+                        when (cmd.action) {
+                            VoiceCommand.MediaKeyAction.PLAY_PAUSE -> {
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
+                                    isPlaying = false
+                                    speakAndReport("Tạm dừng phát", "Dạ, đã tạm dừng")
+                                } else {
+                                    exoPlayer.play()
+                                    isPlaying = true
+                                    speakAndReport("Tiếp tục phát", "Dạ, đang phát tiếp")
+                                }
+                            }
+                            VoiceCommand.MediaKeyAction.NEXT -> {
+                                speakAndReport("Chuyển tiếp", "Dạ, chuyển tiếp")
+                                nextChannel()
+                            }
+                            VoiceCommand.MediaKeyAction.PREVIOUS -> {
+                                speakAndReport("Lùi lại", "Dạ, lùi lại")
+                                previousChannel()
+                            }
+                            VoiceCommand.MediaKeyAction.FAST_FORWARD -> {
+                                exoPlayer.seekTo((exoPlayer.currentPosition + 30_000L).coerceAtLeast(0L))
+                                speakAndReport("Tua nhanh 30 giây", "Dạ, tua nhanh 30 giây")
+                            }
+                            VoiceCommand.MediaKeyAction.REWIND -> {
+                                exoPlayer.seekTo((exoPlayer.currentPosition - 30_000L).coerceAtLeast(0L))
+                                speakAndReport("Tua lùi 30 giây", "Dạ, tua lùi 30 giây")
+                            }
+                        }
+                    }
+                    is VoiceCommand.UiClickText -> {
+                        val clicked = com.duytv.app.service.DuyVoiceAccessibilityService.clickNodeByText(cmd.targetText)
+                        speakAndReport(
+                            if (clicked) "Đã bấm: ${cmd.targetText}" else "Không thấy nút ${cmd.targetText}",
+                            if (clicked) "Dạ, đã bấm ${cmd.targetText}" else "Dạ, không thấy mục ${cmd.targetText}"
+                        )
+                    }
+                    is VoiceCommand.UiScroll -> {
+                        com.duytv.app.service.DuyVoiceAccessibilityService.scrollWindow(cmd.forward)
+                        val msg = if (cmd.forward) "Đã cuộn xuống" else "Đã cuộn lên"
+                        speakAndReport(msg, "Dạ, $msg")
                     }
                     is VoiceCommand.SystemAction -> {
                         when (cmd.type) {
@@ -1485,12 +1540,32 @@ private fun PlayerScreenContent(
                                 onClose()
                             }
                             VoiceCommand.SystemActionType.POWER -> {
-                                speakAndReport("Đang tắt...", "Dạ, đang tắt tivi")
-                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                                    addCategory(Intent.CATEGORY_HOME)
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                speakAndReport("Đang tắt...", "Dạ, tạm nghỉ màn hình")
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+                                    com.duytv.app.service.DuyVoiceAccessibilityService.performTvGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                                ) {
+                                    // locked screen
+                                } else {
+                                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                        addCategory(Intent.CATEGORY_HOME)
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(homeIntent)
                                 }
-                                context.startActivity(homeIntent)
+                            }
+                            VoiceCommand.SystemActionType.RECENTS -> {
+                                speakAndReport("Đa nhiệm", "Dạ, mở đa nhiệm")
+                                com.duytv.app.service.DuyVoiceAccessibilityService.performTvGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
+                            }
+                            VoiceCommand.SystemActionType.QUICK_SETTINGS -> {
+                                speakAndReport("Cài đặt nhanh", "Dạ, mở cài đặt nhanh")
+                                com.duytv.app.service.DuyVoiceAccessibilityService.performTvGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+                            }
+                            VoiceCommand.SystemActionType.SCREENSHOT -> {
+                                speakAndReport("Chụp màn hình", "Dạ, đã chụp màn hình")
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                                    com.duytv.app.service.DuyVoiceAccessibilityService.performTvGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT)
+                                }
                             }
                         }
                     }
