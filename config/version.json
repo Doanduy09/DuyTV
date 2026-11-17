@@ -1,7 +1,7 @@
 {
-  "versionCode": 67,
-  "versionName": "2.5.1",
+  "versionCode": 69,
+  "versionName": "2.5.3",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Sửa Lỗi Nhận Diện Danh Mục Phim v2.5.1 (Build #67): Khắc phục lỗi nói 'mở phim lẻ / phim bộ / phim bộ thuyết minh' bị match nhầm sang kênh TV truyền hình, đồng thời sửa kiểu Int cho SpeechRecognizer timeout."
+  "releaseNotes": "Bản Tăng Tốc AI Gemini 4 Flash v2.5.3 (Build #69): Chuyển model LAN AI Pool sang gemini-4-flash (nhanh gấp 3.4x) và nâng readTimeout lên 12s để AI luôn trả lời thành công thay vì bị timeout."
 }
