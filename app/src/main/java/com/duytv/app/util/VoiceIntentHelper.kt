@@ -364,7 +364,8 @@ object VoiceIntentHelper {
                     )
                 }
                 is VoiceCommand.OpenMovie -> {
-                    speak("Đang tìm: ${cmd.query}", "Dạ, em đang tìm ${cmd.query}")
+                    voiceManager.reportProcessing("Đang tìm: ${cmd.query}...")
+                    ttsAssistant.speak("Dạ, em đang tìm ${cmd.query}")
                     scope.launch {
                         try {
                             val resolved = resolveOpenMovieScreen(repository, cmd.query)
@@ -399,9 +400,13 @@ object VoiceIntentHelper {
                     onNavigateScreen(AppScreen.CategoryHome(cmd.categoryId), "Dạ, đang mở danh mục ${cmd.categoryName}")
                 }
                 VoiceCommand.AskFootballAdvisor -> {
-                    speak("Đang kiểm tra lịch bóng đá...", "Dạ, để em kiểm tra lịch bóng đá hôm nay cho anh")
+                    voiceManager.reportProcessing("Đang kiểm tra lịch bóng đá hôm nay...")
+                    ttsAssistant.speak("Dạ, để em kiểm tra lịch bóng đá hôm nay cho anh")
                     scope.launch {
-                        val sports = try { repository.getTvAndSportsData() } catch (_: Exception) { com.duytv.app.data.TvSportsData() }
+                        val sports = AppCacheManager.cachedTvSports?.takeIf { it.matches.isNotEmpty() || it.channels.isNotEmpty() }
+                            ?: kotlinx.coroutines.withTimeoutOrNull(3500L) {
+                                try { repository.getTvAndSportsData() } catch (_: Exception) { null }
+                            } ?: com.duytv.app.data.TvSportsData()
                         val activeMatches = sports.matches.mapNotNull { m ->
                             val st = com.duytv.app.data.MatchStateHelper.calculateMatchState(m.kickoffTime)
                             if (st.status == com.duytv.app.data.MatchStatus.FINISHED) null else m to st
@@ -781,6 +786,7 @@ object VoiceIntentHelper {
             GeminiVoiceClient.recordTurn(rawQuery, localCmd::class.simpleName ?: "Executed")
             runAppCommand(localCmd)
         } else {
+            voiceManager.reportProcessing("Đang hỏi Trợ lý AI...")
             scope.launch {
                 val screenSnap = DuyVoiceAccessibilityService.captureScreenContext()
                 val liveContext = VoiceContext(

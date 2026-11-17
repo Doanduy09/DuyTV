@@ -132,6 +132,14 @@ class VoiceAssistantManager(
         }
     }
 
+    fun reportProcessing(message: String) {
+        mainHandler.post {
+            resetRunnable?.let { mainHandler.removeCallbacks(it) }
+            isListening = false
+            _state.value = VoiceState.Processing(message)
+        }
+    }
+
     fun reportSuccess(message: String) {
         mainHandler.post {
             isListening = false

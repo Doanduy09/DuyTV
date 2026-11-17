@@ -1,7 +1,7 @@
 {
-  "versionCode": 72,
-  "versionName": "2.5.6",
+  "versionCode": 73,
+  "versionName": "2.5.7",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Sửa Lỗi Màn Hình Đen Danh Mục Phim v2.5.6 (Build #72): Khắc phục triệt để lỗi CategoryHome không nạp phim (0 phim / màn hình đen) khi mở Phim Lẻ, Phim Bộ, Phim Bộ Thuyết Minh bằng giọng nói; nạp tức thì từ cache và mở Đồng Tháp / Vĩnh Long 0ms."
+  "releaseNotes": "Bản Sửa Lỗi VoiceOverlay Tự Đóng Trước Khi AI Trả Lời v2.5.7 (Build #73): Thêm reportProcessing() giữ VoiceOverlayActivity mở trong lúc truy vấn lịch bóng đá, tìm phim và hỏi Gemini AI."
 }
