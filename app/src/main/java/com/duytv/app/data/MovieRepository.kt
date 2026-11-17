@@ -1290,10 +1290,15 @@ class MovieRepository {
         (interleaved + cobeList).distinctBy { it.slug }
     }
 
+    private fun getNguonCOrigin(): String {
+        val raw = RemoteConfigManager.getNguonCBaseUrl().trim().trimEnd('/')
+        return raw.removeSuffix("/api/film").removeSuffix("/api/films").removeSuffix("/api").ifBlank { "https://phim.nguonc.com" }
+    }
+
     private suspend fun fetchNguonCNewMovies(page: Int = 1): List<MovieItemDto> = withContext(Dispatchers.IO) {
         try {
             val cacheBuster = System.currentTimeMillis() / 60000L
-            val url = "https://phim.nguonc.com/api/films/phim-moi-cap-nhat?page=$page&_t=$cacheBuster"
+            val url = "${getNguonCOrigin()}/api/films/phim-moi-cap-nhat?page=$page&_t=$cacheBuster"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", "DuyTV/1.0")
@@ -1534,7 +1539,7 @@ class MovieRepository {
     private suspend fun getNguonCMovieDetail(slug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder()
-                .url("https://phim.nguonc.com/api/film/$slug")
+                .url("${getNguonCOrigin()}/api/film/$slug")
                 .header("User-Agent", "DuyTV/1.0")
                 .build()
             val res = client.newCall(req).execute()
@@ -2116,7 +2121,7 @@ class MovieRepository {
     suspend fun searchNguonC(keyword: String): List<MovieItemDto> = withContext(Dispatchers.IO) {
         try {
             val encoded = URLEncoder.encode(keyword, "UTF-8")
-            val url = "https://phim.nguonc.com/api/films/search?keyword=$encoded"
+            val url = "${getNguonCOrigin()}/api/films/search?keyword=$encoded"
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", "DuyTV/1.0")

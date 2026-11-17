@@ -14,8 +14,8 @@ android {
         applicationId = "com.duytv.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 62
-        versionName = "2.3.7"
+        versionCode = 63
+        versionName = "2.3.8"
 
         vectorDrawables {
             useSupportLibrary = true
