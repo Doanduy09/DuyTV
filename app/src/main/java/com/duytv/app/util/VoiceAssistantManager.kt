@@ -36,10 +36,12 @@ class VoiceAssistantManager(
     val state: StateFlow<VoiceState> = _state.asStateFlow()
 
     private var isListening = false
+    private var hasDispatchedResult = false
+    private var lastPartialMatches: List<String> = emptyList()
     private var resetRunnable: Runnable? = null
     private val silenceWatchdog = Runnable {
         if (isListening) {
-            Log.d(TAG, "Silence watchdog triggered (850ms sau khi nói) -> gọi stopListening()")
+            Log.d(TAG, "Silence watchdog triggered (1300ms sau khi nói) -> gọi stopListening()")
             stopListening()
         }
     }
@@ -59,6 +61,8 @@ class VoiceAssistantManager(
             // Hủy lịch reset và silence watchdog trước đó
             resetRunnable?.let { mainHandler.removeCallbacks(it) }
             mainHandler.removeCallbacks(silenceWatchdog)
+            lastPartialMatches = emptyList()
+            hasDispatchedResult = false
 
             if (!isAvailable()) {
                 _state.value = VoiceState.Error("Hệ thống nhận diện giọng nói chưa sẵn sàng trên thiết bị")
@@ -191,9 +195,23 @@ class VoiceAssistantManager(
             }
 
             override fun onError(error: Int) {
-                Log.w(TAG, "RecognitionListener onError: $error")
+                if (hasDispatchedResult) {
+                    Log.d(TAG, "Ignoring onError($error) because result was already dispatched.")
+                    return
+                }
+                Log.w(TAG, "RecognitionListener onError: $error, lastPartial=$lastPartialMatches")
                 mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
+                if ((error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) &&
+                    !hasDispatchedResult && lastPartialMatches.isNotEmpty()
+                ) {
+                    val fallback = lastPartialMatches
+                    hasDispatchedResult = true
+                    lastPartialMatches = emptyList()
+                    Log.d(TAG, "Fallback to lastPartialMatches onError($error): ${fallback.firstOrNull()}")
+                    this@VoiceAssistantManager.onResult(fallback.first().trim(), fallback)
+                    return
+                }
                 if (error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER) {
                     try {
                         speechRecognizer?.destroy()
@@ -216,11 +234,15 @@ class VoiceAssistantManager(
             override fun onResults(results: Bundle?) {
                 mainHandler.removeCallbacks(silenceWatchdog)
                 isListening = false
+                if (hasDispatchedResult) return
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
-                val bestMatch = matches.firstOrNull()?.trim()
-                Log.d(TAG, "onResults: bestMatch=$bestMatch, matches=$matches")
+                val effectiveMatches = if (matches.firstOrNull()?.isNotBlank() == true) matches else lastPartialMatches
+                val bestMatch = effectiveMatches.firstOrNull()?.trim()
+                Log.d(TAG, "onResults: bestMatch=$bestMatch, matches=$matches, partialFallback=$lastPartialMatches")
+                lastPartialMatches = emptyList()
                 if (!bestMatch.isNullOrBlank()) {
-                    this@VoiceAssistantManager.onResult(bestMatch, matches)
+                    hasDispatchedResult = true
+                    this@VoiceAssistantManager.onResult(bestMatch, effectiveMatches)
                 } else {
                     _state.value = VoiceState.Error("Chưa nghe rõ khẩu lệnh. Hãy thử lại!")
                     scheduleReset(2200)
@@ -228,9 +250,11 @@ class VoiceAssistantManager(
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (hasDispatchedResult) return
                 val partialMatches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
-                val partial = partialMatches.firstOrNull()
+                val partial = partialMatches.firstOrNull()?.trim()
                 if (!partial.isNullOrBlank()) {
+                    lastPartialMatches = partialMatches
                     _state.value = VoiceState.Processing(partial)
 
                     // Zero-Latency Ear-Trigger: Khớp khẩu lệnh nhanh dứt khoát -> Kích hoạt ngay 0ms!
@@ -238,6 +262,7 @@ class VoiceAssistantManager(
                         Log.d(TAG, "Quick command matched onPartialResults: $partial -> Fast execute 0ms!")
                         mainHandler.removeCallbacks(silenceWatchdog)
                         isListening = false
+                        hasDispatchedResult = true
                         try {
                             speechRecognizer?.stopListening()
                         } catch (_: Exception) {}
@@ -245,9 +270,9 @@ class VoiceAssistantManager(
                         return
                     }
 
-                    // Tự động chốt lệnh sau 850ms nếu người dùng ngừng nói, phản hồi tức thì mà không cần chờ 15s!
+                    // Tự động chốt lệnh sau 1300ms nếu người dùng ngừng nói (giữ nguyên partial nếu Katniss trả matches=[])
                     mainHandler.removeCallbacks(silenceWatchdog)
-                    mainHandler.postDelayed(silenceWatchdog, 850L)
+                    mainHandler.postDelayed(silenceWatchdog, 1300L)
                 }
             }
 

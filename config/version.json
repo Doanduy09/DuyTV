@@ -1,7 +1,7 @@
 {
-  "versionCode": 70,
-  "versionName": "2.5.4",
+  "versionCode": 71,
+  "versionName": "2.5.5",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Tối Ưu Tốc Độ TV, YouTube 0ms & Trí Nhớ Hội Thoại v2.5.4 (Build #70): Thay thế link a3iptv chết bằng link sống 0.8s (hết 6s vòng xoay đen khi mở VTV1..VTV9), mở YouTube tức thì 0ms, ghi nhớ toàn bộ lịch sử lệnh cục bộ + AI và rút gọn prompt Gemini."
+  "releaseNotes": "Bản Sửa Lỗi Bắn Đúp YouTube v2.5.5 (Build #71): Chặn onPartialResults và onError(5) bắn đúp sau khi đã thực thi lệnh nhanh 0ms, giúp mở YouTube/app 1 lần dứt khoát không bị chớp tắt."
 }
