@@ -384,6 +384,8 @@ class MainActivity : ComponentActivity() {
             val appContext = applicationContext
             DuyTvTheme {
                 var currentScreen by remember { mutableStateOf<AppScreen>(pendingScreenFromIntent ?: AppScreen.Home) }
+                val homeListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                var homeSelectedCategoryId by remember { mutableStateOf("all") }
                 val rootScope = rememberCoroutineScope()
                 val globalTts = remember { VoiceTtsFeedback(appContext) }
                 val currentScreenState by rememberUpdatedState(currentScreen)
@@ -521,6 +523,9 @@ class MainActivity : ComponentActivity() {
                     is AppScreen.Home -> {
                         HomeScreen(
                             repository = repository,
+                            listState = homeListState,
+                            persistedCategoryId = homeSelectedCategoryId,
+                            onCategoryChanged = { homeSelectedCategoryId = it },
                             onMovieSelected = { slug ->
                                 currentScreen = AppScreen.Detail(slug)
                             },

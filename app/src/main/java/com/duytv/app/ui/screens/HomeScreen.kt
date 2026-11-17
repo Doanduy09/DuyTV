@@ -9,6 +9,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -95,6 +97,9 @@ fun HomeScreen(
     onResumePlayback: (WatchHistoryItem) -> Unit,
     onPlayLiveStream: (title: String, streamUrl: String, posterUrl: String?, backupUrls: List<String>) -> Unit = { _, _, _, _ -> },
     initialCategoryId: String? = null,
+    listState: LazyListState = rememberLazyListState(),
+    persistedCategoryId: String? = null,
+    onCategoryChanged: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -108,7 +113,10 @@ fun HomeScreen(
     // Luôn mở giao diện ngay lập tức mà không chặn bằng màn hình xoay xoay (Stale-While-Revalidate)
     var isLoading by remember { mutableStateOf(false) }
     var isSilentSyncing by remember { mutableStateOf(!hasCache) }
-    var selectedCategory by remember { mutableStateOf(NAV_CATEGORIES.first()) }
+    var selectedCategory by remember {
+        val initId = initialCategoryId ?: persistedCategoryId
+        mutableStateOf(NAV_CATEGORIES.firstOrNull { it.id == initId } ?: NAV_CATEGORIES.first())
+    }
 
     // Swimlane lists for "TẤT CẢ" view - Nạp trực tiếp từ Cache
     var latestMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedHome?.latestMovies ?: emptyList()) }
@@ -308,6 +316,7 @@ fun HomeScreen(
     // When switching category tabs
     fun switchCategory(category: NavCategory) {
         selectedCategory = category
+        onCategoryChanged(category.id)
         if (category.id == "fav-movies") {
             favoriteMoviesList = AppCacheManager.favoriteMovies
             categoryPage = 1
@@ -341,6 +350,8 @@ fun HomeScreen(
             if (target != null && target != selectedCategory) {
                 switchCategory(target)
             }
+        } else if (selectedCategory.id != "all" && categoryMovies.isEmpty()) {
+            switchCategory(selectedCategory)
         }
     }
 
@@ -411,6 +422,7 @@ fun HomeScreen(
             .navigationBarsPadding()
     ) {
         LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = horizontalPad, vertical = verticalPad),
                 verticalArrangement = Arrangement.spacedBy(20.dp)

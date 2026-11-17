@@ -35,6 +35,8 @@ class MovieRepository {
         val a3IptvUrl = RemoteConfigManager.getA3IptvUrl()
         val cobanUrl = RemoteConfigManager.COBAN66_SPORTS_M3U
         val coocaaUrl = RemoteConfigManager.COOCAA_SPORTS_M3U
+        val iptvOrgVnUrl = RemoteConfigManager.IPTV_ORG_VN_M3U
+        val iptvOrgSportsUrl = RemoteConfigManager.IPTV_ORG_SPORTS_M3U
         val customEntries = RemoteConfigManager.getCustomSportsSources()
 
         val khogaApiDef = async { fetchKhoGaLiveApiMatches(now) }
@@ -106,6 +108,32 @@ class MovieRepository {
             }
         }
 
+        val iptvOrgVnDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(iptvOrgVnUrl)
+                    .header("User-Agent", "TiviMate/4.7.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        val iptvOrgSportsDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(iptvOrgSportsUrl)
+                    .header("User-Agent", "TiviMate/4.7.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         val customDefs = customEntries.mapIndexed { idx, rawEntry ->
             async {
                 try {
@@ -168,6 +196,8 @@ class MovieRepository {
         val a3IptvBody = a3IptvDef.await()
         val cobanBody = cobanDef.await()
         val coocaaBody = coocaaDef.await()
+        val iptvOrgVnBody = iptvOrgVnDef.await()
+        val iptvOrgSportsBody = iptvOrgSportsDef.await()
         val customResults = customDefs.map { it.await() }
 
         val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
@@ -175,11 +205,13 @@ class MovieRepository {
         val parsedA3 = if (!a3IptvBody.isNullOrBlank()) parseM3uData(a3IptvBody, "Truyền Hình VIP") else TvSportsData()
         val parsedCoban = if (!cobanBody.isNullOrBlank()) parseM3uData(cobanBody, "Thể Thao") else TvSportsData()
         val parsedCoocaa = if (!coocaaBody.isNullOrBlank()) parseM3uData(coocaaBody, "Thể Thao") else TvSportsData()
+        val parsedIptvOrgVn = if (!iptvOrgVnBody.isNullOrBlank()) parseM3uData(iptvOrgVnBody, "Truyền Hình") else TvSportsData()
+        val parsedIptvOrgSports = if (!iptvOrgSportsBody.isNullOrBlank()) parseM3uData(iptvOrgSportsBody, "Thể Thao") else TvSportsData()
 
-        // 1. Gộp tất cả kênh truyền hình (Chính thống + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + M3U Thể thao CoBan66 & CooCaa)
+        // 1. Gộp tất cả kênh truyền hình (Chính thống + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao CoBan66 & CooCaa)
         val officialChannels = getVerifiedOfficialChannels()
         val customChannels = customResults.flatMap { it.channels }
-        val rawAllChannels = officialChannels + parsedA3.channels + customChannels + parsedTv.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels
+        val rawAllChannels = officialChannels + parsedA3.channels + customChannels + parsedTv.channels + parsedIptvOrgVn.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels + parsedIptvOrgSports.channels
         val mergedChannels = mergeAndDeduplicateChannels(rawAllChannels)
 
         // 2. Gộp các trận bóng từ tất cả nguồn (Nguồn tự thêm + Kho Gà Live API + Thập Cẩm TV + Kho Gà M3U + IPTV) & lọc bỏ trận đã kết thúc (FINISHED)

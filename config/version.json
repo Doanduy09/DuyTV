@@ -1,7 +1,7 @@
 {
-  "versionCode": 61,
-  "versionName": "2.3.6",
+  "versionCode": 62,
+  "versionName": "2.3.7",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Hoàn Thiện Kỹ Thuật v2.3.6 (Build #61): Chuẩn hóa khớp tên tập dự phòng Smart VOD Failover giữ nguyên phụ đề và header nguồn phát, hủy triệt để job nền khi thoát Player, và siết chuẩn CrashShield chỉ bắt Exception nền."
+  "releaseNotes": "Bản Nâng Cấp Toàn Diện v2.3.7 (Build #62): Bổ sung kho kênh dự phòng IPTV-Org Việt Nam (93 kênh) & Thể thao quốc tế + mirror YTS 4K (yts.lt) giảm tối đa chết link, ghi nhớ vị trí cuộn trang & thể loại HomeScreen khi bấm Back, và hỗ trợ mở nhanh TV360 bản Android TV lẫn Mobile qua giọng nói."
 }

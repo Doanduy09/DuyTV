@@ -148,6 +148,10 @@ object VoiceIntentHelper {
             var intent: Intent? = null
             if (directPkg != null) {
                 intent = pm.getLeanbackLaunchIntentForPackage(directPkg) ?: pm.getLaunchIntentForPackage(directPkg)
+                if (intent == null && directPkg == "com.viettel.tv360") {
+                    intent = pm.getLeanbackLaunchIntentForPackage("com.viettel.tv360.tv")
+                        ?: pm.getLaunchIntentForPackage("com.viettel.tv360.tv")
+                }
                 if (intent == null && (directPkg == "com.google.android.youtube.tv" || directPkg == "com.google.android.youtube")) {
                     val shellIntent = Intent(Intent.ACTION_MAIN).apply {
                         component = ComponentName("com.google.android.youtube.tv", "com.google.android.apps.youtube.tv.activity.ShellActivity")
