@@ -81,7 +81,7 @@ val NAV_CATEGORIES = listOf(
     NavCategory("torrent-4k", "💎 4K CINEMA TORRENT", "torrent-4k"),
     NavCategory("phim-bo", "📺 PHIM BỘ", "phim-bo"),
     NavCategory("phim-le", "🎬 PHIM LẺ", "phim-le"),
-    NavCategory("hoat-hinh", "🌸 HOẠT HÌNH", "hoat-hinh"),
+    NavCategory("phim-thuyet-minh", "🎙️ PHIM BỘ THUYẾT MINH", "phim-thuyet-minh"),
     NavCategory("tv-shows", "🎙️ TV SHOWS", "tv-shows"),
     NavCategory("hanh-dong", "⚡ HÀNH ĐỘNG", "the-loai/hanh-dong"),
     NavCategory("kinh-di", "👻 KINH DỊ", "the-loai/kinh-di"),
@@ -172,7 +172,7 @@ fun HomeScreen(
                     val torrentDef = async { try { repository.getTop4KTorrents(1) } catch (_: Exception) { emptyList() } }
                     val seriesDef = async { try { repository.getMoviesByCategory("phim-bo", 1) } catch (_: Exception) { emptyList() } }
                     val singleDef = async { try { repository.getMoviesByCategory("phim-le", 1) } catch (_: Exception) { emptyList() } }
-                    val animeDef = async { try { repository.getMoviesByCategory("hoat-hinh", 1) } catch (_: Exception) { emptyList() } }
+                    val animeDef = async { try { repository.getMoviesByCategory("phim-thuyet-minh", 1) } catch (_: Exception) { emptyList() } }
                     val tvSportsDef = async { try { repository.getTvAndSportsData(forceRefresh = forceRefreshSports) } catch (_: Exception) { TvSportsData() } }
 
                     val resLatest = latestDef.await()
@@ -1120,15 +1120,15 @@ fun HomeScreen(
                         }
                     }
 
-                    // Swimlane 6: Hoạt Hình & Anime
+                    // Swimlane 6: Phim Bộ Thuyết Minh
                     if (animeMovies.isNotEmpty()) {
                         item {
                             MovieSwimlaneWithMore(
-                                title = "🌸 HOẠT HÌNH & ANIME ĐỈNH CAO",
+                                title = "📺 PHIM BỘ THUYẾT MINH",
                                 movies = animeMovies,
                                 onMovieClick = onMovieSelected,
                                 onSeeAllClick = {
-                                    switchCategory(NAV_CATEGORIES.first { it.id == "hoat-hinh" })
+                                    switchCategory(NAV_CATEGORIES.first { it.id == "phim-thuyet-minh" })
                                 }
                             )
                         }

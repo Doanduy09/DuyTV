@@ -1362,6 +1362,7 @@ class MovieRepository {
         }
         val badge = when (type) {
             "phim-chieu-rap" -> "🎟️ RẠP"
+            "phim-thuyet-minh" -> "🎙️ THUYẾT MINH"
             "hoat-hinh" -> "🌸 ANIME"
             "phim-bo" -> "📺 BỘ"
             "phim-le" -> "🎬 LẺ"

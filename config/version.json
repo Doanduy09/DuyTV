@@ -1,7 +1,7 @@
 {
-  "versionCode": 64,
-  "versionName": "2.3.9",
+  "versionCode": 65,
+  "versionName": "2.4.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Mở Rộng Nguồn Torrent 4K v2.3.9 (Build #64): Tích hợp Torrentio (tổng hợp 1337x, TorrentGalaxy, EZTV, RARBG) song song với 4 mirror YTS sống (yts.gg, yts.lt, yts.bz, yts.torrentbay.st) cho chi tiết và tìm kiếm phim 4K."
+  "releaseNotes": "Bản Cập Nhật Phim Bộ Thuyết Minh v2.4.0 (Build #65): Thay thế mục Hoạt Hình bằng mục Phim Bộ Thuyết Minh (phim-thuyet-minh) trên thanh điều hướng và màn hình chính, tối ưu cài đặt & hiển thị trên Sharp AQUOS 4K TV."
 }
