@@ -17,7 +17,7 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             android.util.Log.e("CrashShield", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
-            if (thread.name.contains("DefaultDispatcher") || thread.name.contains("OkHttp") || thread.name.contains("ExoPlayer:Playback")) {
+            if (throwable is Exception && (thread.name.contains("DefaultDispatcher") || thread.name.contains("OkHttp") || thread.name.contains("ExoPlayer:Playback"))) {
                 android.util.Log.w("CrashShield", "Suppressed non-fatal background crash on thread ${thread.name}")
             } else {
                 defaultHandler?.uncaughtException(thread, throwable)

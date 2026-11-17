@@ -1010,12 +1010,13 @@ private fun PlayerScreenContent(
                     errorRetryJob = scope.launch {
                         // #3 Smart VOD Server Failover: Tìm link tập hiện tại từ Server dự phòng nếu có
                         if (!isLive && repository != null) {
+                            val normTargetEp = MovieRepository.normalizeEpisodeKey(currentEpisodeName)
                             val altEpUrl = try {
                                 val detail = AppCacheManager.getCachedMovieDetail(slug) ?: repository.getMovieDetail(slug)
                                 detail?.episodes?.asSequence()
                                     ?.flatMap { it.serverData.asSequence() }
                                     ?.firstOrNull {
-                                        it.name.equals(currentEpisodeName, ignoreCase = true) &&
+                                        MovieRepository.normalizeEpisodeKey(it.name) == normTargetEp &&
                                             !it.linkM3u8.isNullOrBlank() &&
                                             it.linkM3u8 != currentStreamUrl
                                     }?.linkM3u8
@@ -1024,13 +1025,12 @@ private fun PlayerScreenContent(
                                 val savedPos = maxOf(0L, currentPosMs)
                                 errorMessage = null
                                 currentStreamUrl = altEpUrl
-                                val dsFactory = com.duytv.app.util.HlsAdBlockEngine.buildAdBlockingDataSourceFactory(
+                                val newMedia = buildStreamMediaSource(
                                     context = context,
-                                    userAgent = "Mozilla/5.0 (Linux; Android 14; Google TV) AppleWebKit/537.36 DuyTV/1.0",
-                                    headers = emptyMap()
+                                    url = altEpUrl,
+                                    isLive = false,
+                                    subtitleUrl = activeSubtitleData ?: subtitleUrl
                                 )
-                                val newMedia = DefaultMediaSourceFactory(dsFactory)
-                                    .createMediaSource(MediaItem.Builder().setUri(altEpUrl).setMimeType(MimeTypes.APPLICATION_M3U8).build())
                                 exoPlayer.stop()
                                 exoPlayer.setMediaSource(newMedia)
                                 exoPlayer.prepare()
@@ -1061,6 +1061,8 @@ private fun PlayerScreenContent(
         exoPlayer.addListener(listener)
 
         onDispose {
+            stallTimerJob?.cancel()
+            errorRetryJob?.cancel()
             MainActivity.notifyPlaybackState(false)
             if (!isLive) {
                 val pos = exoPlayer.currentPosition
