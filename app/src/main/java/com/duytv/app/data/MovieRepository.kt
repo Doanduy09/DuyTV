@@ -1370,8 +1370,10 @@ class MovieRepository {
         executeListRequest(url, defaultBadge = badge)
     }
 
+    private val ytsMirrors = listOf("https://yts.gg", "https://yts.lt", "https://yts.bz", "https://yts.torrentbay.st")
+
     suspend fun getTop4KTorrents(page: Int = 1): List<MovieItemDto> = withContext(Dispatchers.IO) {
-        val mirrors = listOf("https://yts.gg", "https://yts.torrentbay.st")
+        val mirrors = ytsMirrors
         for (mirror in mirrors) {
             try {
                 val url = "$mirror/api/v2/list_movies.json?quality=2160p&limit=24&page=$page&sort_by=date_added"
@@ -1623,15 +1625,28 @@ class MovieRepository {
         val movieId = parts.getOrNull(1) ?: return@withContext null
         val imdbCode = parts.getOrNull(2) ?: ""
 
-        val detailUrl = "https://yts.gg/api/v2/movie_details.json?movie_id=$movieId&with_images=true"
+        var json: String? = null
+        for (mirror in ytsMirrors) {
+            try {
+                val detailUrl = "$mirror/api/v2/movie_details.json?movie_id=$movieId&with_images=true"
+                val req = Request.Builder()
+                    .url(detailUrl)
+                    .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) {
+                    val body = res.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        json = body
+                        break
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (json.isNullOrBlank()) return@withContext null
+
         try {
-            val req = Request.Builder()
-                .url(detailUrl)
-                .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
-                .build()
-            val res = client.newCall(req).execute()
-            if (res.isSuccessful) {
-                val json = res.body?.string() ?: return@withContext null
+            if (true) {
                 val jsonTree = JsonParser.parseString(json).asJsonObject
                 val m = jsonTree.getAsJsonObject("data").getAsJsonObject("movie")
 
@@ -1674,6 +1689,48 @@ class MovieRepository {
                         serverData = episodeList
                     )
                 )
+
+                // Bổ sung thêm nguồn Torrentio (1337x, TorrentGalaxy, EZTV, RARBG) khi có IMDb ID
+                if (imdbCode.startsWith("tt")) {
+                    try {
+                        val tioReq = Request.Builder()
+                            .url("https://torrentio.strem.fun/stream/movie/$imdbCode.json")
+                            .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
+                            .build()
+                        val tioRes = client.newCall(tioReq).execute()
+                        if (tioRes.isSuccessful) {
+                            val tioBody = tioRes.body?.string()
+                            if (!tioBody.isNullOrBlank()) {
+                                val tioJson = JsonParser.parseString(tioBody).asJsonObject
+                                val streamsArr = if (tioJson.has("streams") && tioJson.get("streams").isJsonArray) {
+                                    tioJson.getAsJsonArray("streams")
+                                } else null
+                                val tioEpisodes = streamsArr?.take(6)?.mapNotNull { sElem ->
+                                    val sObj = sElem.asJsonObject
+                                    val hash = if (sObj.has("infoHash") && !sObj.get("infoHash").isJsonNull) sObj.get("infoHash").asString else ""
+                                    if (hash.isBlank()) return@mapNotNull null
+                                    val rawTitle = if (sObj.has("title") && !sObj.get("title").isJsonNull) sObj.get("title").asString else "4K Remux"
+                                    val shortLabel = rawTitle.replace("\n", " • ").take(72)
+                                    val magnet = "magnet:?xt=urn:btih:$hash&dn=${URLEncoder.encode(title, "UTF-8")}&tr=udp://open.demonii.com:1337/announce&tr=udp://tracker.openbittorrent.com:80"
+                                    EpisodeItemDto(
+                                        name = shortLabel,
+                                        slug = hash,
+                                        linkM3u8 = magnet,
+                                        linkEmbed = magnet
+                                    )
+                                } ?: emptyList()
+                                if (tioEpisodes.isNotEmpty()) {
+                                    serverGroups.add(
+                                        ServerGroupDto(
+                                            serverName = "🚀 Server 4K Remux (Torrentio 1337x/TGx)",
+                                            serverData = tioEpisodes
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
 
                 // Check if KKPhim has this movie in Vietnamese for instant 1-click fallback
                 try {
@@ -2163,7 +2220,7 @@ class MovieRepository {
     }
 
     suspend fun searchYtsTorrents(keyword: String): List<MovieItemDto> = withContext(Dispatchers.IO) {
-        val mirrors = listOf("https://yts.gg", "https://yts.torrentbay.st")
+        val mirrors = ytsMirrors
         val encoded = URLEncoder.encode(keyword, "UTF-8")
         for (mirror in mirrors) {
             try {

@@ -1,7 +1,7 @@
 {
-  "versionCode": 63,
-  "versionName": "2.3.8",
+  "versionCode": 64,
+  "versionName": "2.3.9",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật Đồng Bộ Nguồn v2.3.8 (Build #63): Gỡ bỏ toàn bộ link NguonC gắn cứng để đồng bộ domain từ xa 100% qua GitHub & menu Nguồn Phim, kết hợp kho dự phòng IPTV-Org (1.070+ kênh TV & Thể thao) và mirror YTS 4K chống chết link."
+  "releaseNotes": "Bản Mở Rộng Nguồn Torrent 4K v2.3.9 (Build #64): Tích hợp Torrentio (tổng hợp 1337x, TorrentGalaxy, EZTV, RARBG) song song với 4 mirror YTS sống (yts.gg, yts.lt, yts.bz, yts.torrentbay.st) cho chi tiết và tìm kiếm phim 4K."
 }
