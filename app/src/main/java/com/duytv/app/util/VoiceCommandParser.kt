@@ -379,8 +379,12 @@ object VoiceCommandParser {
         }
 
         // ⚡ 0. ƯU TIÊN TUYỆT ĐỐI: KHỚP KÊNH TRUYỀN HÌNH & NHÀ ĐÀI TỨC THÌ 0ms
-        // Miễn là thấy tên các nhà đài (VTV, HTV, VTC, THVL, SCTV, K+,...) -> MỞ NGAY LẬP TỨC 0ms!
-        if (availableChannels.isNotEmpty()) {
+        // Chỉ chạy khi câu lệnh KHÔNG phải là yêu cầu mở phim / danh mục phim thuần túy ("mở phim lẻ", "mở phim bộ"...)
+        val hasExplicitChannelCue = core.contains("kênh") || core.contains("đài") ||
+            core.contains("vtv") || core.contains("htv") || core.contains("vtc") ||
+            core.contains("thvl") || core.contains("sctv") || core.contains("k+")
+        val isMovieIntentNotChannel = core.contains("phim") && !hasExplicitChannelCue
+        if (availableChannels.isNotEmpty() && !isMovieIntentNotChannel) {
             val channelMatch = matchTvChannel(core, availableChannels)
             if (channelMatch != null) {
                 return channelMatch
@@ -652,6 +656,9 @@ object VoiceCommandParser {
         }
         if (core.contains("phim lẻ") || (isCategoryIntent && core.contains("lẻ"))) {
             return VoiceCommand.BrowseCategory("phim-le", "Phim Lẻ")
+        }
+        if (core.contains("phim bộ thuyết minh") || core.contains("phim thuyết minh") || (isCategoryIntent && core.contains("thuyết minh"))) {
+            return VoiceCommand.BrowseCategory("phim-thuyet-minh", "Phim Bộ Thuyết Minh")
         }
         if (core.contains("phim bộ") || (isCategoryIntent && core.contains("bộ"))) {
             return VoiceCommand.BrowseCategory("phim-bo", "Phim Bộ")
@@ -970,7 +977,7 @@ object VoiceCommandParser {
             if (targetNoAccent.length >= 2) {
                 val nameMatchIdx = channels.indexOfFirst { ch ->
                     val chNoAccent = removeAccents(ch.name)
-                    chNoAccent.contains(targetNoAccent, ignoreCase = true) || targetNoAccent.contains(chNoAccent, ignoreCase = true)
+                    chNoAccent.length >= 3 && (chNoAccent.contains(targetNoAccent, ignoreCase = true) || targetNoAccent.contains(chNoAccent, ignoreCase = true))
                 }
                 if (nameMatchIdx >= 0) {
                     return VoiceCommand.SwitchChannel(nameMatchIdx, channels[nameMatchIdx])

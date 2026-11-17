@@ -188,4 +188,24 @@ class VoiceCommandParserTest {
         assertEquals("play_tv", parsed.actions[1].action)
         assertEquals("VTV1", parsed.actions[1].query)
     }
+
+    @Test
+    fun `test movie category commands do not hijack into TV channels`() {
+        val channelsWithMovieChannel = channels + com.duytv.app.data.TvChannel(
+            id = "test_phim",
+            name = "Phim Hay TV",
+            streamUrl = "https://example.com/live.m3u8"
+        )
+        val phimLe = VoiceCommandParser.parse("mở phim lẻ", channelsWithMovieChannel)
+        assertTrue("Expected BrowseCategory for 'mở phim lẻ' but got $phimLe", phimLe is VoiceCommand.BrowseCategory)
+        assertEquals("phim-le", (phimLe as VoiceCommand.BrowseCategory).categoryId)
+
+        val phimBo = VoiceCommandParser.parse("mở phim bộ", channelsWithMovieChannel)
+        assertTrue("Expected BrowseCategory for 'mở phim bộ' but got $phimBo", phimBo is VoiceCommand.BrowseCategory)
+        assertEquals("phim-bo", (phimBo as VoiceCommand.BrowseCategory).categoryId)
+
+        val phimTm = VoiceCommandParser.parse("mở phim bộ thuyết minh", channelsWithMovieChannel)
+        assertTrue("Expected BrowseCategory for 'mở phim bộ thuyết minh' but got $phimTm", phimTm is VoiceCommand.BrowseCategory)
+        assertEquals("phim-thuyet-minh", (phimTm as VoiceCommand.BrowseCategory).categoryId)
+    }
 }

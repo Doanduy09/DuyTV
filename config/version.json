@@ -1,7 +1,7 @@
 {
-  "versionCode": 66,
-  "versionName": "2.5.0",
+  "versionCode": 67,
+  "versionName": "2.5.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Trợ Lý AI Toàn Năng v2.5.0 (Build #66): Tích hợp AI Agent nhận diện ngữ cảnh màn hình TV, trí nhớ hội thoại 5 lượt, chuỗi đa hành động, điều khiển HDMI/Media/Âm lượng % và bấm UI toàn hệ thống."
+  "releaseNotes": "Bản Sửa Lỗi Nhận Diện Danh Mục Phim v2.5.1 (Build #67): Khắc phục lỗi nói 'mở phim lẻ / phim bộ / phim bộ thuyết minh' bị match nhầm sang kênh TV truyền hình, đồng thời sửa kiểu Int cho SpeechRecognizer timeout."
 }
