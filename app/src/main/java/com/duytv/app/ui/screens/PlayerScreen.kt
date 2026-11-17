@@ -1736,6 +1736,10 @@ private fun PlayerScreenContent(
                         speakAndReport("Đang mở: ${cmd.categoryName}", "Dạ, đang mở danh mục ${cmd.categoryName}")
                         onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome(cmd.categoryId))
                     }
+                    VoiceCommand.AskFootballAdvisor -> {
+                        speakAndReport("Đang kiểm tra lịch bóng đá...", "Dạ, để em mở mục Bóng đá và kiểm tra lịch thi đấu cho anh")
+                        onNavigate?.invoke(com.duytv.app.AppScreen.CategoryHome("tv-live"))
+                    }
                     is VoiceCommand.OpenMovie -> {
                         speakAndReport("Đang tìm: ${cmd.query}", "Dạ, em đang tìm ${cmd.query}")
                         scope.launch {

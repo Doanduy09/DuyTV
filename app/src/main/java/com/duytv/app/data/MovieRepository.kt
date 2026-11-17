@@ -767,7 +767,8 @@ class MovieRepository {
                 name = "Đồng Tháp TV (THĐT1)",
                 logoUrl = "https://i.imgur.com/vZYlGIW.png",
                 streamUrl = "https://liveh34.vtvprime.vn/hls/DONGTHAPTV/index.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
+                groupTitle = "Đài Tỉnh Thành",
+                backupUrls = listOf("https://618b88f69e53b.streamlock.net/THDT2/thdttv2/chunklist.m3u8")
             ),
             TvChannel(
                 id = "camau_hd_cdn",

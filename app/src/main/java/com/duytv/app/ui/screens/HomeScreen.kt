@@ -142,7 +142,16 @@ fun HomeScreen(
     }
 
     // Specific Category list & pagination state
-    var categoryMovies by remember { mutableStateOf<List<MovieItemDto>>(emptyList()) }
+    fun cachedListForCategory(catId: String): List<MovieItemDto> = when (catId) {
+        "phim-le" -> singleMovies
+        "phim-bo" -> seriesMovies
+        "phim-thuyet-minh" -> animeMovies
+        "phim-chieu-rap" -> cinemaMovies
+        "torrent-4k" -> torrentMovies
+        "fav-movies" -> AppCacheManager.favoriteMovies
+        else -> emptyList()
+    }
+    var categoryMovies by remember { mutableStateOf<List<MovieItemDto>>(cachedListForCategory(selectedCategory.id)) }
     var categoryPage by remember { mutableIntStateOf(1) }
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
     var showSourceSettingsDialog by remember { mutableStateOf(false) }
@@ -216,8 +225,11 @@ fun HomeScreen(
                         AppCacheManager.saveTvSports(res, context)
                     }
                 } else {
-                    categoryPage = 1
-                    categoryMovies = try { repository.getMoviesByCategory(selectedCategory.endpoint, 1) } catch (_: Exception) { emptyList() }
+                    val fetched = try { repository.getMoviesByCategory(selectedCategory.endpoint, 1) } catch (_: Exception) { emptyList() }
+                    if (fetched.isNotEmpty()) {
+                        categoryPage = 1
+                        categoryMovies = fetched
+                    }
                 }
                 if (showSuccessToast) {
                     Toast.makeText(context, "✅ Đã cập nhật kho phim mới & lịch bóng đá trực tiếp!", Toast.LENGTH_SHORT).show()
@@ -331,13 +343,20 @@ fun HomeScreen(
                 }
             }
         } else if (category.id != "all") {
+            val prefill = cachedListForCategory(category.id)
+            if (prefill.isNotEmpty()) {
+                categoryMovies = prefill
+            }
             scope.launch {
                 isCategoryLoadingMore = true
                 categoryPage = 1
-                categoryMovies = if (category.id == "torrent-4k") {
+                val fetched = if (category.id == "torrent-4k") {
                     repository.getTop4KTorrents(1)
                 } else {
                     repository.getMoviesByCategory(category.endpoint, 1)
+                }
+                if (fetched.isNotEmpty()) {
+                    categoryMovies = fetched
                 }
                 isCategoryLoadingMore = false
             }
@@ -347,7 +366,7 @@ fun HomeScreen(
     LaunchedEffect(initialCategoryId) {
         if (!initialCategoryId.isNullOrBlank()) {
             val target = NAV_CATEGORIES.firstOrNull { it.id == initialCategoryId }
-            if (target != null && target != selectedCategory) {
+            if (target != null && (target != selectedCategory || categoryMovies.isEmpty())) {
                 switchCategory(target)
             }
         } else if (selectedCategory.id != "all" && categoryMovies.isEmpty()) {

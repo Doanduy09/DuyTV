@@ -1,7 +1,7 @@
 {
-  "versionCode": 71,
-  "versionName": "2.5.5",
+  "versionCode": 72,
+  "versionName": "2.5.6",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Sửa Lỗi Bắn Đúp YouTube v2.5.5 (Build #71): Chặn onPartialResults và onError(5) bắn đúp sau khi đã thực thi lệnh nhanh 0ms, giúp mở YouTube/app 1 lần dứt khoát không bị chớp tắt."
+  "releaseNotes": "Bản Sửa Lỗi Màn Hình Đen Danh Mục Phim v2.5.6 (Build #72): Khắc phục triệt để lỗi CategoryHome không nạp phim (0 phim / màn hình đen) khi mở Phim Lẻ, Phim Bộ, Phim Bộ Thuyết Minh bằng giọng nói; nạp tức thì từ cache và mở Đồng Tháp / Vĩnh Long 0ms."
 }

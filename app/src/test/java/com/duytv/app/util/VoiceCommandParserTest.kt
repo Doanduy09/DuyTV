@@ -211,5 +211,8 @@ class VoiceCommandParserTest {
         val phimTm = VoiceCommandParser.parse("mở phim bộ thuyết minh", channelsWithMovieChannel)
         assertTrue("Expected BrowseCategory for 'mở phim bộ thuyết minh' but got $phimTm", phimTm is VoiceCommand.BrowseCategory)
         assertEquals("phim-thuyet-minh", (phimTm as VoiceCommand.BrowseCategory).categoryId)
+
+        val footballAsk = VoiceCommandParser.parse("hãy xem cho anh có bóng đá không", channelsWithMovieChannel)
+        assertTrue("Expected AskFootballAdvisor but got $footballAsk", footballAsk is VoiceCommand.AskFootballAdvisor)
     }
 }

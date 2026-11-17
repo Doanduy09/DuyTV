@@ -20,7 +20,8 @@ data class VoiceContext(
     val channelName: String? = null,
     val activePackage: String? = null,
     val screenLabels: List<String> = emptyList(),
-    val volumePercent: Int = -1
+    val volumePercent: Int = -1,
+    val liveSportsSummary: String? = null
 )
 
 data class GeminiVoiceAction(
@@ -155,6 +156,9 @@ object GeminiVoiceClient {
             }
             if (!context?.screenLabels.isNullOrEmpty()) {
                 append("\n- CÁC NÚT/CHỮ TRÊN MÀN HÌNH: ${context?.screenLabels?.joinToString(" | ")}")
+            }
+            if (!context?.liveSportsSummary.isNullOrBlank()) {
+                append("\n- LỊCH BÓNG ĐÁ HÔM NAY:\n${context?.liveSportsSummary}")
             }
         }
 

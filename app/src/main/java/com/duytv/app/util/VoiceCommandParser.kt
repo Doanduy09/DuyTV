@@ -17,6 +17,7 @@ sealed class VoiceCommand {
     data class SearchMovie(val query: String) : VoiceCommand()
     data class OpenMovie(val query: String) : VoiceCommand()
     data class BrowseCategory(val categoryId: String, val categoryName: String) : VoiceCommand()
+    object AskFootballAdvisor : VoiceCommand()
     
     // 🎬 Điều khiển video chuyên sâu (Deep Playback NLP)
     data class SeekTo(val positionMs: Long, val label: String) : VoiceCommand()
@@ -283,7 +284,8 @@ object VoiceCommandParser {
     fun isQuickTriggerCommand(raw: String): Boolean {
         val t = normalizeQuery(raw).trim()
         if (t.contains("vtv") || t.contains("htv") || t.contains("vtc") || t.contains("thvl") ||
-            t.contains("sctv") || t.contains("k+") || t.contains("bóng đá") || t.contains("kênh") || t.contains("đài")) {
+            t.contains("vĩnh long") || t.contains("đồng tháp") || t.contains("thdt") ||
+            t.contains("sctv") || t.contains("k+") || t.contains("kênh") || t.contains("đài")) {
             return true
         }
         return t == "dừng" || t == "tạm dừng" || t == "pause" ||
@@ -381,10 +383,18 @@ object VoiceCommandParser {
         }
 
         // ⚡ 0. ƯU TIÊN TUYỆT ĐỐI: KHỚP KÊNH TRUYỀN HÌNH & NHÀ ĐÀI TỨC THÌ 0ms
-        // Chỉ chạy khi câu lệnh KHÔNG phải là yêu cầu mở phim / danh mục phim thuần túy ("mở phim lẻ", "mở phim bộ"...)
+        // Chỉ chạy khi câu lệnh KHÔNG phải là yêu cầu mở phim / danh mục phim hoặc hỏi tư vấn bóng đá
         val hasExplicitChannelCue = core.contains("kênh") || core.contains("đài") ||
             core.contains("vtv") || core.contains("htv") || core.contains("vtc") ||
             core.contains("thvl") || core.contains("sctv") || core.contains("k+")
+        val isFootballAdvisorIntent = !hasExplicitChannelCue && (
+            core.contains("bóng đá") || core.contains("đá banh") || core.contains("trận nào") ||
+            core.contains("ngoại hạng") || core.contains("cúp c1") || core.contains("champions league") ||
+            core.contains("v-league")
+        )
+        if (isFootballAdvisorIntent) {
+            return VoiceCommand.AskFootballAdvisor
+        }
         val isMovieIntentNotChannel = core.contains("phim") && !hasExplicitChannelCue
         if (availableChannels.isNotEmpty() && !isMovieIntentNotChannel) {
             val channelMatch = matchTvChannel(core, availableChannels)

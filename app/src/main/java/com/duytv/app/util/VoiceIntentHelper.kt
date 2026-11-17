@@ -398,6 +398,48 @@ object VoiceIntentHelper {
                 is VoiceCommand.BrowseCategory -> {
                     onNavigateScreen(AppScreen.CategoryHome(cmd.categoryId), "Dạ, đang mở danh mục ${cmd.categoryName}")
                 }
+                VoiceCommand.AskFootballAdvisor -> {
+                    speak("Đang kiểm tra lịch bóng đá...", "Dạ, để em kiểm tra lịch bóng đá hôm nay cho anh")
+                    scope.launch {
+                        val sports = try { repository.getTvAndSportsData() } catch (_: Exception) { com.duytv.app.data.TvSportsData() }
+                        val activeMatches = sports.matches.mapNotNull { m ->
+                            val st = com.duytv.app.data.MatchStateHelper.calculateMatchState(m.kickoffTime)
+                            if (st.status == com.duytv.app.data.MatchStatus.FINISHED) null else m to st
+                        }
+                        val liveCount = activeMatches.count { it.second.status == com.duytv.app.data.MatchStatus.LIVE }
+                        val sportsChannels = (sports.channels + channels).filter { ch ->
+                            val g = ch.groupTitle.uppercase()
+                            val n = ch.name.uppercase()
+                            g.contains("THỂ THAO") || g.contains("SPORTS") || n.contains("ON SPORTS") || n.contains("ON FOOTBALL") || n.contains("K+")
+                        }.distinctBy { it.name }.take(5).joinToString(", ") { it.name }
+
+                        val summaryForAi = if (activeMatches.isEmpty()) {
+                            "Hiện chưa có trận bóng đá nào trong lịch phát sóng hôm nay. Các kênh thể thao đang có: ${sportsChannels.ifBlank { "ON Sports, ON Football, K+" }}."
+                        } else {
+                            val topList = activeMatches.take(6).joinToString("\n") { (m, st) ->
+                                val tag = if (st.status == com.duytv.app.data.MatchStatus.LIVE) "ĐANG TRỰC TIẾP" else "Lúc ${m.kickoffTime}"
+                                "- ${m.homeTeam} vs ${m.awayTeam} (${m.tournament}, $tag)"
+                            }
+                            "Có ${activeMatches.size} trận ($liveCount trận đang trực tiếp):\n$topList\nKênh thể thao: ${sportsChannels.ifBlank { "ON Sports, ON Football" }}"
+                        }
+
+                        val aiReply = GeminiVoiceClient.query(
+                            userInput = "$rawQuery. Hãy trả lời anh Duy ngắn gọn 2 câu: hôm nay có bóng đá không, trận nào hấp dẫn nhất và mời anh xem ngay trên mục Bóng đá & TV.",
+                            voiceContext = VoiceContext(liveSportsSummary = summaryForAi)
+                        )?.ttsReply
+
+                        val finalTts = if (!aiReply.isNullOrBlank()) {
+                            aiReply
+                        } else if (activeMatches.isEmpty()) {
+                            "Dạ anh Duy, hôm nay chưa có trận bóng đá trực tiếp nào, nhưng có các kênh thể thao như ${sportsChannels.ifBlank { "ON Sports, ON Football" }}. Em mở mục Bóng đá và TV cho anh xem nhé!"
+                        } else {
+                            val top = activeMatches.first().first
+                            "Dạ anh Duy, hôm nay có ${activeMatches.size} trận bóng đá, có $liveCount trận đang trực tiếp. Nổi bật là ${top.homeTeam} gặp ${top.awayTeam} giải ${top.tournament} lúc ${top.kickoffTime}. Em mở ngay mục Bóng đá cho anh chọn nhé!"
+                        }
+                        GeminiVoiceClient.recordTurn(rawQuery, finalTts)
+                        onNavigateScreen(AppScreen.CategoryHome("tv-live"), finalTts)
+                    }
+                }
                 is VoiceCommand.OpenApp -> {
                     launchAppByQuery(appContext, cmd.target)
                     speak("Đang mở: ${cmd.target.uppercase()}", "Dạ, đang mở ứng dụng ${cmd.target}") {
