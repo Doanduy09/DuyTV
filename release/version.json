@@ -1,7 +1,7 @@
 {
-  "versionCode": 78,
-  "versionName": "2.6.2",
+  "versionCode": 79,
+  "versionName": "2.6.3",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật v2.6.2 (Build #78): Siêu Tối Ưu Tốc Độ & Độ Ổn Định 24/7 — Khởi động kênh Live TV tức thì 400ms (giảm 67% độ trễ load stream); Hệ thống Audio Ducking tự động hạ âm lượng TV xuống 15% khi bật mic thu âm giọng nói trong trẻo; LAN Command Receiver cổng 8990 tích hợp Partial WakeLock + WifiLock + Watchdog tự phục hồi và đánh thức màn hình TV từ Standby."
+  "releaseNotes": "Bản Cập Nhật v2.6.3 (Build #79): Local LAN Media Sharing (<30ms, Zero-Internet Cast ảnh/video), Web Control Hub cổng 8888, Smart Bookmark tự nhớ và tiếp tục xem phim từng giây, Chế độ đi ngủ (Smart Sleep Mode với DRC nén âm thanh và giảm sáng), Lời nhắc việc gia đình HUD mờ 3s, Lọc ngữ âm vùng miền tiếng Việt thông minh và Tự động bật phụ đề nét ban đêm."
 }

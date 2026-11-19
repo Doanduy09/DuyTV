@@ -250,5 +250,19 @@ class VoiceCommandParserTest {
 
         val diNgu = VoiceCommandParser.parse("tắt tivi tao đi ngủ", channels)
         assertTrue(diNgu is VoiceCommand.SystemAction && (diNgu as VoiceCommand.SystemAction).type == VoiceCommand.SystemActionType.POWER)
+
+        // 5. Chế độ đi ngủ thông minh v2.6.3
+        val sleepMode = VoiceCommandParser.parse("bật chế độ đi ngủ", channels)
+        assertTrue(sleepMode is VoiceCommand.SetSleepTimer && (sleepMode as VoiceCommand.SetSleepTimer).minutes == 30)
+
+        val chuanBiNgu = VoiceCommandParser.parse("chuẩn bị ngủ thôi", channels)
+        assertTrue(chuanBiNgu is VoiceCommand.SetSleepTimer && (chuanBiNgu as VoiceCommand.SetSleepTimer).minutes == 30)
+
+        // 6. Nhận diện giọng vùng miền và sai chính tả STT
+        val accentChauTinhTri = VoiceCommandParser.parse("mở phim trâu tinh trì", channels)
+        assertTrue(accentChauTinhTri is VoiceCommand.OpenMovie && (accentChauTinhTri as VoiceCommand.OpenMovie).query.contains("châu tinh trì"))
+
+        val accentVinhLong = VoiceCommandParser.parse("mở đài vỉnh long", channels)
+        assertTrue(accentVinhLong is VoiceCommand.SwitchChannel && (accentVinhLong as VoiceCommand.SwitchChannel).channel.name.contains("THVL1"))
     }
 }

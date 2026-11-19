@@ -240,7 +240,14 @@ object VoiceCommandParser {
             "mở bài thvl" to "mở đài thvl",
             "mở bài k+" to "mở đài k+",
             "mở bài đồng tháp" to "mở đài đồng tháp",
-            "mở bài vĩnh long" to "mở đài vĩnh long"
+            "mở bài vĩnh long" to "mở đài vĩnh long",
+            "châu tinh tri" to "châu tinh trì",
+            "trâu tinh trì" to "châu tinh trì",
+            "vỉnh long" to "vĩnh long",
+            "vinh long" to "vĩnh long",
+            "vĩnh lăng" to "vĩnh long",
+            "xctv" to "sctv",
+            "ét xê tê ve" to "sctv"
         )
         for ((wrong, right) in corrections) {
             text = text.replace(wrong, right)
@@ -399,7 +406,8 @@ object VoiceCommandParser {
             return VoiceCommand.AskFootballAdvisor
         }
         val isMovieIntentNotChannel = (core.contains("phim") && !core.contains("phim miền tây") && !core.contains("phim vĩnh long")) && !hasExplicitChannelCue
-        if (availableChannels.isNotEmpty() && !isMovieIntentNotChannel) {
+        val isSleepOrUtilityIntent = core.contains("đi ngủ") || core.contains("chế độ") || core.contains("hẹn giờ") || core.contains("tắt sau")
+        if (availableChannels.isNotEmpty() && !isMovieIntentNotChannel && !isSleepOrUtilityIntent) {
             val channelMatch = matchTvChannel(core, availableChannels)
             if (channelMatch != null) {
                 return channelMatch
@@ -441,12 +449,15 @@ object VoiceCommandParser {
             core.contains("phim dở quá") || core.contains("đổi phim khác") || core.contains("không coi nữa") || core.contains("không xem nữa")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.BACK)
         }
+        if (core.contains("chế độ đi ngủ") || core.contains("chế độ ngủ") || core.contains("chuẩn bị ngủ") || core.contains("chuẩn bị đi ngủ")) {
+            return VoiceCommand.SetSleepTimer(30, "30 phút")
+        }
         if (core.contains("sáng màn hình") || core.contains("bật màn hình") || core.contains("mở màn hình") ||
             core.contains("đánh thức tivi") || core.contains("thức dậy")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.WAKEUP)
         }
         if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") ||
-            core.contains("đi ngủ") || core.contains("tắt đi ngủ") || core.contains("tao đi ngủ") || core.contains("ngủ thôi")) {
+            core.contains("tắt đi ngủ") || core.contains("tao đi ngủ") || core == "đi ngủ" || core == "ngủ thôi") {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.POWER)
         }
         if (core.contains("đa nhiệm") || core.contains("ứng dụng gần đây") || core.contains("các app đang mở")) {
@@ -578,8 +589,10 @@ object VoiceCommandParser {
         }
 
         // III.C. LỆNH ĐIỀU KHIỂN TÍNH NĂNG XEM PHIM NÂNG CAO
-        // 0. Tiện ích hẹn giờ ngủ (Sleep Timer)
-        if (core.contains("hẹn giờ") || core.contains("tắt sau") || core.contains("tự tắt")) {
+        // 0. Tiện ích hẹn giờ ngủ (Sleep Timer & Chế độ đi ngủ)
+        if (core.contains("hẹn giờ") || core.contains("tắt sau") || core.contains("tự tắt") ||
+            core.contains("chế độ đi ngủ") || core.contains("đi ngủ thôi") || core.contains("chuẩn bị ngủ") || core == "ngủ thôi"
+        ) {
             val sleepMatch = Regex("(?:hẹn\\s+giờ\\s+tắt|hẹn\\s+giờ\\s+ngủ|tắt\\s+sau|hẹn\\s+giờ)\\s*(\\d+)?\\s*(phút|tiếng|giờ)?").find(core)
             val num = sleepMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
             val unit = sleepMatch?.groupValues?.getOrNull(2)
@@ -588,7 +601,7 @@ object VoiceCommandParser {
             } else if (num != null && num > 0) {
                 val mins = if (unit == "tiếng" || unit == "giờ") num * 60 else num
                 return VoiceCommand.SetSleepTimer(mins, "${mins} phút")
-            } else if (core.contains("30 phút")) {
+            } else if (core.contains("chế độ đi ngủ") || core.contains("đi ngủ thôi") || core.contains("chuẩn bị ngủ") || core == "ngủ thôi" || core.contains("30 phút")) {
                 return VoiceCommand.SetSleepTimer(30, "30 phút")
             } else if (core.contains("60 phút") || core.contains("1 tiếng") || core.contains("1 giờ")) {
                 return VoiceCommand.SetSleepTimer(60, "60 phút")

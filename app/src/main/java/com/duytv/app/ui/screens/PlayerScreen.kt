@@ -14,6 +14,7 @@ import com.duytv.app.util.VoiceCommandParser
 import com.duytv.app.util.VoiceCommand
 import com.duytv.app.util.GeminiVoiceClient
 import com.duytv.app.util.GeminiVoiceAction
+import com.duytv.app.util.VoiceIntentHelper
 import com.duytv.app.ui.components.VoiceOverlay
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -203,7 +204,18 @@ private fun PlayerScreenContent(
     var showQualityMenu by remember { mutableStateOf(false) }
     var selectedQualityMode by remember { mutableStateOf("AUTO") }
     var videoResolution by remember { mutableStateOf("1080p FHD") }
-    var currentPosMs by remember { mutableStateOf(initialPositionMs) }
+    var aspectBadgeText by remember { mutableStateOf<String?>(null) }
+    val resolvedInitialPositionMs = remember(slug, initialPositionMs, isLive) {
+        if (initialPositionMs > 0L) {
+            initialPositionMs
+        } else if (!isLive) {
+            val saved = WatchHistoryManager.getHistoryForMovie(context, slug)
+            if (saved != null && saved.positionMs > 5000L && (saved.durationMs <= 0L || saved.positionMs < saved.durationMs - 30000L)) {
+                saved.positionMs
+            } else 0L
+        } else 0L
+    }
+    var currentPosMs by remember { mutableStateOf(resolvedInitialPositionMs) }
     var voiceKeyDownTimeMs by remember { mutableLongStateOf(0L) }
     var lastVoiceTriggerTimestampMs by remember { mutableLongStateOf(0L) }
     var totalDurationMs by remember { mutableStateOf(1L) }
@@ -248,6 +260,17 @@ private fun PlayerScreenContent(
             } catch (_: Exception) {}
         }
         if (!isLive) {
+            if (resolvedInitialPositionMs > 5000L) {
+                val mins = (resolvedInitialPositionMs / 60000L)
+                val secs = (resolvedInitialPositionMs % 60000L) / 1000L
+                aspectBadgeText = String.format("📌 TIẾP TỤC XEM TỪ %02d:%02d", mins, secs)
+                scope.launch {
+                    delay(3500L)
+                    if (aspectBadgeText?.startsWith("📌") == true) {
+                        aspectBadgeText = null
+                    }
+                }
+            }
             WatchHistoryManager.saveProgress(
                 context = context,
                 slug = slug,
@@ -255,7 +278,7 @@ private fun PlayerScreenContent(
                 episodeName = currentEpisodeName,
                 streamUrl = currentStreamUrl,
                 posterUrl = currentPosterUrl,
-                positionMs = maxOf(1000L, initialPositionMs),
+                positionMs = maxOf(1000L, resolvedInitialPositionMs),
                 durationMs = totalDurationMs,
                 forceSave = true
             )
@@ -384,7 +407,6 @@ private fun PlayerScreenContent(
         val mode = VideoAspectMode.values().firstOrNull { it.name == savedName } ?: VideoAspectMode.FILL
         mutableStateOf(mode)
     }
-    var aspectBadgeText by remember { mutableStateOf<String?>(null) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
     val currentConfig = LocalConfiguration.current
     val screenConfig = remember(context, currentConfig.screenWidthDp, currentConfig.screenHeightDp, currentConfig.orientation) {
@@ -536,7 +558,24 @@ private fun PlayerScreenContent(
     val isMagnet = streamUrl.startsWith("magnet:?")
 
     val exoPlayer = remember(streamUrl) {
-        if (isMagnet) null else createConfiguredExoPlayer(context, streamUrl, isLive, subtitleUrl, initialPositionMs)
+        if (isMagnet) null else createConfiguredExoPlayer(context, streamUrl, isLive, subtitleUrl, resolvedInitialPositionMs)
+    }
+
+    // Tự động bật phụ đề thông minh khi xem phim khuya hoặc khi giảm âm lượng nhỏ (< 15%)
+    LaunchedEffect(isNightWarmMode, exoPlayer) {
+        if (!isLive && subtitleUrl != null && activeSubtitleData == null) {
+            val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val isLateNight = currentHour >= 22 || currentHour < 6
+            val volPct = VoiceIntentHelper.getSystemVolumePercent(context)
+            if (isNightWarmMode || isLateNight || (volPct in 1..15)) {
+                activeSubtitleData = subtitleUrl
+                aspectBadgeText = "🌙 ĐÊM MUỘN: TỰ ĐỘNG BẬT PHỤ ĐỀ RÕ NÉT"
+                scope.launch {
+                    delay(3000L)
+                    if (aspectBadgeText?.startsWith("🌙") == true) aspectBadgeText = null
+                }
+            }
+        }
     }
 
     if (isMagnet) {
@@ -1668,10 +1707,24 @@ private fun PlayerScreenContent(
                     }
                     is VoiceCommand.SetSleepTimer -> {
                         sleepTimerMinutes = cmd.minutes
-                        aspectBadgeText = if (cmd.minutes > 0) "⏲️ HẸN GIỜ TẮT: ${cmd.label}" else "⏲️ HẸN GIỜ TẮT: ĐÃ TẮT"
-                        speakAndReport(aspectBadgeText ?: "", if (cmd.minutes > 0) "Dạ, đã hẹn giờ tắt sau ${cmd.label}" else "Dạ, đã tắt hẹn giờ")
+                        if (cmd.minutes > 0) {
+                            isDrcVoiceEnabled = true
+                            AppCacheManager.savePreferredDrcVoice(context, true)
+                            isNightWarmMode = true
+                            AppCacheManager.savePreferredNightMode(context, true)
+                            try {
+                                val window = (context as? Activity)?.window
+                                if (window != null) {
+                                    val lp = window.attributes
+                                    lp.screenBrightness = 0.35f
+                                    window.attributes = lp
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        aspectBadgeText = if (cmd.minutes > 0) "🌙 CHẾ ĐỘ ĐI NGỦ: ${cmd.label} (DRC BẬT)" else "⏲️ HẸN GIỜ TẮT: ĐÃ TẮT"
+                        speakAndReport(aspectBadgeText ?: "", if (cmd.minutes > 0) "Dạ, đã bật chế độ ngủ và hẹn giờ tắt sau ${cmd.label}" else "Dạ, đã tắt hẹn giờ")
                         scope.launch {
-                            delay(2200)
+                            delay(2500)
                             aspectBadgeText = null
                         }
                     }

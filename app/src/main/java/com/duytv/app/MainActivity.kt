@@ -8,12 +8,28 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.duytv.app.data.AppCacheManager
 import com.duytv.app.data.EpisodeItemDto
 import com.duytv.app.data.MovieRepository
 import com.duytv.app.ui.components.VoiceOverlay
 import com.duytv.app.ui.screens.HomeScreen
 import com.duytv.app.ui.screens.MovieDetailScreen
+import com.duytv.app.ui.screens.PhotoViewerScreen
 import com.duytv.app.ui.screens.PlayerScreen
 import com.duytv.app.ui.screens.SearchScreen
 import com.duytv.app.ui.theme.DuyTvTheme
@@ -28,6 +44,10 @@ sealed class AppScreen {
     object Search : AppScreen()
     data class SearchQuery(val query: String) : AppScreen()
     data class Detail(val slug: String) : AppScreen()
+    data class PhotoViewer(
+        val imagePathOrUrl: String,
+        val title: String = "Ảnh từ điện thoại"
+    ) : AppScreen()
     data class Player(
         val slug: String,
         val movieTitle: String,
@@ -59,6 +79,52 @@ class MainActivity : ComponentActivity() {
 
         @Volatile
         var globalVoiceManagerInstance: com.duytv.app.util.VoiceAssistantManager? = null
+
+        @Volatile
+        var familyNotificationMessage: String? = null
+        var familyNotificationTick by mutableIntStateOf(0)
+
+        fun showFamilyNotification(message: String) {
+            val act = activeInstance?.get()
+            if (act != null) {
+                act.runOnUiThread {
+                    familyNotificationMessage = message
+                    familyNotificationTick++
+                }
+            }
+        }
+
+        fun openCastPhoto(pathOrUrl: String, title: String = "Ảnh từ điện thoại") {
+            val act = activeInstance?.get()
+            val target = AppScreen.PhotoViewer(pathOrUrl, title)
+            if (act != null) {
+                act.runOnUiThread {
+                    act.navigateToScreen(target)
+                }
+            } else {
+                pendingExternalScreen = target
+            }
+        }
+
+        fun openCastVideo(url: String, title: String = "Video từ điện thoại") {
+            val act = activeInstance?.get()
+            val target = AppScreen.Player(
+                slug = "cast_video_${System.currentTimeMillis()}",
+                movieTitle = title,
+                episodeName = "ĐANG PHÁT TỪ ĐIỆN THOẠI",
+                streamUrl = url,
+                posterUrl = null,
+                subtitleUrl = null,
+                initialPositionMs = 0L
+            )
+            if (act != null) {
+                act.runOnUiThread {
+                    act.navigateToScreen(target)
+                }
+            } else {
+                pendingExternalScreen = target
+            }
+        }
 
         fun executeRemoteCommand(text: String, context: android.content.Context) {
             val mgr = globalVoiceManagerInstance
@@ -158,6 +224,10 @@ class MainActivity : ComponentActivity() {
 
     private val repository = MovieRepository()
     private var pendingScreenFromIntent by mutableStateOf<AppScreen?>(null)
+
+    fun navigateToScreen(target: AppScreen) {
+        pendingScreenFromIntent = target
+    }
     private var pendingVoiceTtsReply by mutableStateOf<String?>(null)
     private var onGlobalVoiceKeyEvent: ((android.view.KeyEvent) -> Boolean)? = null
     private var globalVoiceTriggerTick by mutableIntStateOf(0)
@@ -526,6 +596,9 @@ class MainActivity : ComponentActivity() {
                                 currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
                             }
                         }
+                        is AppScreen.PhotoViewer -> {
+                            currentScreen = AppScreen.Home
+                        }
                         is AppScreen.Detail -> {
                             currentScreen = AppScreen.Home
                         }
@@ -548,6 +621,15 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(enabled = currentScreen !is AppScreen.Player && globalVoiceState !is VoiceState.Idle) {
                     globalVoiceManager.cancel()
+                }
+
+                var activeFamilyNotification by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(familyNotificationTick) {
+                    if (familyNotificationTick > 0 && !familyNotificationMessage.isNullOrBlank()) {
+                        activeFamilyNotification = familyNotificationMessage
+                        kotlinx.coroutines.delay(4000L)
+                        activeFamilyNotification = null
+                    }
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -721,12 +803,53 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                    is AppScreen.PhotoViewer -> {
+                        PhotoViewerScreen(
+                            imagePathOrUrl = screen.imagePathOrUrl,
+                            title = screen.title,
+                            onBack = { currentScreen = AppScreen.Home },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
                     if (currentScreen !is AppScreen.Player) {
                         VoiceOverlay(
                             state = globalVoiceState,
                             onDismiss = { globalVoiceManager.cancel() }
                         )
+                    }
+
+                    AnimatedVisibility(
+                        visible = activeFamilyNotification != null,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 40.dp)
+                            .zIndex(99f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Color(0xEE0F172A))
+                                .border(1.5.dp, Color(0xFF38BDF8), RoundedCornerShape(24.dp))
+                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "🔔 LỜI NHẮC GIA ĐÌNH: ",
+                                    color = Color(0xFF38BDF8),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = activeFamilyNotification ?: "",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
