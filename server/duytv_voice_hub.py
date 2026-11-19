@@ -30,9 +30,25 @@ UDP_BIND_IP = "0.0.0.0"
 UDP_BIND_PORT = 8995
 HTTP_WEB_PORT = 8996
 
-SHARP_TV_IP = "192.168.1.172"
-SHARP_TV_PORT = 8990
-SHARP_TV_ADB = "192.168.1.172:5555"
+# DANH SÁCH THIẾT BỊ NỘI MẠNG (MULTI-DEVICE REGISTRY)
+DEVICES = {
+    "sharp_tv": {
+        "id": "sharp_tv",
+        "name": "Tivi Sharp",
+        "aliases": ["sharp", "tivi sharp", "tv sharp"],
+        "ip": "192.168.1.172",
+        "port": 8990,
+        "adb": "192.168.1.172:5555"
+    },
+    "fpt_box": {
+        "id": "fpt_box",
+        "name": "FPT Play Box",
+        "aliases": ["fpt", "box fpt", "đầu thu fpt", "hộp fpt", "box", "tivi box"],
+        "ip": "192.168.1.180",  # Điền IP thực tế của FPT Box trên mạng LAN
+        "port": 8990,
+        "adb": "192.168.1.180:5555"
+    }
+}
 
 HERMES_BRIDGE_URL = "http://127.0.0.1:8100/v1/chat/completions"
 
@@ -106,38 +122,59 @@ def query_gemini_voice_bridge(text_or_audio_prompt):
         print(f"[Gemini AI] Lỗi truy vấn: {e}")
         return None
 
-def dispatch_command_to_tv(action_data, raw_text=""):
-    """Bắn lệnh đã giải mã sang Tivi Sharp (192.168.1.172) qua Wi-Fi LAN."""
-    # 1. Thử gửi trực tiếp qua cổng TCP 8990 của ứng dụng DuyTV
-    sent_via_tcp = False
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(1.5)
-        s.connect((SHARP_TV_IP, SHARP_TV_PORT))
-        packet = {
-            "raw_text": raw_text,
-            "action": action_data.get("action", ""),
-            "query": action_data.get("query", ""),
-            "target": action_data.get("target", ""),
-            "tts_reply": action_data.get("tts_reply", ""),
-            "actions": action_data.get("actions", [])
-        }
-        s.sendall((json.dumps(packet, ensure_ascii=False) + "\n").encode('utf-8'))
-        s.close()
-        sent_via_tcp = True
-        print(f"⚡ [TV Dispatch] Đã gửi lệnh TCP thành công tới Tivi Sharp ({SHARP_TV_IP}:{SHARP_TV_PORT})")
-    except Exception:
-        pass
+def resolve_target_devices(raw_text):
+    """Xác định danh sách thiết bị cần điều khiển dựa theo khẩu lệnh."""
+    text_lower = raw_text.lower()
+    # 1. Điều khiển đồng thời tất cả thiết bị
+    if any(k in text_lower for k in ["hết tivi", "tất cả tivi", "cả hai tivi", "toàn bộ tivi", "mọi tivi", "tất cả box", "hết các tivi"]):
+        return list(DEVICES.values())
 
-    # 2. Nếu TCP chưa bật hoặc tivi ở màn hình ngoài, gửi qua ADB intent
-    if not sent_via_tcp:
+    # 2. Kiểm tra chỉ định đích danh theo tên thiết bị
+    for dev_id, dev in DEVICES.items():
+        if any(alias in text_lower for alias in dev["aliases"]):
+            return [dev]
+
+    # 3. Mặc định: Tivi Sharp chính
+    return [DEVICES["sharp_tv"]]
+
+def dispatch_command_to_tv(action_data, raw_text=""):
+    """Bắn lệnh đã giải mã sang Tivi Sharp hoặc Box FPT qua Wi-Fi LAN."""
+    targets = resolve_target_devices(raw_text)
+    for dev in targets:
+        dev_name = dev["name"]
+        dev_ip = dev["ip"]
+        dev_port = dev.get("port", 8990)
+        dev_adb = dev.get("adb", f"{dev_ip}:5555")
+
+        sent_via_tcp = False
         try:
-            cmd = raw_text if raw_text else action_data.get("query", "")
-            adb_cmd = f'adb -s {SHARP_TV_ADB} shell am broadcast -a com.duytv.app.VOICE_COMMAND --es command "{cmd}"'
-            os.system(adb_cmd)
-            print(f"⚡ [TV Dispatch] Đã gửi lệnh ADB dự phòng thành công tới Tivi Sharp")
-        except Exception as e:
-            print(f"[TV Dispatch] Lỗi gửi lệnh: {e}")
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1.2)
+            s.connect((dev_ip, dev_port))
+            packet = {
+                "raw_text": raw_text,
+                "action": action_data.get("action", ""),
+                "query": action_data.get("query", ""),
+                "target": action_data.get("target", ""),
+                "tts_reply": action_data.get("tts_reply", ""),
+                "actions": action_data.get("actions", [])
+            }
+            s.sendall((json.dumps(packet, ensure_ascii=False) + "\n").encode('utf-8'))
+            s.close()
+            sent_via_tcp = True
+            print(f"⚡ [LAN Dispatch] Đã gửi lệnh TCP thành công tới {dev_name} ({dev_ip}:{dev_port})")
+        except Exception:
+            pass
+
+        # Nếu TCP chưa mở hoặc ở ngoài app, gửi qua ADB Wi-Fi dự phòng
+        if not sent_via_tcp:
+            try:
+                cmd = raw_text if raw_text else action_data.get("query", "")
+                adb_cmd = f'adb -s {dev_adb} shell am broadcast -a com.duytv.app.VOICE_COMMAND --es command "{cmd}"'
+                os.system(adb_cmd)
+                print(f"⚡ [ADB Dispatch] Đã gửi lệnh ADB dự phòng tới {dev_name} ({dev_adb})")
+            except Exception as e:
+                print(f"[Dispatch Error] Không thể gửi lệnh tới {dev_name}: {e}")
 
 def transcribe_audio_whisper_or_google(wav_bytes):
     """
