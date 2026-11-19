@@ -579,6 +579,23 @@ object VoiceIntentHelper {
                                 }
                             }
                         }
+                        VoiceCommand.SystemActionType.WAKEUP -> {
+                            speak("Bật màn hình", "Dạ, đã bật màn hình cho anh") {
+                                try {
+                                    val pm = appContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                                    @Suppress("DEPRECATION")
+                                    val wl = pm?.newWakeLock(
+                                        android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                                        android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                                        android.os.PowerManager.ON_AFTER_RELEASE,
+                                        "DuyTV:ScreenWakeUpAction"
+                                    )
+                                    wl?.acquire(3000)
+                                    wl?.release()
+                                } catch (_: Exception) {}
+                                onExternalActionDone()
+                            }
+                        }
                         VoiceCommand.SystemActionType.BACK -> {
                             speak("Quay lại", "Dạ, quay lại") {
                                 if (!DuyVoiceAccessibilityService.performTvGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)) {
@@ -698,6 +715,7 @@ object VoiceIntentHelper {
                 }
                 "system_action" -> {
                     val sysType = when {
+                        target.contains("wake") || target.contains("open") || target.contains("on") -> VoiceCommand.SystemActionType.WAKEUP
                         target.contains("back") -> VoiceCommand.SystemActionType.BACK
                         target.contains("power") || target.contains("lock") -> VoiceCommand.SystemActionType.POWER
                         target.contains("recent") -> VoiceCommand.SystemActionType.RECENTS

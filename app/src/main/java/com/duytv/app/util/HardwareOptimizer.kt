@@ -178,23 +178,23 @@ object HardwareOptimizer {
             DefaultLoadControl.Builder()
                 .setAllocator(allocator)
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ 2500,
-                    /* maxBufferMs = */ 15000,
-                    /* bufferForPlaybackMs = */ 1200,
-                    /* bufferForPlaybackAfterRebufferMs = */ 2500
+                    /* minBufferMs = */ 1500,
+                    /* maxBufferMs = */ 12000,
+                    /* bufferForPlaybackMs = */ 400, // Instant play in 400ms (cắt giảm từ 1200ms xuống 400ms)
+                    /* bufferForPlaybackAfterRebufferMs = */ 800
                 )
                 .setBackBuffer(0, false)
-                .setTargetBufferBytes(if (profile.isLowRamDevice) 16 * 1024 * 1024 else 24 * 1024 * 1024)
+                .setTargetBufferBytes(if (profile.isLowRamDevice) 12 * 1024 * 1024 else 20 * 1024 * 1024)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         } else {
             DefaultLoadControl.Builder()
                 .setAllocator(allocator)
                 .setBufferDurationsMs(
-                    profile.vodMinBufferMs.coerceIn(4000, 15000),
-                    profile.vodMaxBufferMs.coerceIn(12000, 30000),
-                    1_500,
-                    2_500
+                    profile.vodMinBufferMs.coerceIn(3000, 12000),
+                    profile.vodMaxBufferMs.coerceIn(10000, 25000),
+                    /* bufferForPlaybackMs = */ 600, // Khởi động phim trong 600ms
+                    /* bufferForPlaybackAfterRebufferMs = */ 1200
                 )
                 .setBackBuffer(if (profile.isLowRamDevice) 5000 else 15000, false)
                 .setTargetBufferBytes(profile.vodTargetBufferBytes)

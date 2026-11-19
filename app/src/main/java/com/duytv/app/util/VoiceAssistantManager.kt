@@ -39,6 +39,40 @@ class VoiceAssistantManager(
     private var hasDispatchedResult = false
     private var lastPartialMatches: List<String> = emptyList()
     private var resetRunnable: Runnable? = null
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+    private var audioFocusRequest: android.media.AudioFocusRequest? = null
+
+    private fun requestAudioDucking() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                if (audioFocusRequest == null) {
+                    val attrs = android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                    audioFocusRequest = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                        .setAudioAttributes(attrs)
+                        .build()
+                }
+                audioFocusRequest?.let { audioManager?.requestAudioFocus(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(null, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun abandonAudioDucking() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(null)
+            }
+        } catch (_: Exception) {}
+    }
+
     private val silenceWatchdog = Runnable {
         if (isListening) {
             Log.d(TAG, "Silence watchdog triggered (1300ms sau khi nói) -> gọi stopListening()")
@@ -93,11 +127,13 @@ class VoiceAssistantManager(
                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 800)
                 }
 
+                requestAudioDucking()
                 speechRecognizer?.startListening(intent)
                 isListening = true
                 _state.value = VoiceState.Listening(0f)
                 Log.d(TAG, "speechRecognizer.startListening started successfully")
             } catch (e: Exception) {
+                abandonAudioDucking()
                 Log.e(TAG, "Lỗi khi bắt đầu nhận diện giọng nói", e)
                 _state.value = VoiceState.Error("Không thể kích hoạt micro: ${e.message}")
                 isListening = false
@@ -122,6 +158,7 @@ class VoiceAssistantManager(
 
     fun cancel() {
         mainHandler.post {
+            abandonAudioDucking()
             resetRunnable?.let { mainHandler.removeCallbacks(it) }
             mainHandler.removeCallbacks(silenceWatchdog)
             isListening = false
@@ -174,6 +211,7 @@ class VoiceAssistantManager(
     private fun scheduleReset(delayMs: Long) {
         resetRunnable?.let { mainHandler.removeCallbacks(it) }
         resetRunnable = Runnable {
+            abandonAudioDucking()
             _state.value = VoiceState.Idle
         }
         mainHandler.postDelayed(resetRunnable!!, delayMs)
@@ -181,6 +219,7 @@ class VoiceAssistantManager(
 
     fun destroy() {
         mainHandler.post {
+            abandonAudioDucking()
             resetRunnable?.let { mainHandler.removeCallbacks(it) }
             isListening = false
             try {

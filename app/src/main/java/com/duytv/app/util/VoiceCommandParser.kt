@@ -48,7 +48,7 @@ sealed class VoiceCommand {
     data class AdjustVolume(val isIncrease: Boolean) : VoiceCommand()
     data class SetVolumePercent(val percent: Int) : VoiceCommand()
     object ToggleMute : VoiceCommand()
-    enum class SystemActionType { HOME, BACK, POWER, RECENTS, QUICK_SETTINGS, SCREENSHOT }
+    enum class SystemActionType { HOME, BACK, POWER, WAKEUP, RECENTS, QUICK_SETTINGS, SCREENSHOT }
     data class SystemAction(val type: SystemActionType) : VoiceCommand()
     data class SwitchHdmiInput(val inputQuery: String) : VoiceCommand()
     enum class MediaKeyAction { PLAY_PAUSE, NEXT, PREVIOUS, FAST_FORWARD, REWIND }
@@ -440,6 +440,10 @@ object VoiceCommandParser {
         if (core.contains("quay lại") || core.contains("trở lại") || core == "lùi lại" || core == "thoát" ||
             core.contains("phim dở quá") || core.contains("đổi phim khác") || core.contains("không coi nữa") || core.contains("không xem nữa")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.BACK)
+        }
+        if (core.contains("sáng màn hình") || core.contains("bật màn hình") || core.contains("mở màn hình") ||
+            core.contains("đánh thức tivi") || core.contains("thức dậy")) {
+            return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.WAKEUP)
         }
         if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") ||
             core.contains("đi ngủ") || core.contains("tắt đi ngủ") || core.contains("tao đi ngủ") || core.contains("ngủ thôi")) {

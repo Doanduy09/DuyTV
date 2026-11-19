@@ -1543,6 +1543,21 @@ private fun PlayerScreenContent(
                                 speakAndReport("Quay lại", "Dạ, quay lại")
                                 onClose()
                             }
+                            VoiceCommand.SystemActionType.WAKEUP -> {
+                                speakAndReport("Bật màn hình", "Dạ, đã bật màn hình cho anh")
+                                try {
+                                    val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                                    @Suppress("DEPRECATION")
+                                    val wl = pm?.newWakeLock(
+                                        android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                                        android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                                        android.os.PowerManager.ON_AFTER_RELEASE,
+                                        "DuyTV:ScreenWakeUpAction"
+                                    )
+                                    wl?.acquire(3000)
+                                    wl?.release()
+                                } catch (_: Exception) {}
+                            }
                             VoiceCommand.SystemActionType.POWER -> {
                                 speakAndReport("Đang tắt...", "Dạ, tạm nghỉ màn hình")
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
