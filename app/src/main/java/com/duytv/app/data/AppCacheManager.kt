@@ -125,6 +125,7 @@ object AppCacheManager {
 
     fun init(context: Context, defaultOfficialChannels: List<TvChannel> = emptyList()) {
         appContext = context.applicationContext
+        DeadLinkManager.init(context)
         val prefs = appContext!!.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
         val savedFavs = prefs.getStringSet(KEY_FAV_NAMES, emptySet()) ?: emptySet()
         favoriteChannelNames = savedFavs
@@ -220,40 +221,20 @@ object AppCacheManager {
     }
 
     // =========================================================================
-    // 20 SMART UPGRADES (v1.9.8): Stream Health Memory, Player Prefs, L1 Detail Cache, Recent Searches
+    // SMART DEAD LINK & STREAM HEALTH (Persistent via DeadLinkManager)
     // =========================================================================
-    private val workingStreamByChannel = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val failedStreamUntilMillis = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val movieDetailL1Cache = java.util.concurrent.ConcurrentHashMap<String, MovieDetailResponse>()
 
     fun markStreamSuccess(channelName: String, url: String) {
-        if (channelName.isNotBlank() && url.isNotBlank()) {
-            workingStreamByChannel[channelName.trim().uppercase()] = url
-            failedStreamUntilMillis.remove(url)
-        }
+        DeadLinkManager.markStreamSuccess(channelName, url)
     }
 
-    fun markStreamFailed(url: String) {
-        if (url.isNotBlank()) {
-            failedStreamUntilMillis[url] = System.currentTimeMillis() + 15 * 60_000L // Cách ly 15 phút
-        }
+    fun markStreamFailed(url: String, isFatal: Boolean = false) {
+        DeadLinkManager.markStreamFailed(url, isFatal)
     }
 
     fun rankHealthyStreams(channelName: String, urls: List<String>): List<String> {
-        val distinctUrls = urls.filter { it.isNotBlank() }.distinct()
-        if (distinctUrls.size <= 1) return distinctUrls
-        val now = System.currentTimeMillis()
-        val bestUrl = workingStreamByChannel[channelName.trim().uppercase()]
-        val healthy = distinctUrls.filter { url ->
-            val until = failedStreamUntilMillis[url] ?: 0L
-            until <= now
-        }
-        val baseList = healthy.ifEmpty { distinctUrls }
-        return if (bestUrl != null && baseList.contains(bestUrl)) {
-            listOf(bestUrl) + baseList.filterNot { it == bestUrl }
-        } else {
-            baseList
-        }
+        return DeadLinkManager.rankHealthyStreams(channelName, urls)
     }
 
     fun getCachedMovieDetail(slug: String): MovieDetailResponse? = movieDetailL1Cache[slug]

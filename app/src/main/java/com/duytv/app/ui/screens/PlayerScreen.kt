@@ -288,7 +288,7 @@ private fun PlayerScreenContent(
                 add(currentStreamUrl)
                 addAll(backupUrls)
             }.filter { MovieRepository.isPlayableVodStreamOrToken(it) }.distinct()
-            return rawVod.ifEmpty { listOf(currentStreamUrl) }
+            return com.duytv.app.data.DeadLinkManager.rankHealthyStreams(currentTitle, rawVod).ifEmpty { listOf(currentStreamUrl) }
         }
         val ch = availableChannels.getOrNull(currentChannelIndex)
         val rawUrls = if (ch != null) {
@@ -742,16 +742,13 @@ private fun PlayerScreenContent(
                             frozenTicks = 0
                             val allUrls = getActiveLiveUrls()
                             if (allUrls.size > 1) {
-                                if (isLive) AppCacheManager.markStreamFailed(currentStreamUrl)
-                                val backupCandidates = allUrls.filterNot { it == currentStreamUrl }
-                                val fastestUrl = if (isLive) {
+                                AppCacheManager.markStreamFailed(currentStreamUrl, isFatal = false)
+                                val backupCandidates = allUrls.filterNot { it == currentStreamUrl || com.duytv.app.data.DeadLinkManager.isDead(it) }
+                                val fastestUrl = if (isLive && backupCandidates.isNotEmpty()) {
                                     com.duytv.app.util.HlsAdBlockEngine.raceFastestHealthyStream(backupCandidates, 1100L)
-                                } else null
-                                val nextIdx = if (fastestUrl != null) {
-                                    allUrls.indexOf(fastestUrl).takeIf { it >= 0 } ?: ((currentBackupIndex + 1) % allUrls.size)
-                                } else {
-                                    (currentBackupIndex + 1) % allUrls.size
-                                }
+                                } else backupCandidates.firstOrNull()
+                                val nextUrl = fastestUrl ?: allUrls.firstOrNull { it != currentStreamUrl }
+                                val nextIdx = if (nextUrl != null) allUrls.indexOf(nextUrl).coerceAtLeast(0) else (currentBackupIndex + 1) % allUrls.size
                                 currentBackupIndex = nextIdx
                                 loadLiveStreamUrl(allUrls[nextIdx])
                             }
@@ -991,17 +988,23 @@ private fun PlayerScreenContent(
                     }
                     return
                 }
-                val allUrls = getActiveLiveUrls()
-                if (isLive) {
-                    AppCacheManager.markStreamFailed(currentStreamUrl)
-                }
+                val isFatal = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+                AppCacheManager.markStreamFailed(currentStreamUrl, isFatal = isFatal)
 
-                if (currentBackupIndex + 1 < allUrls.size) {
-                    val nextBackupIdx = currentBackupIndex + 1
-                    currentBackupIndex = nextBackupIdx
+                val allUrls = getActiveLiveUrls()
+                val remainingHealthy = allUrls.filterNot { it == currentStreamUrl || com.duytv.app.data.DeadLinkManager.isDead(it) }
+                val targetNextUrl = remainingHealthy.firstOrNull() ?: allUrls.getOrNull(currentBackupIndex + 1)
+
+                if (targetNextUrl != null && targetNextUrl != currentStreamUrl) {
+                    currentBackupIndex = allUrls.indexOf(targetNextUrl).coerceAtLeast(0)
                     errorMessage = null
                     channelOsdVisible = false
-                    loadLiveStreamUrl(allUrls[nextBackupIdx])
+                    loadLiveStreamUrl(targetNextUrl)
                 } else {
                     if (!isLive) {
                         errorMessage = "Đang làm mới luồng phát dự phòng..."
@@ -1857,7 +1860,8 @@ private fun PlayerScreenContent(
                 executeVoiceCommand(localCmd)
             } else {
                 // 3. CHỈ KHI hoàn toàn không khớp bất kỳ lệnh nào (câu hỏi tự do, trò chuyện, tìm kiếm nâng cao...)
-                // MỚI GỬI LÊN TRỢ LÝ GEMINI PRO BRAIN (qua LAN 192.168.1.189:8100 hoặc Direct Gemini Cloud)
+                // MỚI GỬI LÊN TRỢ LÝ GEMINI BRAIN (qua LAN 192.168.1.189:8100 hoặc Direct Gemini Cloud)
+                reportProcessing("🤖 Đang hỏi Trợ lý AI DuyTV...")
                 val currentMovie = movieTitle
                 val currentEp = episodeName
                 val currentSec = (currentExoPlayer?.currentPosition ?: 0L) / 1000L

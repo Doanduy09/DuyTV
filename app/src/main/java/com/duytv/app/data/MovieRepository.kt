@@ -37,10 +37,24 @@ class MovieRepository {
         val coocaaUrl = RemoteConfigManager.COOCAA_SPORTS_M3U
         val iptvOrgVnUrl = RemoteConfigManager.IPTV_ORG_VN_M3U
         val iptvOrgSportsUrl = RemoteConfigManager.IPTV_ORG_SPORTS_M3U
+        val giangnamUrl = RemoteConfigManager.GIANGNAM_IPTV_M3U
         val customEntries = RemoteConfigManager.getCustomSportsSources()
 
         val khogaApiDef = async { fetchKhoGaLiveApiMatches(now) }
         val thapcamDef = async { fetchThapCamLiveMatches(now) }
+
+        val giangnamDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(giangnamUrl)
+                    .header("User-Agent", "TiviMate/4.7.0")
+                    .build()
+                val res = client.newCall(req).execute()
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (_: Exception) {
+                null
+            }
+        }
 
         val a3IptvDef = async {
             try {
@@ -198,6 +212,7 @@ class MovieRepository {
         val coocaaBody = coocaaDef.await()
         val iptvOrgVnBody = iptvOrgVnDef.await()
         val iptvOrgSportsBody = iptvOrgSportsDef.await()
+        val giangnamBody = giangnamDef.await()
         val customResults = customDefs.map { it.await() }
 
         val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
@@ -207,17 +222,18 @@ class MovieRepository {
         val parsedCoocaa = if (!coocaaBody.isNullOrBlank()) parseM3uData(coocaaBody, "Thể Thao") else TvSportsData()
         val parsedIptvOrgVn = if (!iptvOrgVnBody.isNullOrBlank()) parseM3uData(iptvOrgVnBody, "Truyền Hình") else TvSportsData()
         val parsedIptvOrgSports = if (!iptvOrgSportsBody.isNullOrBlank()) parseM3uData(iptvOrgSportsBody, "Thể Thao") else TvSportsData()
+        val parsedGiangnam = if (!giangnamBody.isNullOrBlank()) parseM3uData(giangnamBody, "Bóng Đá & Truyền Hình") else TvSportsData()
 
-        // 1. Gộp tất cả kênh truyền hình (Chính thống + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao CoBan66 & CooCaa)
+        // 1. Gộp tất cả kênh truyền hình (Chính thống + GiangNam All-In-One + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao CoBan66 & CooCaa)
         val officialChannels = getVerifiedOfficialChannels()
         val customChannels = customResults.flatMap { it.channels }
-        val rawAllChannels = officialChannels + parsedA3.channels + customChannels + parsedTv.channels + parsedIptvOrgVn.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels + parsedIptvOrgSports.channels
+        val rawAllChannels = officialChannels + parsedGiangnam.channels + parsedA3.channels + customChannels + parsedTv.channels + parsedIptvOrgVn.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels + parsedIptvOrgSports.channels
         val mergedChannels = mergeAndDeduplicateChannels(rawAllChannels)
 
-        // 2. Gộp các trận bóng từ tất cả nguồn (Nguồn tự thêm + Kho Gà Live API + Thập Cẩm TV + Kho Gà M3U + IPTV) & lọc bỏ trận đã kết thúc (FINISHED)
+        // 2. Gộp các trận bóng từ tất cả nguồn (Nguồn tự thêm + Kho Gà Live API + Thập Cẩm TV + GiangNam + Kho Gà M3U + IPTV) & lọc bỏ trận đã kết thúc (FINISHED)
         val customMatches = customResults.flatMap { it.matches }
         val rawMatches = mergeAndDeduplicateMatches(
-            customMatches + khogaApiMatches + thapcamMatches + parsedSports.matches + parsedCoban.matches + parsedCoocaa.matches + parsedTv.matches + parsedA3.matches
+            customMatches + khogaApiMatches + thapcamMatches + parsedGiangnam.matches + parsedSports.matches + parsedCoban.matches + parsedCoocaa.matches + parsedTv.matches + parsedA3.matches
         )
         val activeMatches = rawMatches.filter { m ->
             m.streams.isNotEmpty() && MatchStateHelper.calculateMatchState(m.kickoffTime, now).status != MatchStatus.FINISHED
@@ -356,15 +372,17 @@ class MovieRepository {
                     val rawUrls = ch.allStreamUrls().filter { rankStreamQuality(it) > 0 }
                     if (rawUrls.isEmpty()) continue
                     val sortedUrls = rawUrls.sortedByDescending { rankStreamQuality(it) }
+                    val healthyRanked = DeadLinkManager.rankHealthyStreams(ch.name, sortedUrls)
                     mergedMap[key] = ch.copy(
-                        streamUrl = sortedUrls.first(),
-                        backupUrls = sortedUrls.drop(1)
+                        streamUrl = healthyRanked.first(),
+                        backupUrls = healthyRanked.drop(1)
                     )
                 } else {
                     val combinedUrls = (existing.allStreamUrls() + ch.allStreamUrls()).distinct()
                         .filter { rankStreamQuality(it) > 0 }
                     if (combinedUrls.isEmpty()) continue
                     val sortedUrls = combinedUrls.sortedByDescending { rankStreamQuality(it) }
+                    val healthyRanked = DeadLinkManager.rankHealthyStreams(existing.name, sortedUrls)
                     val bestLogo = if (!existing.logoUrl.isNullOrBlank() &&
                         !existing.logoUrl.contains("vZYlGIW") &&
                         !existing.logoUrl.contains("qWWpYRR") &&
@@ -378,8 +396,8 @@ class MovieRepository {
                     }
                     mergedMap[key] = existing.copy(
                         logoUrl = bestLogo,
-                        streamUrl = sortedUrls.first(),
-                        backupUrls = sortedUrls.drop(1)
+                        streamUrl = healthyRanked.first(),
+                        backupUrls = healthyRanked.drop(1)
                     )
                 }
             }

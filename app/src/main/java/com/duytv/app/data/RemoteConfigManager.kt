@@ -30,6 +30,7 @@ object RemoteConfigManager {
     const val COBAN66_SPORTS_M3U = "https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0"
     const val COOCAA_SPORTS_M3U = "https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u"
     const val DEFAULT_TV_M3U = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
+    const val GIANGNAM_IPTV_M3U = "https://raw.githubusercontent.com/giangnam0201/All-In-One-IPTV/main/channels.m3u"
     const val IPTV_ORG_VN_M3U = "https://iptv-org.github.io/iptv/countries/vn.m3u"
     const val IPTV_ORG_SPORTS_M3U = "https://iptv-org.github.io/iptv/categories/sports.m3u"
     const val A3_IPTV_M3U = "http://a3iptv.goitoi.co/playlist.m3u?r2h-token=9Pzpebvhp40NGRbSMuid"
@@ -267,6 +268,7 @@ object RemoteConfigManager {
             "🔥 Thập Cẩm TV / AntLive (Dự Phòng #2 - Đa Server)" to THAPCAM_LIVE_URL,
             "🏆 CoBan66 Thể Thao & VTVcab (Dự Phòng #3)" to COBAN66_SPORTS_M3U,
             "⚡ CooCaa Bóng Đá Việt & ON Sports (Dự Phòng #4)" to COOCAA_SPORTS_M3U,
+            "📺 GiangNam All-In-One IPTV (424 Kênh & Thể Thao)" to GIANGNAM_IPTV_M3U,
             "📺 All-In-One IPTV (Truyền Hình & Thể Thao)" to DEFAULT_TV_M3U,
             "📋 Kho Gà M3U Paste (Dự Phòng #5)" to DEFAULT_SPORTS_M3U
         )

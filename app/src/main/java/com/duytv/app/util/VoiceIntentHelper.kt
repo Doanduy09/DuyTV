@@ -786,7 +786,7 @@ object VoiceIntentHelper {
             GeminiVoiceClient.recordTurn(rawQuery, localCmd::class.simpleName ?: "Executed")
             runAppCommand(localCmd)
         } else {
-            voiceManager.reportProcessing("Đang hỏi Trợ lý AI...")
+            voiceManager.reportProcessing("🤖 Đang hỏi Trợ lý AI DuyTV...")
             scope.launch {
                 val screenSnap = DuyVoiceAccessibilityService.captureScreenContext()
                 val liveContext = VoiceContext(

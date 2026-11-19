@@ -390,7 +390,8 @@ object VoiceCommandParser {
         val isFootballAdvisorIntent = !hasExplicitChannelCue && (
             core.contains("bóng đá") || core.contains("đá banh") || core.contains("trận nào") ||
             core.contains("ngoại hạng") || core.contains("cúp c1") || core.contains("champions league") ||
-            core.contains("v-league")
+            core.contains("v-league") || core.contains("lịch thi đấu") || core.contains("lịch bóng") ||
+            core.contains("tư vấn bóng") || core.contains("ai đang đá")
         )
         if (isFootballAdvisorIntent) {
             return VoiceCommand.AskFootballAdvisor
