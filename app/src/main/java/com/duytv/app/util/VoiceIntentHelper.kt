@@ -612,6 +612,10 @@ object VoiceIntentHelper {
                 }
                 is VoiceCommand.Unknown -> {
                     val rawLower = cmd.rawText.lowercase().trim()
+                    val isExplicitYt = rawLower.contains("youtube") || rawLower.contains("karaoke") ||
+                        rawLower.contains("nhạc") || rawLower.contains("ca sĩ") || rawLower.contains("bài hát") ||
+                        rawLower.contains("remix") || rawLower.contains("cover") || rawLower.contains("mv ")
+
                     if (isTvIntentQuery(rawLower)) {
                         val matched = VoiceCommandParser.matchTvChannel(rawLower, channels)
                         if (matched != null) {
@@ -627,13 +631,16 @@ object VoiceIntentHelper {
                         } else {
                             onExternalActionDone()
                         }
-                    } else if (cmd.rawText.isNotBlank()) {
+                    } else if (isExplicitYt) {
                         speak("YouTube: ${cmd.rawText.uppercase()}", "Dạ, em mở nội dung này trên YouTube cho anh") {
                             launchYouTubeSearch(appContext, cmd.rawText)
                             onExternalActionDone()
                         }
+                    } else if (rawLower.contains("phim") || rawLower.length >= 3) {
+                        val movieQuery = cmd.rawText.removePrefix("tìm phim").removePrefix("xem phim").removePrefix("mở phim").trim()
+                        runAppCommand(VoiceCommand.OpenMovie(movieQuery.ifBlank { cmd.rawText }))
                     } else {
-                        speak("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này") {
+                        speak("Chưa rõ lệnh", "Dạ, em chưa hiểu câu lệnh này, anh Duy nói lại giúp em nhé") {
                             onExternalActionDone()
                         }
                     }
@@ -703,6 +710,15 @@ object VoiceIntentHelper {
                 "ui_click" -> if (target.isNotBlank() || q.isNotBlank()) VoiceCommand.UiClickText(target.ifBlank { q }) else null
                 "ui_scroll" -> VoiceCommand.UiScroll(forward = !target.contains("up"))
                 "night_mode" -> VoiceCommand.ToggleNightMode
+                "playback_control" -> {
+                    val subQ = q.ifBlank { target }
+                    val parsed = VoiceCommandParser.parse(subQ, channels)
+                    if (parsed !is VoiceCommand.Unknown) parsed else null
+                }
+                "sleep_timer" -> {
+                    val mins = target.filter { it.isDigit() }.toIntOrNull() ?: 30
+                    VoiceCommand.SetSleepTimer(mins, "Hẹn giờ tắt sau $mins phút")
+                }
                 else -> null
             }
         }
@@ -732,6 +748,15 @@ object VoiceIntentHelper {
                             }
                             else -> runAppCommand(mapped)
                         }
+                    } else if (step.action == "playback_control") {
+                        val subQ = step.query ?: step.target ?: rawQuery
+                        val reParsed = VoiceCommandParser.parse(subQ, channels)
+                        if (reParsed !is VoiceCommand.Unknown) {
+                            runAppCommand(reParsed)
+                        }
+                    } else if (step.action == "sleep_timer") {
+                        val mins = step.target?.filter { it.isDigit() }?.toIntOrNull() ?: 30
+                        runAppCommand(VoiceCommand.SetSleepTimer(mins, "Hẹn giờ tắt sau $mins phút"))
                     } else if (step.action == "play_tv") {
                         val q = step.query ?: rawQuery
                         VoiceCommandParser.matchTvChannel(q, channels)?.let {

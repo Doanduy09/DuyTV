@@ -215,4 +215,40 @@ class VoiceCommandParserTest {
         val footballAsk = VoiceCommandParser.parse("hãy xem cho anh có bóng đá không", channelsWithMovieChannel)
         assertTrue("Expected AskFootballAdvisor but got $footballAsk", footballAsk is VoiceCommand.AskFootballAdvisor)
     }
+
+    @Test
+    fun `test natural colloquial Vietnamese voice commands`() {
+        // 1. Âm lượng tự nhiên
+        assertEquals(VoiceCommand.AdjustVolume(false), VoiceCommandParser.parse("hơi ồn quá", channels))
+        assertEquals(VoiceCommand.AdjustVolume(false), VoiceCommandParser.parse("bớt ồn đi em", channels))
+        assertEquals(VoiceCommand.AdjustVolume(true), VoiceCommandParser.parse("cho to lên nghe coi", channels))
+        assertEquals(VoiceCommand.ToggleMute, VoiceCommandParser.parse("im lặng", channels))
+
+        // 2. Chuyển kênh thời sự / miền tây
+        val thoiSu = VoiceCommandParser.parse("bật thời sự", channels)
+        assertTrue(thoiSu is VoiceCommand.SwitchChannel)
+        assertTrue((thoiSu as VoiceCommand.SwitchChannel).channel.name.startsWith("VTV1", ignoreCase = true))
+
+        val mienTay = VoiceCommandParser.parse("bật phim miền tây", channels)
+        assertTrue(mienTay is VoiceCommand.SwitchChannel)
+        assertTrue((mienTay as VoiceCommand.SwitchChannel).channel.name.startsWith("THVL1", ignoreCase = true))
+
+        // 3. Tua và tập phim tự nhiên
+        assertEquals(VoiceCommand.NextEpisode, VoiceCommandParser.parse("tập này coi rồi", channels))
+        assertEquals(VoiceCommand.NextEpisode, VoiceCommandParser.parse("chán tập này quá qua tập sau", channels))
+        assertEquals(VoiceCommand.PreviousEpisode, VoiceCommandParser.parse("lùi lại tập trước", channels))
+
+        val tuaToi = VoiceCommandParser.parse("tua qua đoạn này", channels)
+        assertTrue(tuaToi is VoiceCommand.SeekDelta && tuaToi.deltaSeconds == 30)
+
+        val tuaLui = VoiceCommandParser.parse("tua lại chút", channels)
+        assertTrue(tuaLui is VoiceCommand.SeekDelta && tuaLui.deltaSeconds == -15)
+
+        // 4. Thoát đổi phim / tắt đi ngủ
+        val doiPhim = VoiceCommandParser.parse("phim dở quá đổi phim khác", channels)
+        assertTrue(doiPhim is VoiceCommand.SystemAction && (doiPhim as VoiceCommand.SystemAction).type == VoiceCommand.SystemActionType.BACK)
+
+        val diNgu = VoiceCommandParser.parse("tắt tivi tao đi ngủ", channels)
+        assertTrue(diNgu is VoiceCommand.SystemAction && (diNgu as VoiceCommand.SystemAction).type == VoiceCommand.SystemActionType.POWER)
+    }
 }

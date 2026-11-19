@@ -163,49 +163,71 @@ object GeminiVoiceClient {
         }
 
         return """
-            Trợ lý AI DuyTV cho Anh Duy trên Android TV. Ngữ cảnh:$contextInfo
-            Trả về JSON hợp lệ theo schema:
+            BẠN LÀ BỘ ĐIỀU KHIỂN HỆ ĐIỀU HÀNH ANDROID TV TÍCH HỢP TRỰC TIẾP TRÊN TIVI CỦA ANH DUY (DUYTV).
+            BẠN CÓ TOÀN QUYỀN ĐIỀU KHIỂN HỆ THỐNG QUA ACCESSIBILITY SERVICE VÀ MEDIA CONTROLLER.
+            TUYỆT ĐỐI KHÔNG TỪ CHỐI, KHÔNG NÓI 'EM LÀ AI KHÔNG TỰ BẤM ĐƯỢC REMOTE'.
+            BẮT BUỘC TRẢ VỀ DUY NHẤT 1 ĐỐI TƯỢNG JSON HỢP LỆ THEO SCHEMA (KHÔNG VIẾT CHỮ NÀO BÊN NGOÀI JSON).
+
+            Ngữ cảnh hiện tại của Tivi:$contextInfo
+
+            Schema JSON:
             {"action":"...","query":"...","target":"...","tts_reply":"1 câu thân mật xưng em với anh Duy","actions":[{"action":"...","query":"...","target":"..."}]}
-            Actions:
-            - play_tv(query=tên kênh VN), play_movie(query=tên phim), search_youtube(query=từ khóa)
-            - open_app(target=tên app), open_setting(target=wifi|bluetooth|sound|display|apps|date|accessibility|system)
-            - set_volume_percent(target=0..100), adjust_volume(target=up|down|mute), switch_hdmi(target=hdmi 1|hdmi 2|av)
-            - media_control(target=play_pause|next|previous|fast_forward|rewind), system_action(target=home|back|recents|quick_settings|screenshot|power)
-            - ui_click(target=chữ trên nút), ui_scroll(target=down|up), night_mode, sleep_timer(target=phút), playback_control(query=lệnh), chat
-            Nếu câu ghép nhiều bước -> điền mảng actions.
+
+            Danh sách Actions:
+            - play_tv(query=tên kênh): VTV1, VTV3, HTV7, THVL1, K+ SPORT, ON Sports... (VD: "thời sự" -> query="VTV1")
+            - play_movie(query=tên phim): Phát phim trên DuyTV
+            - search_youtube(query=từ khóa): Chỉ khi yêu cầu YouTube, bài hát, karaoke
+            - adjust_volume(target=up|down|mute): "hơi ồn", "cho nhỏ lại" -> target="down"; "to lên" -> target="up"
+            - set_volume_percent(target=0..100): Âm lượng cụ thể
+            - playback_control(query=lệnh): tua tới 30 giây, tua lại 15 giây, tập tiếp, tập trước, tạm dừng, tiếp tục
+            - system_action(target=home|back|power|recents|screenshot): back (khi nói "đổi phim khác", "phim dở quá", "thoát"), power (khi nói "đi ngủ", "tắt tivi")
+            - open_app(target=tên app), open_setting(target=wifi|bluetooth|sound|display|apps|accessibility)
+            - sleep_timer(target=số phút)
+            - chat: Trả lời trò chuyện tự nhiên với anh Duy khi không phải lệnh tivi
+
+            Ví dụ chuẩn (Few-Shot):
+            - "hơi ồn" -> {"action":"adjust_volume","target":"down","tts_reply":"Dạ em giảm âm lượng xuống cho anh Duy ngay ạ"}
+            - "bật thời sự" -> {"action":"play_tv","query":"VTV1","tts_reply":"Dạ em mở bản tin thời sự VTV1 cho anh Duy đây ạ"}
+            - "phim này dở quá đổi phim khác" -> {"action":"system_action","target":"back","tts_reply":"Dạ em thoát ra để anh Duy chọn phim khác ạ"}
+            - "tắt tivi đi ngủ" -> {"action":"system_action","target":"power","tts_reply":"Dạ chúc anh Duy ngủ ngon ạ, em tắt tivi ngay đây"}
+            - "bớt ồn rồi mở vtv3" -> {"actions":[{"action":"adjust_volume","target":"down"},{"action":"play_tv","query":"VTV3"}],"tts_reply":"Dạ em giảm nhỏ lại và chuyển VTV3 cho anh Duy liền ạ"}
+            - "tập này coi rồi" -> {"action":"playback_control","query":"tập tiếp","tts_reply":"Dạ em mở tập tiếp theo cho anh Duy nhé"}
         """.trimIndent()
     }
 
     internal fun parseResponseJson(rawContent: String): GeminiVoiceAction? {
         return try {
             val jsonStr = extractJsonString(rawContent)
-            val parsedObj = gson.fromJson(jsonStr, JsonObject::class.java) ?: return null
-            val action = parsedObj.get("action")?.takeIf { !it.isJsonNull }?.asString ?: "chat"
-            val query = parsedObj.get("query")?.takeIf { !it.isJsonNull }?.asString
-            val target = parsedObj.get("target")?.takeIf { !it.isJsonNull }?.asString
-            val ttsReply = parsedObj.get("tts_reply")?.takeIf { !it.isJsonNull }?.asString
-            val subActions = mutableListOf<GeminiVoiceAction>()
-            val arr = parsedObj.getAsJsonArray("actions")
-            if (arr != null) {
-                for (el in arr) {
-                    if (!el.isJsonObject) continue
-                    val obj = el.asJsonObject
-                    val subAct = obj.get("action")?.takeIf { !it.isJsonNull }?.asString ?: continue
-                    val subQuery = obj.get("query")?.takeIf { !it.isJsonNull }?.asString
-                    val subTarget = obj.get("target")?.takeIf { !it.isJsonNull }?.asString
-                    subActions.add(GeminiVoiceAction(action = subAct, query = subQuery, target = subTarget))
+            val parsedObj = gson.fromJson(jsonStr, JsonObject::class.java)
+            if (parsedObj != null) {
+                val action = parsedObj.get("action")?.takeIf { !it.isJsonNull }?.asString ?: "chat"
+                val query = parsedObj.get("query")?.takeIf { !it.isJsonNull }?.asString
+                val target = parsedObj.get("target")?.takeIf { !it.isJsonNull }?.asString
+                val ttsReply = parsedObj.get("tts_reply")?.takeIf { !it.isJsonNull }?.asString
+                val subActions = mutableListOf<GeminiVoiceAction>()
+                val arr = parsedObj.getAsJsonArray("actions")
+                if (arr != null) {
+                    for (el in arr) {
+                        if (!el.isJsonObject) continue
+                        val obj = el.asJsonObject
+                        val subAct = obj.get("action")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                        val subQuery = obj.get("query")?.takeIf { !it.isJsonNull }?.asString
+                        val subTarget = obj.get("target")?.takeIf { !it.isJsonNull }?.asString
+                        subActions.add(GeminiVoiceAction(action = subAct, query = subQuery, target = subTarget))
+                    }
                 }
+                return GeminiVoiceAction(
+                    action = action,
+                    query = query,
+                    ttsReply = ttsReply,
+                    target = target,
+                    actions = subActions
+                )
             }
-            GeminiVoiceAction(
-                action = action,
-                query = query,
-                ttsReply = ttsReply,
-                target = target,
-                actions = subActions
-            )
+            GeminiVoiceAction(action = "chat", ttsReply = rawContent.trim())
         } catch (e: Exception) {
-            Log.w(TAG, "parseResponseJson lỗi: ${e.message}")
-            null
+            Log.w(TAG, "parseResponseJson fallback to chat: ${e.message}")
+            GeminiVoiceAction(action = "chat", ttsReply = rawContent.trim())
         }
     }
 
@@ -236,7 +258,10 @@ object GeminiVoiceClient {
             val reqBodyJson = JsonObject().apply {
                 addProperty("model", "gemini-2.5-flash")
                 add("messages", gson.toJsonTree(messages))
-                addProperty("temperature", 0.2)
+                addProperty("temperature", 0.1)
+                add("response_format", JsonObject().apply {
+                    addProperty("type", "json_object")
+                })
             }
 
             val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -346,15 +371,21 @@ object GeminiVoiceClient {
     }
 
     private fun extractJsonString(raw: String): String {
-        var str = raw.trim()
-        if (str.startsWith("```json")) {
-            str = str.removePrefix("```json").trim()
-        } else if (str.startsWith("```")) {
-            str = str.removePrefix("```").trim()
+        val str = raw.trim()
+        val firstBrace = str.indexOf('{')
+        val lastBrace = str.lastIndexOf('}')
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            return str.substring(firstBrace, lastBrace + 1).trim()
         }
-        if (str.endsWith("```")) {
-            str = str.removeSuffix("```").trim()
+        var clean = str
+        if (clean.startsWith("```json")) {
+            clean = clean.removePrefix("```json").trim()
+        } else if (clean.startsWith("```")) {
+            clean = clean.removePrefix("```").trim()
         }
-        return str.trim()
+        if (clean.endsWith("```")) {
+            clean = clean.removeSuffix("```").trim()
+        }
+        return clean.trim()
     }
 }

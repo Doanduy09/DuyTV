@@ -1,7 +1,7 @@
 {
-  "versionCode": 76,
-  "versionName": "2.6.0",
+  "versionCode": 77,
+  "versionName": "2.6.1",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật v2.6.0 (Build #76): Tối ưu Dynamic LoadControl & 0-backbuffer giải phóng 20MB RAM, DNS-over-HTTPS (DoH Cloudflare 1.1.1.1 & Google) chống nhà mạng chặn link bóng đá, tích hợp Live EPG siêu nhẹ O(1) hiển thị lịch phát sóng trên OSD và thẻ kênh, AI Voice tự động nhận diện và mở trực tiếp trận bóng đá đang phát."
+  "releaseNotes": "Bản Cập Nhật v2.6.1 (Build #77): Nâng cấp Đột Phá AI Voice Ngôn Ngữ Tự Nhiên (100% Natural Vietnamese NLU) — hiểu trọn vẹn văn phong đời thường ('hơi ồn', 'bớt ồn đi em', 'to lên nghe coi', 'bật thời sự', 'phim miền tây', 'tập này coi rồi', 'tua qua đoạn này', 'tua lại chút', 'phim dở quá đổi phim khác', 'tắt tivi đi ngủ'); Xóa bỏ hoàn toàn bẫy tự động nhảy vào YouTube; Hệ thống Few-Shot OS Controller ép chuẩn JSON và fallback đàm thoại thân mật mượt mà với anh Duy."
 }

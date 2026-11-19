@@ -386,7 +386,9 @@ object VoiceCommandParser {
         // Chỉ chạy khi câu lệnh KHÔNG phải là yêu cầu mở phim / danh mục phim hoặc hỏi tư vấn bóng đá
         val hasExplicitChannelCue = core.contains("kênh") || core.contains("đài") ||
             core.contains("vtv") || core.contains("htv") || core.contains("vtc") ||
-            core.contains("thvl") || core.contains("sctv") || core.contains("k+")
+            core.contains("thvl") || core.contains("sctv") || core.contains("k+") ||
+            core.contains("thời sự") || core.contains("tin tức") || core.contains("miền tây") ||
+            core.contains("vĩnh long") || core.contains("đồng tháp")
         val isFootballAdvisorIntent = !hasExplicitChannelCue && (
             core.contains("bóng đá") || core.contains("đá banh") || core.contains("trận nào") ||
             core.contains("ngoại hạng") || core.contains("cúp c1") || core.contains("champions league") ||
@@ -396,7 +398,7 @@ object VoiceCommandParser {
         if (isFootballAdvisorIntent) {
             return VoiceCommand.AskFootballAdvisor
         }
-        val isMovieIntentNotChannel = core.contains("phim") && !hasExplicitChannelCue
+        val isMovieIntentNotChannel = (core.contains("phim") && !core.contains("phim miền tây") && !core.contains("phim vĩnh long")) && !hasExplicitChannelCue
         if (availableChannels.isNotEmpty() && !isMovieIntentNotChannel) {
             val channelMatch = matchTvChannel(core, availableChannels)
             if (channelMatch != null) {
@@ -412,13 +414,18 @@ object VoiceCommandParser {
                 return VoiceCommand.SetVolumePercent(pct)
             }
         }
-        if (core.contains("tăng âm") || core.contains("tăng loa") || core.contains("lớn hơn") || core.contains("to hơn") || core.contains("tăng volume") || core == "to lên") {
+        if (core.contains("tăng âm") || core.contains("tăng loa") || core.contains("lớn hơn") || core.contains("to hơn") ||
+            core.contains("tăng volume") || core.contains("to lên") || core.contains("lớn lên") || core.contains("cho to") ||
+            core.contains("nghe không rõ") || core.contains("nhỏ quá") || core.contains("bé quá") || core.contains("lớn tiếng") || core.contains("vặn to")) {
             return VoiceCommand.AdjustVolume(isIncrease = true)
         }
-        if (core.contains("giảm âm") || core.contains("giảm loa") || core.contains("nhỏ hơn") || core.contains("nhỏ lại") || core.contains("giảm volume") || core == "nhỏ xuống") {
+        if (core.contains("giảm âm") || core.contains("giảm loa") || core.contains("nhỏ hơn") || core.contains("nhỏ lại") ||
+            core.contains("giảm volume") || core.contains("nhỏ xuống") || core.contains("cho nhỏ") || core.contains("bớt ồn") ||
+            core.contains("hơi ồn") || core.contains("ồn quá") || core.contains("bé lại") || core.contains("cho bé") || core.contains("nhỏ bớt") || core.contains("vặn nhỏ")) {
             return VoiceCommand.AdjustVolume(isIncrease = false)
         }
-        if (core.contains("tắt tiếng") || core.contains("câm tiếng") || core.contains("tắt âm") || core.contains("mute") || core.contains("bật tiếng") || core.contains("mở tiếng")) {
+        if (core.contains("tắt tiếng") || core.contains("câm tiếng") || core.contains("tắt âm") || core.contains("mute") ||
+            core.contains("bật tiếng") || core.contains("mở tiếng") || core.contains("nghe điện thoại") || core.contains("yên lặng") || core.contains("im lặng")) {
             return VoiceCommand.ToggleMute
         }
 
@@ -430,10 +437,12 @@ object VoiceCommandParser {
         if (core.contains("về trang chủ") || core.contains("về màn hình chính") || core.contains("màn hình chính") || core.contains("về home") || core == "home" || core == "trang chủ") {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.HOME)
         }
-        if (core.contains("quay lại") || core.contains("trở lại") || core == "lùi lại" || core == "thoát") {
+        if (core.contains("quay lại") || core.contains("trở lại") || core == "lùi lại" || core == "thoát" ||
+            core.contains("phim dở quá") || core.contains("đổi phim khác") || core.contains("không coi nữa") || core.contains("không xem nữa")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.BACK)
         }
-        if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") || core.contains("đi ngủ")) {
+        if (core.contains("tắt tivi") || core.contains("tắt màn hình") || core.contains("tắt tv") ||
+            core.contains("đi ngủ") || core.contains("tắt đi ngủ") || core.contains("tao đi ngủ") || core.contains("ngủ thôi")) {
             return VoiceCommand.SystemAction(VoiceCommand.SystemActionType.POWER)
         }
         if (core.contains("đa nhiệm") || core.contains("ứng dụng gần đây") || core.contains("các app đang mở")) {
@@ -476,31 +485,41 @@ object VoiceCommandParser {
 
         // III. LỆNH ĐIỀU KHIỂN PHÁT (Playback Controls)
         when {
-            core.contains("kênh tiếp") || core.contains("tiếp theo") || core.contains("chuyển tiếp") || core.contains("kênh sau") -> {
+            core.contains("kênh tiếp") || core.contains("tiếp theo") || core.contains("chuyển tiếp") || core.contains("kênh sau") ||
+            core.contains("kênh khác") || core.contains("đổi kênh") -> {
                 return VoiceCommand.NextChannel
             }
-            core.contains("kênh trước") || core.contains("kênh lùi") || core.contains("kênh vừa xem") -> {
+            core.contains("kênh trước") || core.contains("kênh lùi") || core.contains("kênh vừa xem") ||
+            core.contains("kênh hồi nãy") || core.contains("quay lại kênh cũ") -> {
                 return VoiceCommand.PreviousChannel
             }
-            core.contains("tạm dừng") || core == "dừng" || core == "pause" -> {
+            core.contains("tạm dừng") || core == "dừng" || core == "pause" || core.contains("dừng lại") ||
+            core.contains("ngưng lại") || core.contains("chờ tí") || core == "đứng im" -> {
                 return VoiceCommand.Pause
             }
-            core.contains("phát tiếp") || core.contains("tiếp tục") || core == "play" || core == "phát" -> {
+            core.contains("phát tiếp") || core.contains("tiếp tục") || core == "play" || core == "phát" ||
+            core.contains("coi tiếp") || core.contains("xem tiếp") || core.contains("chạy tiếp") -> {
                 return VoiceCommand.Resume
             }
-            core.contains("đổi nguồn") || core.contains("đổi server") || core.contains("server dự phòng") || core.contains("đổi link") -> {
+            core.contains("đổi nguồn") || core.contains("đổi server") || core.contains("server dự phòng") ||
+            core.contains("đổi link") || core.contains("link này lag") || core.contains("lag quá") ||
+            core.contains("giật quá") || core.contains("đứng hình") || core.contains("đổi luồng") -> {
                 return VoiceCommand.SwitchBackupSource
             }
-            core.contains("tràn viền") || core.contains("toàn màn hình") || core.contains("tỷ lệ") || core.contains("co giãn") -> {
+            core.contains("tràn viền") || core.contains("toàn màn hình") || core.contains("tỷ lệ") ||
+            core.contains("co giãn") || core.contains("phóng to màn hình") -> {
                 return VoiceCommand.ToggleStretch
             }
         }
 
         // III.B. LỆNH ĐIỀU KHIỂN VIDEO CHUYÊN SÂU (Tua thời gian & Chọn tập phim)
-        if (core.contains("tập tiếp") || core.contains("tập sau") || core.contains("qua tập mới")) {
+        if (core.contains("tập tiếp") || core.contains("tập sau") || core.contains("qua tập mới") ||
+            core.contains("tập này coi rồi") || core.contains("tập này xem rồi") || core.contains("chán tập này") ||
+            core.contains("qua tập sau") || core.contains("tập kế tiếp") || core.contains("chuyển tập sau")) {
             return VoiceCommand.NextEpisode
         }
-        if (core.contains("tập trước") || core.contains("lùi tập") || core.contains("tập vừa rồi")) {
+        if (core.contains("tập trước") || core.contains("lùi tập") || core.contains("tập vừa rồi") ||
+            core.contains("xem lại tập trước") || core.contains("lùi lại tập trước") || core.contains("chuyển tập trước")) {
             return VoiceCommand.PreviousEpisode
         }
 
@@ -541,6 +560,17 @@ object VoiceCommandParser {
                 val sec = if (unit == "phút" || unit == "p") num * 60 else num
                 return VoiceCommand.SeekDelta(-sec, "-${sec}s")
             }
+        }
+
+        // Tua ngôn ngữ tự nhiên không có số giây cụ thể (Natural seek conversational default)
+        if (core.contains("tua qua đoạn này") || core.contains("tua qua khúc này") || core.contains("bỏ qua đoạn này") ||
+            core.contains("qua đoạn này") || core == "tua nhanh" || core == "tua đi" || core == "tua tới" || core == "nhanh lên") {
+            return VoiceCommand.SeekDelta(30, "+30s")
+        }
+        if (core.contains("tua lại chút") || core.contains("tua lại tí") || core.contains("lùi lại chút") ||
+            core.contains("lùi lại tí") || core.contains("nghe không kịp") || core.contains("nghe không rõ đoạn này") ||
+            core.contains("xem lại đoạn này") || core == "tua lại" || core == "lùi lại") {
+            return VoiceCommand.SeekDelta(-15, "-15s")
         }
 
         // III.C. LỆNH ĐIỀU KHIỂN TÍNH NĂNG XEM PHIM NÂNG CAO
@@ -940,7 +970,9 @@ object VoiceCommandParser {
 
         // B. Khớp nhà đài chính khi người dùng không đọc số (Flagship Defaults)
         val targetNoAccent = removeAccents(cleanedTarget)
-        if (cleanedTarget == "vtv" || targetNoAccent == "vtv") {
+        if (cleanedTarget == "vtv" || targetNoAccent == "vtv" || cleanedTarget == "thời sự" ||
+            cleanedTarget == "tin tức" || cleanedTarget.contains("thời sự") || cleanedTarget.contains("tin tức") ||
+            targetNoAccent.contains("thoi su") || targetNoAccent.contains("tin tuc")) {
             val idx = channels.indexOfFirst { it.name.startsWith("VTV1", ignoreCase = true) }
             if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
         }
@@ -952,7 +984,9 @@ object VoiceCommandParser {
             val idx = channels.indexOfFirst { it.name.startsWith("VTC1", ignoreCase = true) }
             if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
         }
-        if (cleanedTarget == "thvl" || targetNoAccent == "thvl" || cleanedTarget == "vinh long" || targetNoAccent == "vinh long" || cleanedTarget == "vĩnh long") {
+        if (cleanedTarget == "thvl" || targetNoAccent == "thvl" || cleanedTarget == "vinh long" ||
+            targetNoAccent == "vinh long" || cleanedTarget == "vĩnh long" || cleanedTarget.contains("miền tây") ||
+            targetNoAccent.contains("mientay") || targetNoAccent.contains("mien tay")) {
             val idx = channels.indexOfFirst { it.name.startsWith("THVL1", ignoreCase = true) }
             if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
         }
@@ -1003,7 +1037,8 @@ object VoiceCommandParser {
             val sportsIdx = channels.indexOfFirst { ch ->
                 val group = ch.groupTitle?.uppercase() ?: ""
                 val name = ch.name.uppercase()
-                group.contains("THỂ THAO") || group.contains("SPORTS") || name.contains("SPORTS") || name.contains("ON FOOTBALL") || name.contains("ON SPORTS")
+                group.contains("THỂ THAO") || group.contains("SPORTS") || name.contains("SPORTS") ||
+                name.contains("ON FOOTBALL") || name.contains("ON SPORTS") || name.contains("K+")
             }
             if (sportsIdx >= 0) {
                 return VoiceCommand.SwitchChannel(sportsIdx, channels[sportsIdx])
