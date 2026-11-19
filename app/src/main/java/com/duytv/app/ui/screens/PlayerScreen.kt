@@ -645,13 +645,14 @@ private fun PlayerScreenContent(
     fun showChannelOsd(channel: TvChannel, index: Int, total: Int, sourceIdx: Int = 0) {
         showControls = false
         val totalSources = getActiveLiveUrls().size.coerceAtLeast(1)
+        val currentShow = com.duytv.app.data.EpgManager.getCurrentProgram(channel.name)
         channelOsdName = "${index + 1}. ${channel.name}"
-        channelOsdSub = "Kênh ${index + 1}/$total • Nguồn ${sourceIdx + 1}/$totalSources • ${channel.groupTitle.ifBlank { "Truyền Hình FHD" }}"
+        channelOsdSub = "🕒 Đang phát: $currentShow • Kênh ${index + 1}/$total • Nguồn ${sourceIdx + 1}/$totalSources"
         channelOsdLogo = channel.logoUrl
         channelOsdVisible = true
         channelOsdJob?.cancel()
         channelOsdJob = scope.launch {
-            delay(3000)
+            delay(3500)
             channelOsdVisible = false
         }
     }
@@ -3999,9 +4000,9 @@ private fun buildStreamMediaSource(
     if (isLive) {
         mediaItemB.setLiveConfiguration(
             MediaItem.LiveConfiguration.Builder()
-                .setTargetOffsetMs(4000L)
-                .setMinOffsetMs(2000L)
-                .setMaxOffsetMs(10000L)
+                .setTargetOffsetMs(3000L)
+                .setMinOffsetMs(1500L)
+                .setMaxOffsetMs(8000L)
                 .setMinPlaybackSpeed(0.97f)
                 .setMaxPlaybackSpeed(1.04f)
                 .build()

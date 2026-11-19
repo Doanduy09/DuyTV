@@ -22,3 +22,4 @@ launcher/build
 *.keystore
 keystore.properties
 keystore/
+.kotlin/

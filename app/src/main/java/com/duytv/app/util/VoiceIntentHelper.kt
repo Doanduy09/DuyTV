@@ -411,7 +411,31 @@ object VoiceIntentHelper {
                             val st = com.duytv.app.data.MatchStateHelper.calculateMatchState(m.kickoffTime)
                             if (st.status == com.duytv.app.data.MatchStatus.FINISHED) null else m to st
                         }
-                        val liveCount = activeMatches.count { it.second.status == com.duytv.app.data.MatchStatus.LIVE }
+                        val liveMatches = activeMatches.filter { it.second.status == com.duytv.app.data.MatchStatus.LIVE }
+                        val liveCount = liveMatches.size
+                        val isDirectWatchIntent = rawQuery.contains("bật") || rawQuery.contains("mở") ||
+                            rawQuery.contains("xem") || rawQuery.contains("chiếu") || rawQuery.contains("phát")
+
+                        if (isDirectWatchIntent && liveMatches.isNotEmpty()) {
+                            val (topMatch, _) = liveMatches.first()
+                            val primaryStream = topMatch.streams.firstOrNull()?.streamUrl ?: ""
+                            val backups = topMatch.streams.map { it.streamUrl }.filter { it.isNotBlank() }
+                            val ttsMsg = "Dạ anh Duy, đang trực tiếp trận ${topMatch.homeTeam} gặp ${topMatch.awayTeam}. Em mở cho anh xem ngay nhé!"
+                            GeminiVoiceClient.recordTurn(rawQuery, ttsMsg)
+                            val playerScreen = AppScreen.Player(
+                                slug = "match-${topMatch.id}",
+                                movieTitle = "${topMatch.homeTeam} vs ${topMatch.awayTeam}",
+                                episodeName = topMatch.tournament.ifBlank { "Trực Tiếp" },
+                                streamUrl = primaryStream,
+                                posterUrl = topMatch.logo ?: topMatch.awayLogo,
+                                subtitleUrl = null,
+                                initialPositionMs = 0L,
+                                backupUrls = backups,
+                                episodes = emptyList()
+                            )
+                            onNavigateScreen(playerScreen, ttsMsg)
+                            return@launch
+                        }
                         val sportsChannels = (sports.channels + channels).filter { ch ->
                             val g = ch.groupTitle.uppercase()
                             val n = ch.name.uppercase()

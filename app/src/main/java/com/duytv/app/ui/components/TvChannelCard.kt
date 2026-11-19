@@ -49,6 +49,9 @@ fun TvChannelCard(
             .trim()
             .take(12)
     }
+    val currentShow = remember(channel.name) {
+        com.duytv.app.data.EpgManager.getCurrentProgram(channel.name)
+    }
 
     val bgBrush = if (isHighlighted) {
         Brush.verticalGradient(
@@ -63,7 +66,7 @@ fun TvChannelCard(
     Box(
         modifier = modifier
             .width(176.dp)
-            .height(106.dp)
+            .height(112.dp)
             .graphicsLayer {
                 val sc = if (isHighlighted) 1.07f else 1.0f
                 scaleX = sc
@@ -146,27 +149,38 @@ fun TvChannelCard(
                 }
             }
 
-            // Channel Name & Live Dot
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = channel.name,
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
+            // Channel Name, Live Dot & Current EPG Program
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = channel.name,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Text(
+                        text = "● LIVE",
+                        color = if (isFoc) Color(0xFF00E676) else Color(0xFFFF5252),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
 
                 Text(
-                    text = "● LIVE",
-                    color = if (isFoc) Color(0xFF00E676) else Color(0xFFFF5252),
+                    text = currentShow,
+                    color = if (isHighlighted) Color(0xFF00E676) else Color(0xFF9E9E9E),
                     fontSize = 9.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

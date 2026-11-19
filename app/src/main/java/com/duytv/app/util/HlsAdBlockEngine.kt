@@ -33,16 +33,97 @@ import kotlinx.coroutines.async
  */
 object HlsAdBlockEngine {
 
-    val ipv4PreferredDns: Dns = object : Dns {
-        override fun lookup(hostname: String): List<java.net.InetAddress> {
-            return Dns.SYSTEM.lookup(hostname).sortedWith(compareBy { addr ->
-                when {
-                    addr is Inet4Address -> 0
-                    addr.isLinkLocalAddress || addr.isSiteLocalAddress -> 2
-                    addr.hostAddress?.lowercase()?.let { it.startsWith("fd") || it.startsWith("fc") } == true -> 2
-                    else -> 1
+    private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, List<java.net.InetAddress>>()
+
+    private val dohFallbackClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(2500, TimeUnit.MILLISECONDS)
+            .readTimeout(2500, TimeUnit.MILLISECONDS)
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<java.net.InetAddress> {
+                    return if (hostname == "1.1.1.1") listOf(java.net.InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1)))
+                    else if (hostname == "8.8.8.8") listOf(java.net.InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8)))
+                    else Dns.SYSTEM.lookup(hostname)
                 }
             })
+            .build()
+    }
+
+    private fun resolveDohIp(hostname: String): List<java.net.InetAddress> {
+        val cfReq = okhttp3.Request.Builder()
+            .url("https://1.1.1.1/dns-query?name=${java.net.URLEncoder.encode(hostname, "UTF-8")}&type=A")
+            .header("Accept", "application/dns-json")
+            .build()
+        try {
+            dohFallbackClient.newCall(cfReq).execute().use { res ->
+                if (res.isSuccessful) {
+                    val body = res.body?.string() ?: ""
+                    val addresses = parseDnsJsonIps(body)
+                    if (addresses.isNotEmpty()) return addresses
+                }
+            }
+        } catch (_: Exception) {}
+
+        val googleReq = okhttp3.Request.Builder()
+            .url("https://8.8.8.8/resolve?name=${java.net.URLEncoder.encode(hostname, "UTF-8")}&type=A")
+            .header("Accept", "application/json")
+            .build()
+        try {
+            dohFallbackClient.newCall(googleReq).execute().use { res ->
+                if (res.isSuccessful) {
+                    val body = res.body?.string() ?: ""
+                    val addresses = parseDnsJsonIps(body)
+                    if (addresses.isNotEmpty()) return addresses
+                }
+            }
+        } catch (_: Exception) {}
+
+        return emptyList()
+    }
+
+    private fun parseDnsJsonIps(json: String): List<java.net.InetAddress> {
+        val ips = mutableListOf<java.net.InetAddress>()
+        val regex = Regex(""""data"\s*:\s*"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"""")
+        for (m in regex.findAll(json)) {
+            val ipStr = m.groupValues[1]
+            try {
+                ips.add(java.net.InetAddress.getByName(ipStr))
+            } catch (_: Exception) {}
+        }
+        return ips
+    }
+
+    val ipv4PreferredDns: Dns = object : Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            dnsCache[hostname]?.let { return it }
+            try {
+                val sysAddrs = Dns.SYSTEM.lookup(hostname)
+                if (sysAddrs.isNotEmpty()) {
+                    val sorted = sysAddrs.sortedWith(compareBy { addr ->
+                        when {
+                            addr is Inet4Address -> 0
+                            addr.isLinkLocalAddress || addr.isSiteLocalAddress -> 2
+                            addr.hostAddress?.lowercase()?.let { it.startsWith("fd") || it.startsWith("fc") } == true -> 2
+                            else -> 1
+                        }
+                    })
+                    dnsCache[hostname] = sorted
+                    return sorted
+                }
+            } catch (e: Exception) {
+                val dohAddrs = resolveDohIp(hostname)
+                if (dohAddrs.isNotEmpty()) {
+                    dnsCache[hostname] = dohAddrs
+                    return dohAddrs
+                }
+                throw e
+            }
+            val dohAddrs = resolveDohIp(hostname)
+            if (dohAddrs.isNotEmpty()) {
+                dnsCache[hostname] = dohAddrs
+                return dohAddrs
+            }
+            return Dns.SYSTEM.lookup(hostname)
         }
     }
 

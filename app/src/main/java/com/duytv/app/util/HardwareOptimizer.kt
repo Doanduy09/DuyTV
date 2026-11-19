@@ -178,23 +178,25 @@ object HardwareOptimizer {
             DefaultLoadControl.Builder()
                 .setAllocator(allocator)
                 .setBufferDurationsMs(
-                    profile.liveMinBufferMs,
-                    profile.liveMaxBufferMs,
-                    800,
-                    1_800
+                    /* minBufferMs = */ 2500,
+                    /* maxBufferMs = */ 15000,
+                    /* bufferForPlaybackMs = */ 1200,
+                    /* bufferForPlaybackAfterRebufferMs = */ 2500
                 )
-                .setTargetBufferBytes(profile.liveTargetBufferBytes)
+                .setBackBuffer(0, false)
+                .setTargetBufferBytes(if (profile.isLowRamDevice) 16 * 1024 * 1024 else 24 * 1024 * 1024)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         } else {
             DefaultLoadControl.Builder()
                 .setAllocator(allocator)
                 .setBufferDurationsMs(
-                    profile.vodMinBufferMs,
-                    profile.vodMaxBufferMs,
+                    profile.vodMinBufferMs.coerceIn(4000, 15000),
+                    profile.vodMaxBufferMs.coerceIn(12000, 30000),
                     1_500,
                     2_500
                 )
+                .setBackBuffer(if (profile.isLowRamDevice) 5000 else 15000, false)
                 .setTargetBufferBytes(profile.vodTargetBufferBytes)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()

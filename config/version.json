@@ -1,7 +1,7 @@
 {
-  "versionCode": 75,
-  "versionName": "2.5.9",
+  "versionCode": 76,
+  "versionName": "2.6.0",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật v2.5.9 (Build #75): Tích hợp DeadLinkManager bền vững cách ly vĩnh viễn link chết, Zero-Jank failover < 300ms, bổ sung 424 kênh thể thao & truyền hình GiangNam All-In-One IPTV (Lương Sơn TV, Canal+, Sky, TNT), nâng cấp Trợ lý AI DuyTV siêu tốc gemini-2.5-flash."
+  "releaseNotes": "Bản Cập Nhật v2.6.0 (Build #76): Tối ưu Dynamic LoadControl & 0-backbuffer giải phóng 20MB RAM, DNS-over-HTTPS (DoH Cloudflare 1.1.1.1 & Google) chống nhà mạng chặn link bóng đá, tích hợp Live EPG siêu nhẹ O(1) hiển thị lịch phát sóng trên OSD và thẻ kênh, AI Voice tự động nhận diện và mở trực tiếp trận bóng đá đang phát."
 }
