@@ -1,7 +1,5 @@
 {
-  "versionCode": 79,
-  "versionName": "2.6.3",
-  "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
-  "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Cập Nhật v2.6.3 (Build #79): Local LAN Media Sharing (<30ms, Zero-Internet Cast ảnh/video), Web Control Hub cổng 8888, Smart Bookmark tự nhớ và tiếp tục xem phim từng giây, Chế độ đi ngủ (Smart Sleep Mode với DRC nén âm thanh và giảm sáng), Lời nhắc việc gia đình HUD mờ 3s, Lọc ngữ âm vùng miền tiếng Việt thông minh và Tự động bật phụ đề nét ban đêm."
+  "versionCode": 80,
+  "versionName": "2.6.4",
+  "releaseNotes": "v2.6.4: Phát sóng DLNA Digital Media Renderer & mDNS tự động hiển thị DuyTV (Tivi Sharp) trên điện thoại Samsung, Xiaomi, iPhone; Sửa lỗi truyền ảnh trực tiếp; Thêm hộp thoại hướng dẫn kết nối 1-chạm."
 }

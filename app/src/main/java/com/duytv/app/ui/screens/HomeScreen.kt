@@ -156,6 +156,7 @@ fun HomeScreen(
     var isCategoryLoadingMore by remember { mutableStateOf(false) }
     var showSourceSettingsDialog by remember { mutableStateOf(false) }
     var showSportsSourceDialog by remember { mutableStateOf(false) }
+    var showPhoneCastHelpDialog by remember { mutableStateOf(false) }
     var showAppUpdateDialog by remember { mutableStateOf(false) }
     var remoteUpdateInfo by remember { mutableStateOf<AppVersionInfo?>(null) }
     var favoriteMoviesList by remember { mutableStateOf(AppCacheManager.favoriteMovies) }
@@ -695,6 +696,37 @@ fun HomeScreen(
                                 Text(
                                     text = "BÓNG ĐÁ",
                                     color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // 📲 Nút Hướng Dẫn Truyền Từ Điện Thoại
+                            val phoneCastInter = remember { MutableInteractionSource() }
+                            val phoneCastFoc by phoneCastInter.collectIsFocusedAsState()
+                            val phoneCastPress by phoneCastInter.collectIsPressedAsState()
+                            val phoneCastActive = phoneCastFoc || phoneCastPress
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (phoneCastActive) AccentRed else Color(0xFF0F172A))
+                                    .border(
+                                        width = if (phoneCastActive) 1.5.dp else 1.dp,
+                                        color = if (phoneCastActive) Color.White else Color(0xFF00E5FF),
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable(interactionSource = phoneCastInter, indication = null) {
+                                        showPhoneCastHelpDialog = true
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "📲 TRUYỀN TỪ ĐT",
+                                    color = if (phoneCastActive) Color.White else Color(0xFF00E5FF),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -1549,6 +1581,90 @@ fun HomeScreen(
                 onDismiss = { showSportsSourceDialog = false },
                 onSaveSuccess = { reloadSportsOnly() }
             )
+        }
+
+        if (showPhoneCastHelpDialog) {
+            val localIp = remember { com.duytv.app.util.DlnaMediaRenderer.getLocalIpv4Address() }
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showPhoneCastHelpDialog = false }) {
+                Box(
+                    modifier = Modifier
+                        .width(520.dp)
+                        .background(Color(0xFF151D30), RoundedCornerShape(16.dp))
+                        .border(1.5.dp, Color(0xFF00E5FF), RoundedCornerShape(16.dp))
+                        .padding(24.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "📲 KẾT NỐI & TRUYỀN TỪ ĐIỆN THOẠI",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF065F46), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "● Đang phát sóng Wi-Fi: \"DuyTV (Tivi Sharp)\"",
+                                color = Color(0xFF34D399),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF0B0F19), RoundedCornerShape(10.dp))
+                                .padding(14.dp)
+                        ) {
+                            Text(
+                                text = "1. TRUYỀN QUA BỘ SƯU TẬP (SAMSUNG / ANDROID):",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Mở ảnh hoặc video trong Thư viện điện thoại -> Bấm biểu tượng [Truyền / Smart View] -> Chọn \"DuyTV (Tivi Sharp)\" để chiếu ngay.",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "2. TRUYỀN QUA TRÌNH DUYỆT WEB (MỌI ĐIỆN THOẠI / IPHONE):",
+                                color = Color(0xFFFFD600),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Mở Safari hoặc Chrome trên điện thoại gõ:\nhttp://$localIp:8888\n(Không cần cài app, chọn ảnh/video là bay lên Tivi ngay)",
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        val closeInter = remember { MutableInteractionSource() }
+                        val closeFoc by closeInter.collectIsFocusedAsState()
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (closeFoc) Color(0xFFE50914) else Color(0xFF334155))
+                                .clickable(interactionSource = closeInter, indication = null) {
+                                    showPhoneCastHelpDialog = false
+                                }
+                                .padding(horizontal = 28.dp, vertical = 10.dp)
+                        ) {
+                            Text("ĐÓNG", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
         }
 
         if (showAppUpdateDialog) {

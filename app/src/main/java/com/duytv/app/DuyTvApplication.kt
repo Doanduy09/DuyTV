@@ -27,6 +27,7 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
         com.duytv.app.util.GeminiVoiceClient.init(this)
         com.duytv.app.util.LanCommandReceiver.start(this)
         com.duytv.app.util.LanMediaServer.start(this)
+        com.duytv.app.util.DlnaMediaRenderer.start(this)
     }
 
     override fun newImageLoader(): ImageLoader {
