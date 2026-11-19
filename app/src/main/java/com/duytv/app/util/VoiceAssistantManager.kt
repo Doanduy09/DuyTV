@@ -148,6 +148,21 @@ class VoiceAssistantManager(
         }
     }
 
+    /**
+     * Tiếp nhận câu lệnh từ thiết bị ngoại vi qua LAN (Voice Puck ESP32 / Samsung Remote)
+     */
+    fun submitExternalResult(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isNotBlank()) {
+            mainHandler.post {
+                isListening = false
+                _state.value = VoiceState.Success(trimmed)
+                onResult(trimmed, listOf(trimmed))
+                scheduleReset(1600)
+            }
+        }
+    }
+
     fun reportError(message: String) {
         mainHandler.post {
             isListening = false

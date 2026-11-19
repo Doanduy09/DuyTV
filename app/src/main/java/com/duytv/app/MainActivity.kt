@@ -58,6 +58,28 @@ class MainActivity : ComponentActivity() {
         var pendingVoiceTrigger: Boolean = false
 
         @Volatile
+        var globalVoiceManagerInstance: com.duytv.app.util.VoiceAssistantManager? = null
+
+        fun executeRemoteCommand(text: String, context: android.content.Context) {
+            val mgr = globalVoiceManagerInstance
+            val act = activeInstance?.get()
+            if (mgr != null && isActivityInForeground && act != null) {
+                act.runOnUiThread {
+                    mgr.submitExternalResult(text)
+                }
+            } else {
+                val intent = android.content.Intent(context, MainActivity::class.java).apply {
+                    addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                        android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                    putExtra("remote_command_text", text)
+                }
+                context.startActivity(intent)
+            }
+        }
+
+        @Volatile
         var pendingExternalScreen: AppScreen? = null
 
         @Volatile
@@ -225,6 +247,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLauncherIntent(intent)
+        intent.getStringExtra("remote_command_text")?.let { cmd ->
+            intent.removeExtra("remote_command_text")
+            globalVoiceManagerInstance?.submitExternalResult(cmd)
+        }
     }
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
@@ -424,6 +450,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 DisposableEffect(Unit) {
+                    globalVoiceManagerInstance = globalVoiceManager
+                    intent?.getStringExtra("remote_command_text")?.let { cmd ->
+                        intent?.removeExtra("remote_command_text")
+                        globalVoiceManager.submitExternalResult(cmd)
+                    }
                     var globalDownAtMs = 0L
                     onGlobalVoiceKeyEvent = listener@{ event ->
                         if (currentScreenState is AppScreen.Player) return@listener false
@@ -443,6 +474,7 @@ class MainActivity : ComponentActivity() {
                         true
                     }
                     onDispose {
+                        globalVoiceManagerInstance = null
                         onGlobalVoiceKeyEvent = null
                         globalVoiceManager.destroy()
                         globalTts.destroy()

@@ -25,6 +25,7 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
         }
         AppCacheManager.init(this, MovieRepository.getVerifiedOfficialChannels())
         com.duytv.app.util.GeminiVoiceClient.init(this)
+        com.duytv.app.util.LanCommandReceiver.start(this)
     }
 
     override fun newImageLoader(): ImageLoader {
