@@ -159,9 +159,8 @@ class VoiceOverlayActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(voiceState) {
-                    if (voiceState !is VoiceState.Idle) {
-                        hasEnteredActiveState = true
-                    } else if (hasEnteredActiveState) {
+                    if (voiceState is VoiceState.Error) {
+                        kotlinx.coroutines.delay(2200L)
                         finishWithoutAnim()
                     }
                 }

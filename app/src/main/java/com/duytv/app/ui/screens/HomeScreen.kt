@@ -259,16 +259,36 @@ fun HomeScreen(
     // [✅ ĐÃ CHUẨN - CẤM SỬA]: Khởi tạo lastAutoSyncMillis = System.currentTimeMillis() để tránh ON_RESUME
     // chạy trùng lặp reloadAllMovies() lần thứ 2 ngay lúc vừa mở app.
     var lastAutoSyncMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var lastAutoPromptedVersionCode by remember { mutableIntStateOf(currentVersionCode) }
 
-    fun checkAndPromptGitHubUpdate() {
+    fun checkAndPromptGitHubUpdate(isManual: Boolean = false) {
         scope.launch {
-            val latestVer = AppUpdateManager.checkForUpdate()
-            if (latestVer != null) {
-                remoteUpdateInfo = latestVer
-                if (latestVer.versionCode > currentVersionCode && latestVer.versionCode > lastAutoPromptedVersionCode) {
-                    lastAutoPromptedVersionCode = latestVer.versionCode
-                    showAppUpdateDialog = true
+            if (!isManual && !AppUpdateManager.shouldAutoCheck(context)) {
+                return@launch
+            }
+            try {
+                val latestVer = AppUpdateManager.checkForUpdate()
+                AppUpdateManager.recordCheckSuccess(context)
+                if (latestVer != null) {
+                    remoteUpdateInfo = latestVer
+                    val hasNewer = latestVer.versionCode > currentVersionCode
+                    if (hasNewer) {
+                        if (!isManual && AppUpdateManager.isVersionIgnored(context, latestVer.versionCode)) {
+                            return@launch
+                        }
+                        showAppUpdateDialog = true
+                    } else if (isManual) {
+                        Toast.makeText(
+                            context,
+                            "✅ Bạn đang dùng phiên bản mới nhất v$currentVersionName (Build #$currentVersionCode)!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else if (isManual) {
+                    Toast.makeText(context, "⚠️ Không thể kiểm tra máy chủ cập nhật lúc này.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Exception) {
+                if (isManual) {
+                    Toast.makeText(context, "⚠️ Lỗi khi kiểm tra bản cập nhật.", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -279,6 +299,7 @@ fun HomeScreen(
         RemoteConfigManager.loadLocalCustomSources(context)
         watchHistory = WatchHistoryManager.getHistory(context)
         favoriteMoviesList = AppCacheManager.favoriteMovies
+        checkAndPromptGitHubUpdate(isManual = false)
         scope.launch {
             RemoteConfigManager.fetchRemoteConfig()
             lastAutoSyncMillis = System.currentTimeMillis()
@@ -287,15 +308,15 @@ fun HomeScreen(
     }
 
     // Tự động đồng bộ ngầm định kỳ (Auto-Sync Daemon):
-    // - Mỗi 3 phút kiểm tra bản cập nhật mới trên GitHub + cập nhật lịch & luồng bóng đá trực tiếp
+    // - Mỗi 3 phút cập nhật lịch & luồng bóng đá trực tiếp
     // - Mỗi 6 phút cập nhật phim mới từ tất cả các trang web
+    // (Bản cập nhật app chỉ kiểm tra 1 lần khi mở app, không thăm dò liên tục gây phiền)
     LaunchedEffect(Unit) {
         var cycle = 0
         while (true) {
             delay(180_000L) // 3 phút
             cycle++
             lastAutoSyncMillis = System.currentTimeMillis()
-            checkAndPromptGitHubUpdate()
             if (cycle % 2 == 0) {
                 reloadAllMovies(silent = true, forceRefreshSports = true)
             } else {
@@ -311,7 +332,6 @@ fun HomeScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 watchHistory = WatchHistoryManager.getHistory(context)
                 favoriteMoviesList = AppCacheManager.favoriteMovies
-                checkAndPromptGitHubUpdate()
                 val now = System.currentTimeMillis()
                 if (now - lastAutoSyncMillis > 60_000L) {
                     lastAutoSyncMillis = now
@@ -706,7 +726,7 @@ fun HomeScreen(
                                         shape = RoundedCornerShape(6.dp)
                                     )
                                     .clickable(interactionSource = updateInter, indication = null) {
-                                        showAppUpdateDialog = true
+                                        checkAndPromptGitHubUpdate(isManual = true)
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -1770,25 +1790,6 @@ fun AppUpdateDialog(
     )
     val hasNewerVersion = targetInfo.versionCode > currentVersionCode
 
-    // Tự động tải về và kích hoạt cập nhật ngay khi phát hiện bản mới trên GitHub / LAN
-    LaunchedEffect(hasNewerVersion, targetInfo.versionCode) {
-        if (hasNewerVersion && !isDownloading) {
-            isDownloading = true
-            downloadProgress = 1
-            statusMessage = "🔔 Phát hiện bản mới v${targetInfo.versionName}! Đang tự động tải về để cập nhật..."
-            AppUpdateManager.downloadAndInstallApk(
-                context = context,
-                versionInfo = targetInfo,
-                onProgress = { pct -> downloadProgress = pct },
-                onError = { err ->
-                    isDownloading = false
-                    statusMessage = err
-                }
-            )
-            isDownloading = false
-        }
-    }
-
     Dialog(
         onDismissRequest = { if (!isDownloading) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1950,6 +1951,10 @@ fun AppUpdateDialog(
                                     indication = null,
                                     enabled = !isDownloading
                                 ) {
+                                    if (!hasNewerVersion) {
+                                        onDismiss()
+                                        return@clickable
+                                    }
                                     isDownloading = true
                                     downloadProgress = 1
                                     statusMessage = "Đang tải từ máy chủ tốc độ cao..."
@@ -1971,7 +1976,7 @@ fun AppUpdateDialog(
                             Text(
                                 text = if (isDownloading) "⏳ ĐANG TẢI ($downloadProgress%)..."
                                 else if (hasNewerVersion) "⬇️ CẬP NHẬT NGAY LÊN v${targetInfo.versionName}"
-                                else "⬇️ TẢI & CÀI ĐÈ BẢN MỚI NHẤT NGAY",
+                                else "✅ ĐÃ Ở BẢN MỚI NHẤT",
                                 color = if (!isDownloading && !isInstallActive) Color.Black else Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black
@@ -1999,12 +2004,15 @@ fun AppUpdateDialog(
                                     indication = null,
                                     enabled = !isDownloading
                                 ) {
+                                    if (hasNewerVersion) {
+                                        AppUpdateManager.setIgnoredVersion(context, targetInfo.versionCode)
+                                    }
                                     onDismiss()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "ĐÓNG",
+                                text = if (hasNewerVersion) "ĐỂ SAU" else "ĐÓNG",
                                 color = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold

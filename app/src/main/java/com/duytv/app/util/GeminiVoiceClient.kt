@@ -136,8 +136,8 @@ object GeminiVoiceClient {
 
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(1500, TimeUnit.MILLISECONDS)
-        .readTimeout(12000, TimeUnit.MILLISECONDS)
+        .connectTimeout(3000, TimeUnit.MILLISECONDS)
+        .readTimeout(20000, TimeUnit.MILLISECONDS)
         .build()
 
     private fun buildSystemPrompt(context: VoiceContext?): String {
@@ -234,7 +234,7 @@ object GeminiVoiceClient {
             messages.add(mapOf("role" to "user", "content" to userInput))
 
             val reqBodyJson = JsonObject().apply {
-                addProperty("model", "gemini-4-flash")
+                addProperty("model", "gemini-4")
                 add("messages", gson.toJsonTree(messages))
                 addProperty("temperature", 0.2)
             }

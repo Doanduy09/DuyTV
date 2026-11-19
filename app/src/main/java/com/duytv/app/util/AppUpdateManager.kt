@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.duytv.app.BuildConfig
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,25 +51,65 @@ object AppUpdateManager {
         .followSslRedirects(true)
         .build()
 
-    fun getCurrentVersionCode(context: Context): Int {
+    private const val PREFS_NAME = "duytv_update_prefs"
+    private const val KEY_LAST_CHECK_TIME = "last_check_timestamp"
+    private const val KEY_IGNORED_VERSION = "ignored_version_code"
+    private const val COOLDOWN_HOURS_MS = 12 * 60 * 60 * 1000L // Tối thiểu 12 tiếng giữa 2 lần tự động kiểm tra
+
+    private fun getPrefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun shouldAutoCheck(context: Context): Boolean {
+        val lastCheck = getPrefs(context).getLong(KEY_LAST_CHECK_TIME, 0L)
+        val now = System.currentTimeMillis()
+        return (now - lastCheck) >= COOLDOWN_HOURS_MS
+    }
+
+    fun recordCheckSuccess(context: Context) {
+        getPrefs(context).edit()
+            .putLong(KEY_LAST_CHECK_TIME, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun setIgnoredVersion(context: Context, versionCode: Int) {
+        getPrefs(context).edit()
+            .putInt(KEY_IGNORED_VERSION, versionCode)
+            .apply()
+    }
+
+    fun isVersionIgnored(context: Context, versionCode: Int): Boolean {
+        return getPrefs(context).getInt(KEY_IGNORED_VERSION, -1) == versionCode
+    }
+
+    fun getCurrentVersionCode(context: Context? = null): Int {
         return try {
-            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pInfo.longVersionCode.toInt()
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode
-            }
+            BuildConfig.VERSION_CODE
         } catch (_: Exception) {
-            1
+            try {
+                if (context != null) {
+                    val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        pInfo.longVersionCode.toInt()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        pInfo.versionCode
+                    }
+                } else 73
+            } catch (_: Exception) {
+                73
+            }
         }
     }
 
-    fun getCurrentVersionName(context: Context): String {
+    fun getCurrentVersionName(context: Context? = null): String {
         return try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0.0"
+            BuildConfig.VERSION_NAME
         } catch (_: Exception) {
-            "1.0.0"
+            try {
+                context?.packageManager?.getPackageInfo(context.packageName, 0)?.versionName ?: "2.5.7"
+            } catch (_: Exception) {
+                "2.5.7"
+            }
         }
     }
 

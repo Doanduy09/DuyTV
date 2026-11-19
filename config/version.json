@@ -1,7 +1,7 @@
 {
-  "versionCode": 73,
-  "versionName": "2.5.7",
+  "versionCode": 74,
+  "versionName": "2.5.8",
   "apkUrlLan": "http://192.168.1.189:8888/DuyTV-latest.apk",
   "apkUrlCloud": "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-  "releaseNotes": "Bản Sửa Lỗi VoiceOverlay Tự Đóng Trước Khi AI Trả Lời v2.5.7 (Build #73): Thêm reportProcessing() giữ VoiceOverlayActivity mở trong lúc truy vấn lịch bóng đá, tìm phim và hỏi Gemini AI."
+  "releaseNotes": "Bản Cập Nhật v2.5.8 (Build #74): Khắc phục triệt để lỗi kiểm tra và cài đặt lặp vô tận, tối ưu kiểm tra phiên bản thông minh, Gemini AI tư vấn bóng đá đỉnh cao và tự động phát kênh."
 }
