@@ -54,7 +54,7 @@ jobs:
       - name: Cài đặt Node.js để xử lý cấu hình
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Tự động phân tích nguồn từ file .config
         run: |
@@ -69,7 +69,7 @@ jobs:
           git push origin main || echo "Bỏ qua push"
 
       - name: Thiết lập môi trường Java JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -101,7 +101,24 @@ jobs:
         run: |
           mkdir -p release_apk
           cp app/build/outputs/apk/release/app-release.apk release_apk/DuyTV-Full-Latest.apk
-          sha256sum release_apk/DuyTV-Full-Latest.apk
+          APK_SHA256=$(sha256sum release_apk/DuyTV-Full-Latest.apk | awk '{print toupper($1)}')
+          echo "APK_SHA256=$APK_SHA256" >> "$GITHUB_ENV"
+          echo "SHA-256 CI APK: $APK_SHA256"
+
+      - name: Đồng bộ SHA-256 thực tế của APK CI vào config/version.json (Chống lệch OTA)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = './config/version.json';
+            const v = JSON.parse(fs.readFileSync(p, 'utf8'));
+            v.sha256 = process.env.APK_SHA256;
+            fs.writeFileSync(p, JSON.stringify(v, null, 2) + '\n', 'utf8');
+          "
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config/version.json
+          git commit -m "chore(ota): đồng bộ SHA-256 thực tế của APK CI v${APP_VERSION} [skip ci]" || echo "SHA-256 đã khớp"
+          git push origin main || echo "Bỏ qua push SHA-256"
 
       - name: Lưu trữ APK lên GitHub Artifacts
         uses: actions/upload-artifact@v4

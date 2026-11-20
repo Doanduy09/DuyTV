@@ -51,8 +51,8 @@ class SystemHardeningTest {
         val loopback = InetAddress.getByName("127.0.0.1")
         val realExternal = InetAddress.getByName("104.21.48.84")
 
-        assertTrue(HlsAdBlockEngine.isSinkholeOrInvalidExternalIp("cobephim.mom", loopback))
-        assertFalse(HlsAdBlockEngine.isSinkholeOrInvalidExternalIp("cobephim.mom", realExternal))
+        assertTrue(HlsAdBlockEngine.isSinkholeOrInvalidExternalIp("cobephim.tv", loopback))
+        assertFalse(HlsAdBlockEngine.isSinkholeOrInvalidExternalIp("cobephim.tv", realExternal))
         // Localhost and LAN IPs are allowed to resolve to local addresses
         assertFalse(HlsAdBlockEngine.isSinkholeOrInvalidExternalIp("localhost", loopback))
     }
@@ -72,5 +72,32 @@ class SystemHardeningTest {
         } finally {
             tempFile.delete()
         }
+    }
+
+    @Test
+    fun `MovieRepository mergeAndDeduplicateChannels purges dead domains and prioritizes official CDNs`() {
+        val inputs = listOf(
+            com.duytv.app.data.TvChannel(
+                id = "c1",
+                name = "VTV1 HD",
+                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/VTV1-1080p/playlist.m3u8",
+                backupUrls = listOf(
+                    "https://coca.dl.dropboxusercontent.coin/s/abc/vtv1.m3u8",
+                    "https://freem3u.xyz/api/live/play.m3u8?vid=1"
+                )
+            ),
+            com.duytv.app.data.TvChannel(
+                id = "c2",
+                name = "VTV1",
+                streamUrl = "https://dethich.pw/vtv1/index.m3u8",
+                backupUrls = listOf("https://live.vtvdigital.vn/vtv1/index.m3u8")
+            )
+        )
+        val merged = com.duytv.app.data.MovieRepository.mergeAndDeduplicateChannels(inputs)
+        assertEquals(1, merged.size)
+        val vtv1 = merged.first()
+        assertEquals("https://live.vtvdigital.vn/vtv1/index.m3u8", vtv1.streamUrl)
+        assertTrue(vtv1.backupUrls.contains("https://dethich.pw/vtv1/index.m3u8"))
+        assertFalse(vtv1.allStreamUrls().any { it.contains("vnns.net") || it.contains(".coin") || it.contains("freem3u.xyz") })
     }
 }

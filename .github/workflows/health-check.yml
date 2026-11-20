@@ -28,7 +28,7 @@ jobs:
       - name: Cài đặt Node.js môi trường kiểm thử
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Quét và kiểm tra kết nối từng nguồn phim
         id: health_check

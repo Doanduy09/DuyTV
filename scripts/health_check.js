@@ -108,16 +108,18 @@ async function run() {
         }
     }
 
-    // 4. CoBePhim
+    // 4. CoBePhim (Kiểm tra trực tiếp API Backend thực tế mà app sử dụng, fallback sang domain frontend)
     const cobe = config.sources.cobephim;
     if (cobe && cobe.enabled) {
+        const backendUrl = cobe.api_backend
+            ? `${cobe.api_backend}/api/v1/movies/by-category/co-trang?page=1&limit=1`
+            : `${cobe.api_base}/api/v1/movies/by-category/co-trang?page=1&limit=1`;
         process.stdout.write(`Đang kiểm tra [${cobe.name}] (${cobe.api_base})... `);
-        const res = await checkUrl(`${cobe.api_base}/wp-json/wp/v2/posts?per_page=1`);
+        const res = await checkUrl(backendUrl);
         if (res.ok) {
             console.log(`✅ HOẠT ĐỘNG TỐT (${res.latency}ms)`);
             results.push({ name: cobe.name, url: cobe.api_base, status: 'OK', latency: res.latency });
         } else {
-            // Thử kiểm tra root
             const rootRes = await checkUrl(cobe.api_base);
             if (rootRes.ok) {
                 console.log(`✅ HOẠT ĐỘNG TỐT (${rootRes.latency}ms)`);

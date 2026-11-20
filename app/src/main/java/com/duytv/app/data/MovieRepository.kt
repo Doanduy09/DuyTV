@@ -1740,7 +1740,7 @@ class MovieRepository {
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                .header("Referer", "https://cobephim.mom/")
+                .header("Referer", "https://cobephim.tv/")
                 .build()
             val res = executeSafe(req)
             if (res.isSuccessful) {
@@ -1783,7 +1783,7 @@ class MovieRepository {
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                .header("Referer", "https://cobephim.mom/")
+                .header("Referer", "https://cobephim.tv/")
                 .build()
             val res = executeSafe(req)
             if (res.isSuccessful) {
@@ -1926,7 +1926,7 @@ class MovieRepository {
             val req = Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                .header("Referer", "https://cobephim.mom/")
+                .header("Referer", "https://cobephim.tv/")
                 .build()
             val res = executeSafe(req)
             if (res.isSuccessful) {
@@ -2028,7 +2028,7 @@ class MovieRepository {
                 val req = Request.Builder()
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                    .header("Referer", "https://cobephim.mom/")
+                    .header("Referer", "https://cobephim.tv/")
                     .build()
                 val res = executeSafe(req)
                 if (res.isSuccessful) {

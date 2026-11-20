@@ -13,7 +13,7 @@ data class SourcesContainer(
     @SerializedName("kkphim") val kkphim: SourceConfig = SourceConfig(name = "KKPhim", apiBase = "https://phimapi.com", imageCdn = "https://phimimg.com"),
     @SerializedName("ophim") val ophim: SourceConfig = SourceConfig(name = "OPhim", apiBase = "https://ophim.cc"),
     @SerializedName("nguonc") val nguonc: SourceConfig = SourceConfig(name = "NguonC", apiBase = "https://phim.nguonc.com/api/film"),
-    @SerializedName("cobephim") val cobephim: SourceConfig = SourceConfig(name = "CoBePhim", apiBase = "https://cobephim.mom")
+    @SerializedName("cobephim") val cobephim: SourceConfig = SourceConfig(name = "CoBePhim", apiBase = "https://cobephim.tv")
 )
 
 data class RemoteConfig(

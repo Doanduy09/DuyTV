@@ -148,7 +148,7 @@ object RemoteConfigManager {
     }
 
     fun getNguonCBaseUrl(): String = currentConfig.sources.nguonc.apiBase.ifBlank { "https://phim.nguonc.com/api/film" }
-    fun getCoBePhimBaseUrl(): String = currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.mom" }
+    fun getCoBePhimBaseUrl(): String = currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.tv" }
 
     fun getSavedCustomSources(context: android.content.Context): Map<String, String> {
         val prefs = context.getSharedPreferences("duytv_sources", android.content.Context.MODE_PRIVATE)
@@ -156,7 +156,7 @@ object RemoteConfigManager {
             "Nguồn Chính (KKPhim)" to (prefs.getString("kkphim_url", null) ?: currentConfig.sources.kkphim.apiBase.ifBlank { currentConfig.primaryDomain }),
             "Nguồn OPhim" to (prefs.getString("ophim_url", null) ?: currentConfig.sources.ophim.apiBase.ifBlank { "https://ophim.cc" }),
             "Nguồn NguonC" to (prefs.getString("nguonc_url", null) ?: currentConfig.sources.nguonc.apiBase.ifBlank { "https://phim.nguonc.com/api/film" }),
-            "Nguồn CoBePhim" to (prefs.getString("cobe_url", null) ?: currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.mom" })
+            "Nguồn CoBePhim" to (prefs.getString("cobe_url", null) ?: currentConfig.sources.cobephim.apiBase.ifBlank { "https://cobephim.tv" })
         )
     }
 

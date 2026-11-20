@@ -2414,7 +2414,7 @@ fun SourceSettingsDialog(
                         "KKPhim (Chuan)" to "https://phimapi.com",
                         "OPhim" to "https://ophim.cc",
                         "NguonC" to "https://phim.nguonc.com/api/film",
-                        "CoBePhim" to "https://cobephim.mom"
+                        "CoBePhim" to "https://cobephim.tv"
                     )
 
                     Row(

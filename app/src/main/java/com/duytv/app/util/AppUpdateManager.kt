@@ -239,12 +239,13 @@ object AppUpdateManager {
                     if (outFile.exists() && outFile.length() > 1_000_000L && verifyOptionalSha256(outFile, versionInfo.sha256)) {
                         downloadedSuccess = true
                     } else if (outFile.exists()) {
+                        android.util.Log.w("AppUpdateManager", "OTA APK invalid size or SHA-256 mismatch from $url (size=${outFile.length()})")
                         outFile.delete()
                     }
                 }
                 if (downloadedSuccess) break
-            } catch (_: Exception) {
-                // Tự động chuyển sang URL dự phòng tiếp theo
+            } catch (e: Exception) {
+                android.util.Log.w("AppUpdateManager", "OTA download failed from $url: ${e.message}")
             }
         }
 
