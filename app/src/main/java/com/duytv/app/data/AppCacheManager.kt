@@ -52,6 +52,7 @@ object AppCacheManager {
 
     private const val HOME_CACHE_FILE = "duytv_home_cache.json"
     private const val TV_SPORTS_CACHE_FILE = "duytv_tvsports_cache.json"
+    private const val CLEAN_TV_M3U_CACHE_FILE = "duytv_clean_tv.m3u"
     private const val FAV_PREFS = "duytv_fav_channels"
     private const val KEY_FAV_NAMES = "fav_names"
     private const val KEY_LAST_CHANNEL = "last_watched_channel"
@@ -185,6 +186,31 @@ object AppCacheManager {
         val targetContext = ctx?.applicationContext ?: appContext ?: return
         ioScope.launch {
             writeDiskCache(targetContext, TV_SPORTS_CACHE_FILE, sortedData)
+        }
+    }
+
+    fun saveCleanTvM3u(content: String, ctx: Context? = null) {
+        if (content.isBlank() || !content.contains("#EXTM3U")) return
+        val targetContext = ctx?.applicationContext ?: appContext ?: return
+        ioScope.launch {
+            try {
+                val file = File(targetContext.filesDir, CLEAN_TV_M3U_CACHE_FILE)
+                file.writeText(content, Charsets.UTF_8)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun loadCleanTvM3uFallback(ctx: Context? = null): String? {
+        val targetContext = ctx?.applicationContext ?: appContext ?: return null
+        return try {
+            val file = File(targetContext.filesDir, CLEAN_TV_M3U_CACHE_FILE)
+            if (file.exists() && file.length() > 50) {
+                file.readText(Charsets.UTF_8)
+            } else {
+                targetContext.assets.open("tv_channels_clean.m3u").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

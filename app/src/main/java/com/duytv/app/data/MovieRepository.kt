@@ -250,7 +250,17 @@ class MovieRepository {
         val parsedIptvOrgVn = if (!iptvOrgVnBody.isNullOrBlank()) parseM3uData(iptvOrgVnBody, "Truyền Hình") else TvSportsData()
         val parsedIptvOrgSports = if (!iptvOrgSportsBody.isNullOrBlank()) parseM3uData(iptvOrgSportsBody, "Thể Thao") else TvSportsData()
         val parsedGiangnam = if (!giangnamBody.isNullOrBlank()) parseM3uData(giangnamBody, "Bóng Đá & Truyền Hình") else TvSportsData()
-        val parsedDuytvCleanTv = if (!duytvCleanTvBody.isNullOrBlank()) parseM3uData(duytvCleanTvBody, "Truyền Hình") else TvSportsData()
+        val parsedDuytvCleanTv = if (!duytvCleanTvBody.isNullOrBlank()) {
+            AppCacheManager.saveCleanTvM3u(duytvCleanTvBody)
+            parseM3uData(duytvCleanTvBody, "Truyền Hình")
+        } else {
+            val fallbackM3u = AppCacheManager.loadCleanTvM3uFallback()
+            if (!fallbackM3u.isNullOrBlank()) {
+                parseM3uData(fallbackM3u, "Truyền Hình")
+            } else {
+                TvSportsData()
+            }
+        }
 
         // 1. Gộp tất cả kênh truyền hình (DuyTV Clean M3U + Chính thống + GiangNam + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao)
         val officialChannels = getVerifiedOfficialChannels()

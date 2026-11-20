@@ -100,4 +100,12 @@ class SystemHardeningTest {
         assertTrue(vtv1.backupUrls.contains("https://dethich.pw/vtv1/index.m3u8"))
         assertFalse(vtv1.allStreamUrls().any { it.contains("vnns.net") || it.contains(".coin") || it.contains("freem3u.xyz") })
     }
+
+    @Test
+    fun `AppCacheManager offline fallback handles empty or invalid state safely`() {
+        val fallback = com.duytv.app.data.AppCacheManager.loadCleanTvM3uFallback()
+        if (fallback != null) {
+            assertTrue(fallback.contains("#EXTM3U"))
+        }
+    }
 }

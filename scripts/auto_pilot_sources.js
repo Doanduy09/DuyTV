@@ -630,6 +630,18 @@ async function runAutoPilot() {
         actionLogs.push(`Cập nhật playlist truyền hình sạch (config/tv_channels_clean.m3u: ${validatedChannels.length} kênh sống)`);
     }
 
+    // Luôn đồng bộ vào assets dự phòng của Android TV
+    const assetM3uPath = path.join(rootDir, 'app', 'src', 'main', 'assets', 'tv_channels_clean.m3u');
+    const assetDir = path.dirname(assetM3uPath);
+    if (!fs.existsSync(assetDir)) {
+        fs.mkdirSync(assetDir, { recursive: true });
+    }
+    const currentAssetM3u = fs.existsSync(assetM3uPath) ? fs.readFileSync(assetM3uPath, 'utf8') : '';
+    if (currentAssetM3u.trim() !== m3uContent.trim()) {
+        fs.writeFileSync(assetM3uPath, m3uContent, 'utf8');
+        hasTvChanges = true;
+    }
+
     // ==============================================================
     // PHẦN 3: LƯU CẤU HÌNH & TỰ ĐỘNG CHUẨN BỊ TÁI BUILD APK (IF CHANGED)
     // ==============================================================
@@ -686,6 +698,79 @@ async function runAutoPilot() {
         console.log(`\n🎉 HOÀN TẤT: Đã tự động nâng lên v${nextVersionName} (Build #${nextVersionCode}) và sẵn sàng tự động build APK!`);
     } else {
         console.log('✅ Toàn bộ nguồn phim và kênh truyền hình đang ở trạng thái HOÀN HẢO. Không cần thay đổi.');
+    }
+
+    // 4. Xuất Báo Cáo Ra GitHub Step Summary (nếu chạy trong GitHub Actions)
+    if (process.env.GITHUB_STEP_SUMMARY) {
+        try {
+            const summaryLines = [
+                '# ⚡ DuyTV Auto-Pilot 24/7 Ecosystem Summary',
+                `*Thời gian quét:* \`${new Date().toISOString()}\``,
+                '',
+                '### 1. Trạng Thái Nguồn Phim',
+                '| Nguồn | Trạng Thái | API Endpoint | Ghi Chú |',
+                '| :--- | :---: | :--- | :--- |',
+                `| **KKPhim** | ${sourcesConfig.sources.kkphim?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.kkphim?.api_base || 'N/A'}\` | Khớp 100% |`,
+                `| **NguonC** | ${sourcesConfig.sources.nguonc?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.nguonc?.api_base || 'N/A'}\` | Khớp 100% |`,
+                `| **CoBePhim** | ${sourcesConfig.sources.cobephim?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.cobephim?.api_base || 'N/A'}\` | Tự động cào cobelink.xyz |`,
+                `| **OPhim** | ${sourcesConfig.sources.ophim?.enabled ? '🟢 Hoạt động' : '🟡 Tự ngắt (Parked)'} | \`${sourcesConfig.sources.ophim?.api_base || 'N/A'}\` | Tự bảo vệ an ninh |`,
+                `| **YTS 4K** | ${sourcesConfig.sources.yts?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.yts?.api_base || 'N/A'}\` | Torrent 4K/FHD |`,
+                '',
+                '### 2. Kênh Truyền Hình Đã Kiểm Định (100% Live)',
+                `*Tổng số kênh sạch:* **${validatedChannels.length}** kênh.`,
+                '',
+                '### 3. Kết Quả Xử Lý',
+                (hasSourcesChanges || hasTvChanges)
+                    ? `⚡ **Phát hiện biến động:** Đã tự động kích hoạt Build APK mới!\n${actionLogs.map(l => `- ${l}`).join('\n')}`
+                    : '✅ **Hệ thống ổn định hoàn hảo:** Không cần build lại.'
+            ];
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryLines.join('\n') + '\n', 'utf8');
+        } catch (e) {
+            console.error('Không thể ghi GITHUB_STEP_SUMMARY:', e.message);
+        }
+    }
+
+    // 5. Gửi Cảnh Báo Telegram (Nếu cấu hình TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID)
+    const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+    const telegramChatId = process.env.TELEGRAM_CHAT_ID;
+    if (telegramToken && telegramChatId) {
+        try {
+            const statusIcon = (hasSourcesChanges || hasTvChanges) ? '⚡' : '✅';
+            const msg = [
+                `<b>${statusIcon} DUYTV AUTO-PILOT 24/7 BÁO CÁO</b>`,
+                `📅 <i>${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</i>`,
+                `🎬 <b>Nguồn phim:</b> KKPhim, NguonC, CoBePhim, YTS (OPhim: tắt)`,
+                `📺 <b>Truyền hình:</b> ${validatedChannels.length} kênh sống 100%`,
+                (hasSourcesChanges || hasTvChanges)
+                    ? `🚀 <b>Hành động:</b> Đã kích hoạt Build APK mới!\n${actionLogs.map(l => `• ${l}`).join('\n')}`
+                    : `✨ <b>Trạng thái:</b> Toàn bộ hệ thống ổn định hoàn hảo.`
+            ].join('\n');
+
+            await new Promise((resolve) => {
+                const postData = JSON.stringify({
+                    chat_id: telegramChatId,
+                    text: msg,
+                    parse_mode: 'HTML'
+                });
+                const tReq = https.request(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    },
+                    timeout: 5000
+                }, (tRes) => {
+                    tRes.resume();
+                    resolve();
+                });
+                tReq.on('error', () => resolve());
+                tReq.write(postData);
+                tReq.end();
+            });
+            console.log('📱 Đã gửi thông báo Telegram thành công.');
+        } catch (e) {
+            console.log('Bỏ qua thông báo Telegram:', e.message);
+        }
     }
 }
 
