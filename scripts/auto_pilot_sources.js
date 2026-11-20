@@ -41,6 +41,15 @@ function probeStream(url, maxRedirects = 4, timeoutMs = 5000) {
         const start = Date.now();
         let body = '';
         let resolved = false;
+        let hardTimer = null;
+
+        const finish = (result) => {
+            if (resolved) return;
+            resolved = true;
+            if (hardTimer) clearTimeout(hardTimer);
+            try { req.destroy(); } catch {}
+            resolve(result);
+        };
 
         const req = client.get(url, {
             headers: {
@@ -52,7 +61,8 @@ function probeStream(url, maxRedirects = 4, timeoutMs = 5000) {
             // Xử lý chuyển hướng HTTP Redirect
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 resolved = true;
-                req.destroy();
+                if (hardTimer) clearTimeout(hardTimer);
+                try { req.destroy(); } catch {}
                 let targetLoc = res.headers.location;
                 try {
                     if (!targetLoc.startsWith('http')) {
@@ -64,38 +74,54 @@ function probeStream(url, maxRedirects = 4, timeoutMs = 5000) {
                 }
             }
 
+            const ok = res.statusCode >= 200 && res.statusCode < 400;
+            const ct = (res.headers['content-type'] || '').toLowerCase();
+            const isVideoStreamCt = ct.includes('mpegurl') || ct.includes('video/') || ct.includes('mp2t') || ct.includes('octet-stream');
+
+            if (!ok) {
+                return finish({ ok: false, status: res.statusCode, latency: Date.now() - start, isM3u: false, error: `HTTP ${res.statusCode}` });
+            }
+
             res.setEncoding('utf8');
             res.on('data', chunk => {
+                if (resolved) return;
                 if (body.length < 2048) body += chunk;
+                const looksLikeM3u = body.includes('#EXTM3U') || body.includes('#EXTINF') || body.includes('.ts') || body.includes('.m3u8');
+                // Thoát sớm ngay khi nhận đủ header M3U hoặc chunk video trực tiếp (tránh treo vô hạn với luồng MPEG-TS live)
+                if (looksLikeM3u || (isVideoStreamCt && body.length >= 128)) {
+                    finish({
+                        ok: true,
+                        status: res.statusCode,
+                        latency: Date.now() - start,
+                        isM3u: true,
+                        error: null
+                    });
+                }
             });
 
             res.on('end', () => {
-                if (resolved) return;
-                resolved = true;
-                const latency = Date.now() - start;
-                const ok = res.statusCode >= 200 && res.statusCode < 400;
-                const isM3u = body.includes('#EXTM3U') || body.includes('#EXTINF') || body.includes('.ts') || body.includes('.m3u8');
-                resolve({
+                const isM3u = isVideoStreamCt || body.includes('#EXTM3U') || body.includes('#EXTINF') || body.includes('.ts') || body.includes('.m3u8');
+                finish({
                     ok,
                     status: res.statusCode,
-                    latency,
+                    latency: Date.now() - start,
                     isM3u,
                     error: ok ? null : `HTTP ${res.statusCode}`
                 });
             });
         });
 
+        // Hard wall-clock timeout: đảm bảo không bao giờ treo tiến trình kể cả khi server gửi dữ liệu nhỏ giọt
+        hardTimer = setTimeout(() => {
+            finish({ ok: false, status: 0, latency: timeoutMs, isM3u: false, error: 'TIMEOUT' });
+        }, timeoutMs + 500);
+
         req.on('timeout', () => {
-            if (resolved) return;
-            resolved = true;
-            req.destroy();
-            resolve({ ok: false, status: 0, latency: timeoutMs, error: 'TIMEOUT' });
+            finish({ ok: false, status: 0, latency: timeoutMs, isM3u: false, error: 'TIMEOUT' });
         });
 
         req.on('error', (err) => {
-            if (resolved) return;
-            resolved = true;
-            resolve({ ok: false, status: 0, latency: Date.now() - start, error: err.message });
+            finish({ ok: false, status: 0, latency: Date.now() - start, isM3u: false, error: err.message });
         });
     });
 }
@@ -194,6 +220,165 @@ function probeJsonApi(url, type, timeoutMs = 6000) {
             resolve({ ok: false, validSchema: false, status: 0, latency: Date.now() - start, error: err.message });
         });
     });
+}
+
+// Retry 2 lần trước khi kết luận nguồn phim chết (tránh tắt nhầm do lag mạng nhất thời)
+async function probeJsonApiWithRetry(url, type, timeoutMs = 8000, retries = 2) {
+    let last = { ok: false, validSchema: false, status: 0, latency: 0, error: 'UNKNOWN' };
+    for (let i = 0; i < retries; i++) {
+        last = await probeJsonApi(url, type, timeoutMs);
+        if (last.ok && last.validSchema) return last;
+        if (i < retries - 1) await new Promise(r => setTimeout(r, 1500));
+    }
+    return last;
+}
+
+// 2b. Helper tải văn bản/HTML/M3U an toàn (giới hạn 1.5MB chống OOM, tự follow redirect)
+function fetchText(url, extraHeaders = {}, maxRedirects = 3, timeoutMs = 8000, maxBytes = 1500000) {
+    return new Promise((resolve) => {
+        if (!url || !url.startsWith('http') || maxRedirects < 0) {
+            return resolve({ ok: false, status: 0, body: '' });
+        }
+        let client;
+        try {
+            client = url.startsWith('https') ? https : http;
+        } catch {
+            return resolve({ ok: false, status: 0, body: '' });
+        }
+
+        let body = '';
+        let resolved = false;
+        const req = client.get(url, {
+            headers: {
+                'User-Agent': 'DuyTV-AutoPilot/2.7.0 (GitHub-Actions-SelfHealing)',
+                'Accept': '*/*',
+                ...extraHeaders
+            },
+            timeout: timeoutMs
+        }, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                resolved = true;
+                req.destroy();
+                try {
+                    const nextUrl = res.headers.location.startsWith('http')
+                        ? res.headers.location
+                        : new URL(res.headers.location, url).href;
+                    return fetchText(nextUrl, extraHeaders, maxRedirects - 1, timeoutMs, maxBytes).then(resolve);
+                } catch {
+                    return resolve({ ok: false, status: 0, body: '' });
+                }
+            }
+            res.setEncoding('utf8');
+            res.on('data', chunk => {
+                if (body.length < maxBytes) body += chunk;
+            });
+            res.on('end', () => {
+                if (resolved) return;
+                resolved = true;
+                resolve({ ok: res.statusCode >= 200 && res.statusCode < 400, status: res.statusCode, body });
+            });
+        });
+        req.on('timeout', () => {
+            if (resolved) return;
+            resolved = true;
+            req.destroy();
+            resolve({ ok: false, status: 0, body: '' });
+        });
+        req.on('error', () => {
+            if (resolved) return;
+            resolved = true;
+            resolve({ ok: false, status: 0, body: '' });
+        });
+    });
+}
+
+// 2c. Tự động săn tìm domain API phim mới từ cộng đồng GitHub khi nguồn hiện tại bị sập
+async function discoverMovieDomainsFromGitHub(query, domainRegex) {
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (process.env.GITHUB_TOKEN) {
+        headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+    const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=updated&per_page=8`;
+    const res = await fetchText(url, headers, 2, 7000, 300000);
+    if (!res.ok || !res.body) return [];
+    const found = new Set();
+    try {
+        const data = JSON.parse(res.body);
+        const items = Array.isArray(data.items) ? data.items : [];
+        for (const repo of items) {
+            const blob = `${repo.homepage || ''} ${repo.description || ''}`;
+            const matches = blob.match(domainRegex) || [];
+            matches.forEach(m => found.add(m.replace(/\/+$/, '')));
+        }
+    } catch {}
+    return [...found];
+}
+
+// 2d. Tự động cào danh sách luồng IPTV sống từ các kho M3U cộng đồng tự cập nhật 24/7
+const COMMUNITY_IPTV_PLAYLISTS = [
+    'https://iptv-org.github.io/iptv/countries/vn.m3u',
+    'https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u',
+    'https://raw.githubusercontent.com/giangnam0201/All-In-One-IPTV/main/channels.m3u',
+    'https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u'
+];
+
+function normalizeChannelKey(rawName) {
+    if (!rawName) return '';
+    let s = rawName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/gi, 'd')
+        .toLowerCase()
+        .replace(/\b(hd|fhd|sd|4k|1080p|720p|vn|vietnam|tv|kenh|channel|du phong|backup|server\s*\d+|s\d+)\b/g, ' ')
+        .replace(/[^a-z0-9]+/g, '')
+        .trim();
+
+    // Chuẩn hóa các tên gọi phổ biến của đài địa phương
+    if (s.startsWith('thdt1') || s.includes('dongthap1')) return 'dongthap1';
+    if (s.startsWith('hanoitv1') || s === 'hanoi1' || s === 'h1') return 'hanoi1';
+    if (s.includes('danang1') || s === 'drt1') return 'danang1';
+    if (s.includes('cantho') || s === 'thtpct') return 'cantho';
+    if (s.startsWith('qpvn') || s.includes('quocphong')) return 'qpvn';
+    return s;
+}
+
+async function harvestCommunityIptvStreams(extraPlaylistUrl) {
+    const urls = [...COMMUNITY_IPTV_PLAYLISTS];
+    if (extraPlaylistUrl && extraPlaylistUrl.startsWith('http')) {
+        urls.push(extraPlaylistUrl);
+    }
+
+    const channelMap = new Map(); // normalizedKey -> Set<streamUrl>
+    const results = await Promise.all(urls.map(u => fetchText(u, { 'User-Agent': 'TiviMate/4.7.0 (Linux; Android 11)' }, 3, 9000)));
+
+    let totalEntries = 0;
+    results.forEach((res, idx) => {
+        if (!res.ok || !res.body || !res.body.includes('#EXTINF')) return;
+        const lines = res.body.split(/\r?\n/);
+        let currentName = '';
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            if (line.startsWith('#EXTINF')) {
+                const commaIdx = line.lastIndexOf(',');
+                currentName = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : '';
+            } else if (line.startsWith('http://') || line.startsWith('https://')) {
+                if (currentName && !line.includes('.coin') && !line.includes('vnns.net') && !line.includes('freem3u.xyz')) {
+                    const key = normalizeChannelKey(currentName);
+                    if (key.length >= 3) {
+                        if (!channelMap.has(key)) channelMap.set(key, new Set());
+                        channelMap.get(key).add(line);
+                        totalEntries++;
+                    }
+                }
+                currentName = '';
+            }
+        }
+        console.log(`   📡 Đã thu hoạch M3U cộng đồng #${idx + 1}: ${urls[idx].slice(0, 65)}...`);
+    });
+
+    console.log(`   ✨ Tổng hợp được ${totalEntries} luồng dự phòng cho ${channelMap.size} mã kênh từ cộng đồng.\n`);
+    return channelMap;
 }
 
 // 3. Danh sách kênh truyền hình kiểm định chuẩn quốc gia (Master Channel Roster)
@@ -387,7 +572,7 @@ async function runAutoPilot() {
     const kk = sourcesConfig.sources.kkphim;
     if (kk) {
         process.stdout.write(`🎬 Kiểm tra [${kk.name}] (${kk.api_base})... `);
-        let check = await probeJsonApi(`${kk.api_base}/danh-sach/phim-moi-cap-nhat?page=1`, 'kkphim');
+        let check = await probeJsonApiWithRetry(`${kk.api_base}/danh-sach/phim-moi-cap-nhat?page=1`, 'kkphim');
         if (check.ok && check.validSchema) {
             console.log(`✅ HOẠT ĐỘNG (${check.latency}ms)`);
             if (kk.enabled === false) {
@@ -396,8 +581,9 @@ async function runAutoPilot() {
                 actionLogs.push(`Tái kích hoạt [${kk.name}]`);
             }
         } else {
-            console.log(`⚠️ LỖI ➔ Đang tìm kiếm mirror dự phòng...`);
-            const pool = ['https://phimapi.com', 'https://phimapi.com/v1/api', 'https://phimapi.org'];
+            console.log(`⚠️ LỖI ➔ Đang tìm kiếm mirror dự phòng & quét GitHub...`);
+            const discovered = await discoverMovieDomainsFromGitHub('phimapi kkphim', /https?:\/\/[a-zA-Z0-9.-]*phimapi[a-zA-Z0-9.-]*/gi);
+            const pool = [...new Set(['https://phimapi.com', 'https://phimapi.com/v1/api', 'https://phimapi.org', 'https://phimapi.net', ...discovered])];
             let found = null;
             for (const cand of pool) {
                 if (cand === kk.api_base) continue;
@@ -431,7 +617,7 @@ async function runAutoPilot() {
     const nguonc = sourcesConfig.sources.nguonc;
     if (nguonc) {
         process.stdout.write(`🎬 Kiểm tra [${nguonc.name}] (${nguonc.api_base})... `);
-        let check = await probeJsonApi(`https://phim.nguonc.com/api/films/phim-moi-cap-nhat?page=1`, 'nguonc');
+        let check = await probeJsonApiWithRetry(`https://phim.nguonc.com/api/films/phim-moi-cap-nhat?page=1`, 'nguonc');
         if (check.ok) {
             console.log(`✅ HOẠT ĐỘNG (${check.latency}ms)`);
             if (nguonc.enabled === false) {
@@ -520,7 +706,7 @@ async function runAutoPilot() {
     const ophim = sourcesConfig.sources.ophim;
     if (ophim) {
         process.stdout.write(`🎬 Kiểm tra [${ophim.name}] (${ophim.api_base})... `);
-        let check = await probeJsonApi(`${ophim.api_base}/danh-sach/phim-moi-cap-nhat?page=1`, 'ophim');
+        let check = await probeJsonApiWithRetry(`${ophim.api_base}/danh-sach/phim-moi-cap-nhat?page=1`, 'ophim');
         if (check.ok && check.validSchema) {
             console.log(`✅ HOẠT ĐỘNG (${check.latency}ms)`);
             if (ophim.enabled === false) {
@@ -529,8 +715,13 @@ async function runAutoPilot() {
                 actionLogs.push(`Tái kích hoạt [${ophim.name}]`);
             }
         } else {
-            console.log(`⚠️ LỖI ➔ Đang quét pool mirror...`);
-            const pool = ['https://ophim1.com', 'https://ophim.live', 'https://ophim17.cc', 'https://ophim8.cc', 'https://ophim.cc'];
+            console.log(`⚠️ LỖI ➔ Đang quét pool mirror & tự động săn domain OPhim mới trên GitHub...`);
+            const discovered = await discoverMovieDomainsFromGitHub('ophim api phim-moi-cap-nhat', /https?:\/\/[a-zA-Z0-9.-]*ophim[a-zA-Z0-9.-]*/gi);
+            const pool = [...new Set([
+                'https://ophim1.com', 'https://ophim17.cc', 'https://ophim18.cc',
+                'https://ophim16.cc', 'https://ophim.live', 'https://ophim8.cc',
+                'https://ophim.cc', ...discovered
+            ])];
             let found = null;
             for (const cand of pool) {
                 if (cand === ophim.api_base) continue;
@@ -582,36 +773,74 @@ async function runAutoPilot() {
     }
 
     // ==============================================================
-    // PHẦN 2: TỰ ĐỘNG QUÉT & KIỂM ĐỊNH KÊNH TRUYỀN HÌNH (IPTV AUTO-SCOUT)
+    // PHẦN 2: TỰ ĐỘNG QUÉT, TÌM LUỒNG MỚI & KIỂM ĐỊNH KÊNH TV (IPTV AUTO-SCOUT)
     // ==============================================================
-    console.log('\n--- BƯỚC 2: TỰ ĐỘNG QUÉT & KIỂM ĐỊNH KÊNH TRUYỀN HÌNH ---');
+    console.log('\n--- BƯỚC 2: TỰ ĐỘNG QUÉT & TÌM KIẾM KÊNH TRUYỀN HÌNH MỚI ---');
+    const communityMap = await harvestCommunityIptvStreams(sourcesConfig.sources.iptv?.url);
     const validatedChannels = [];
+    let healedFromCommunityCount = 0;
 
     for (const ch of MASTER_CHANNELS) {
         process.stdout.write(`📺 Kiểm tra kênh [${ch.name}]... `);
-        const aliveStreams = [];
+        const aliveCandidates = []; // { url, latency, isCommunity }
+
+        // 1. Thử các luồng ưu tiên (static primary) trước
         for (const streamUrl of ch.streams) {
             const probe = await probeStream(streamUrl, 3, 4000);
             if (probe.ok && probe.isM3u) {
-                aliveStreams.push(streamUrl);
+                aliveCandidates.push({ url: streamUrl, latency: probe.latency, isCommunity: false });
             }
         }
 
-        if (aliveStreams.length > 0) {
-            console.log(`✅ SỐNG (${aliveStreams.length} luồng khả dụng)`);
+        // 2. Nếu luồng chính chết hoặc chưa có luồng dự phòng -> tự động tìm & thử từ kho M3U cộng đồng
+        if (aliveCandidates.length < 2) {
+            const chKey = normalizeChannelKey(ch.name);
+            const discoveredUrls = communityMap.has(chKey)
+                ? [...communityMap.get(chKey)].filter(u => !ch.streams.includes(u)).slice(0, 6)
+                : [];
+
+            if (discoveredUrls.length > 0) {
+                const probeResults = await Promise.all(
+                    discoveredUrls.map(async (u) => ({ url: u, res: await probeStream(u, 3, 4000) }))
+                );
+                for (const item of probeResults) {
+                    if (item.res.ok && item.res.isM3u) {
+                        aliveCandidates.push({ url: item.url, latency: item.res.latency, isCommunity: true });
+                    }
+                }
+            }
+        }
+
+        if (aliveCandidates.length > 0) {
+            // Sắp xếp ưu tiên luồng chính (nếu sống), sau đó theo độ trễ thấp nhất
+            aliveCandidates.sort((a, b) => (Number(a.isCommunity) - Number(b.isCommunity)) || (a.latency - b.latency));
+            const primary = aliveCandidates[0];
+            const backups = aliveCandidates.slice(1, 2).map(x => x.url); // Giữ tối đa 1 luồng dự phòng tốt nhất
+
+            if (primary.isCommunity) {
+                healedFromCommunityCount++;
+                console.log(`🔄 TỰ VÁ TỪ CỘNG ĐỒNG (${primary.latency}ms, ${aliveCandidates.length} luồng)`);
+            } else {
+                console.log(`✅ SỐNG (${primary.latency}ms, ${aliveCandidates.length} luồng khả dụng)`);
+            }
+
             validatedChannels.push({
                 name: ch.name,
                 logo: ch.logo,
                 group: ch.group,
-                streamUrl: aliveStreams[0],
-                backupUrls: aliveStreams.slice(1)
+                streamUrl: primary.url,
+                backupUrls: backups
             });
         } else {
-            console.log(`❌ SẬP (Không luồng nào phản hồi)`);
+            console.log(`❌ SẬP (Không luồng nào phản hồi kể cả cộng đồng)`);
         }
     }
 
-    // Tạo file M3U chuẩn sạch tinh khiết
+    if (healedFromCommunityCount > 0) {
+        actionLogs.push(`Tự động tìm & vá ${healedFromCommunityCount} kênh TV bị chết bằng luồng M3U cộng đồng`);
+    }
+
+    // Tạo file M3U chuẩn sạch tinh khiết (Anti-Wipe Guardrail: chỉ ghi khi có >= 3 kênh sống)
     let m3uContent = '#EXTM3U name="DuyTV Official Clean Channels" tvg-shift=0\n\n';
     for (const vch of validatedChannels) {
         const tvgId = vch.name.replace(/\s+/g, '_').toLowerCase();
@@ -623,23 +852,27 @@ async function runAutoPilot() {
         }
     }
 
-    const currentM3u = fs.existsSync(cleanM3uPath) ? fs.readFileSync(cleanM3uPath, 'utf8') : '';
-    if (currentM3u.trim() !== m3uContent.trim()) {
-        fs.writeFileSync(cleanM3uPath, m3uContent, 'utf8');
-        hasTvChanges = true;
-        actionLogs.push(`Cập nhật playlist truyền hình sạch (config/tv_channels_clean.m3u: ${validatedChannels.length} kênh sống)`);
-    }
+    if (validatedChannels.length >= 3) {
+        const currentM3u = fs.existsSync(cleanM3uPath) ? fs.readFileSync(cleanM3uPath, 'utf8') : '';
+        if (currentM3u.trim() !== m3uContent.trim()) {
+            fs.writeFileSync(cleanM3uPath, m3uContent, 'utf8');
+            hasTvChanges = true;
+            actionLogs.push(`Cập nhật playlist truyền hình sạch (config/tv_channels_clean.m3u: ${validatedChannels.length} kênh sống)`);
+        }
 
-    // Luôn đồng bộ vào assets dự phòng của Android TV
-    const assetM3uPath = path.join(rootDir, 'app', 'src', 'main', 'assets', 'tv_channels_clean.m3u');
-    const assetDir = path.dirname(assetM3uPath);
-    if (!fs.existsSync(assetDir)) {
-        fs.mkdirSync(assetDir, { recursive: true });
-    }
-    const currentAssetM3u = fs.existsSync(assetM3uPath) ? fs.readFileSync(assetM3uPath, 'utf8') : '';
-    if (currentAssetM3u.trim() !== m3uContent.trim()) {
-        fs.writeFileSync(assetM3uPath, m3uContent, 'utf8');
-        hasTvChanges = true;
+        // Luôn đồng bộ vào assets dự phòng của Android TV
+        const assetM3uPath = path.join(rootDir, 'app', 'src', 'main', 'assets', 'tv_channels_clean.m3u');
+        const assetDir = path.dirname(assetM3uPath);
+        if (!fs.existsSync(assetDir)) {
+            fs.mkdirSync(assetDir, { recursive: true });
+        }
+        const currentAssetM3u = fs.existsSync(assetM3uPath) ? fs.readFileSync(assetM3uPath, 'utf8') : '';
+        if (currentAssetM3u.trim() !== m3uContent.trim()) {
+            fs.writeFileSync(assetM3uPath, m3uContent, 'utf8');
+            hasTvChanges = true;
+        }
+    } else {
+        console.log('⚠️ BẢO VỆ CHỐNG XÓA TRẮNG: Số kênh sống < 3 (nghi lỗi mạng Runner) ➔ Giữ nguyên playlist M3U cũ!');
     }
 
     // ==============================================================
@@ -714,7 +947,7 @@ async function runAutoPilot() {
                 `| **NguonC** | ${sourcesConfig.sources.nguonc?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.nguonc?.api_base || 'N/A'}\` | Khớp 100% |`,
                 `| **CoBePhim** | ${sourcesConfig.sources.cobephim?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.cobephim?.api_base || 'N/A'}\` | Tự động cào cobelink.xyz |`,
                 `| **OPhim** | ${sourcesConfig.sources.ophim?.enabled ? '🟢 Hoạt động' : '🟡 Tự ngắt (Parked)'} | \`${sourcesConfig.sources.ophim?.api_base || 'N/A'}\` | Tự bảo vệ an ninh |`,
-                `| **YTS 4K** | ${sourcesConfig.sources.yts?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.yts?.api_base || 'N/A'}\` | Torrent 4K/FHD |`,
+                `| **YTS 4K** | ${sourcesConfig.sources.torrent4k?.enabled ? '🟢 Hoạt động' : '🔴 Vô hiệu'} | \`${sourcesConfig.sources.torrent4k?.mirrors?.[0] || 'N/A'}\` | Torrent 4K/FHD |`,
                 '',
                 '### 2. Kênh Truyền Hình Đã Kiểm Định (100% Live)',
                 `*Tổng số kênh sạch:* **${validatedChannels.length}** kênh.`,
