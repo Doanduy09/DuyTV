@@ -287,14 +287,26 @@ object VoiceCommandParser {
 
     /**
      * Kiểm tra xem câu nói có phải là khẩu lệnh ngắn cần kích hoạt tức thì (0ms Zero-Latency Ear-Trigger) hay không.
+     * Lưu ý quan trọng: KHÔNG ngắt sớm trên partial results khi câu mới chỉ có từ khóa lửng lơ
+     * (như "vtv", "vĩnh long", "kênh", "đài", "mở kênh") mà người dùng chưa kịp nói số kênh (1, 2, 3...)!
      */
     fun isQuickTriggerCommand(raw: String): Boolean {
         val t = normalizeQuery(raw).trim()
-        if (t.contains("vtv") || t.contains("htv") || t.contains("vtc") || t.contains("thvl") ||
-            t.contains("vĩnh long") || t.contains("đồng tháp") || t.contains("thdt") ||
-            t.contains("sctv") || t.contains("k+") || t.contains("kênh") || t.contains("đài")) {
+        if (t.isBlank()) return false
+
+        // 1. Kênh truyền hình đã có đủ tiền tố + số kênh xác định rõ ràng (vtv1..9, htv7, htv9, thvl1..4, kênh 5...)
+        val hasNumberedChannel = Regex("(?:\\b|(?<=\\D))(?:vtv|htv|vtc|thvl|sctv|btv|thdt|on|k)\\s*\\d+\\b").containsMatchIn(t) ||
+                Regex("\\b(?:kênh|đài|số)\\s*\\d+\\b").containsMatchIn(t)
+        if (hasNumberedChannel) return true
+
+        // 2. Kênh độc lập có tên riêng không cần số (Đồng Tháp, ANTV, QPVN...)
+        if (t.contains("đồng tháp") || t.contains("thdt") || t.contains("quốc phòng") || t.contains("qpvn") ||
+            t.contains("an ninh") || t.contains("antv") || t.contains("today") || t.contains("thể thao") ||
+            t.contains("bóng đá") || t.contains("thời sự") || t.contains("tin tức")) {
             return true
         }
+
+        // 3. Khẩu lệnh điều khiển phát/hệ thống ngắn dứt khoát
         return t == "dừng" || t == "tạm dừng" || t == "pause" ||
                t == "tiếp tục" || t == "phát tiếp" || t == "play" || t == "phát" ||
                t == "mở youtube" || t == "bật youtube" || t == "vào youtube" ||

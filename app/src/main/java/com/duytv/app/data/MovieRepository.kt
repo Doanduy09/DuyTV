@@ -357,15 +357,21 @@ class MovieRepository {
         private fun rankStreamQuality(url: String): Int {
             val u = url.lowercase()
             return when {
-                // Loại bỏ hoàn toàn các domain chết hoặc đã hết hạn
-                u.contains("vmttv.dpdns.org") || u.contains("dead.link") -> -1000
+                // Loại bỏ hoàn toàn các domain chết hoặc đã hết hạn (HTTP 502, 404, DNS expired, 403 Forbidden, .coin TLD)
+                u.contains("vnns.net") || u.contains("freem3u.xyz") || u.contains("1011154949") ||
+                u.contains("fptplay53.net") || u.contains("fptplay.net") ||
+                u.contains("vmttv.dpdns.org") || u.contains(".coin") ||
+                u.contains("dropboxusercontent.coin") || u.contains("dead.link") -> -1000
                 u.contains("a3iptv.goitoi.co") -> -500
-                // Ưu tiên cực đại: Luồng Full HD 8.5Mbps / 9.5Mbps / 1080p tốc độ cao
+
+                // Ưu tiên TUYỆT ĐỐI nguồn CDN chính thống quốc gia siêu ổn định (VTV Digital, Truyền hình số, VTV Prime, Dethich LiveCDN)
+                u.contains("vtvdigital.vn") || u.contains("truyenhinhso.vn") || u.contains("vtvprime.vn") -> 1600
+                u.contains("dethich.pw") || u.contains("livecdn-vthcm") -> 1400
+
+                // Ưu tiên luồng Full HD 8.5Mbps / 9.5Mbps / 1080p tốc độ cao
                 u.contains("9.5mbps") || u.contains("8.5mbps") || u.contains("8mbps") || u.contains("6mbps") -> 1000
                 u.contains("1080p") || u.contains("1080") || u.contains("fhd") || u.contains("fullhd") -> 950
                 u.contains("cdn-fpt") -> 850
-                u.contains("vtvprime.vn") -> 800
-                u.contains("vtvdigital.vn") || u.contains("truyenhinhso.vn") -> 750
                 u.contains("720p") || u.contains("hd") -> 600
                 u.contains(".m3u8") || u.contains(".ts") -> 400
                 u.contains("sd") || u.contains("480p") || u.contains("360p") -> 100
@@ -561,53 +567,56 @@ class MovieRepository {
 
         fun getVerifiedOfficialChannels(): List<TvChannel> {
         return listOf(
-            // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 5) - ĐÃ GỘP LINK DỰ PHÒNG VÀO 1 KÊNH DUY NHẤT
+            // ⭐ TRUYỀN HÌNH VĨNH LONG (THVL 1 - 4) - ĐÃ GỘP LINK DỰ PHÒNG VÀO 1 KÊNH DUY NHẤT
             TvChannel(
                 id = "thvl1_hd",
                 name = "THVL1 HD",
                 logoUrl = "https://i.imgur.com/q3fjpYc.png",
-                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=25",
+                streamUrl = "https://dethich.pw/thvl1/index.m3u8",
                 groupTitle = "THVL Vĩnh Long",
-                backupUrls = listOf("https://1011154949.vnns.net/CDN-FPT02/THVL1-HD-1080p/playlist.m3u8")
+                backupUrls = listOf("https://dethich.pw/thvl1/index.m3u8")
             ),
             TvChannel(
                 id = "thvl2_hd",
                 name = "THVL2 HD",
                 logoUrl = "https://i.imgur.com/zGv54Ed.png",
-                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=26",
+                streamUrl = "https://dethich.pw/thvl2/index.m3u8",
                 groupTitle = "THVL Vĩnh Long",
-                backupUrls = listOf("https://1011154949.vnns.net/CDN-FPT02/THVL2-HD-1080p/playlist.m3u8")
+                backupUrls = listOf("https://dethich.pw/thvl2/index.m3u8")
             ),
             TvChannel(
                 id = "thvl3_hd",
                 name = "THVL3 HD",
                 logoUrl = "https://i.imgur.com/44c1Yoz.png",
-                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=219",
+                streamUrl = "https://dethich.pw/thvl3/index.m3u8",
                 groupTitle = "THVL Vĩnh Long"
             ),
             TvChannel(
                 id = "thvl4_hd",
                 name = "THVL4 HD",
                 logoUrl = "https://i.imgur.com/JWDsJxB.png",
-                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=220",
+                streamUrl = "https://dethich.pw/thvl4/index.m3u8",
                 groupTitle = "THVL Vĩnh Long"
             ),
             TvChannel(
                 id = "thvl5_hd",
                 name = "THVL5 HD",
                 logoUrl = "https://i.imgur.com/hSdSUqx.png",
-                streamUrl = "https://freem3u.xyz/api/live/play.m3u8?vid=91",
+                streamUrl = "https://dethich.pw/thvl4/index.m3u8",
                 groupTitle = "THVL Vĩnh Long"
             ),
 
-            // 🔴 TRUYỀN HÌNH QUỐC GIA VIỆT NAM (VTV 1 - 9, ANTV, QPVN) - ƯU TIÊN FULL HD 8.5MBPS CHÍNH HÃNG
+            // 🔴 TRUYỀN HÌNH QUỐC GIA VIỆT NAM (VTV 1 - 9, ANTV, QPVN) - ƯU TIÊN FULL HD CHÍNH HÃNG VTV DIGITAL
             TvChannel(
                 id = "vtv1_hd",
                 name = "VTV1 HD",
                 logoUrl = "https://i.postimg.cc/F1FvzstX/V1.png",
-                streamUrl = "https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv1/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV1%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf(
+                    "https://luuchieu.truyenhinhso.vn/media/live/C90B082632CD4A75F4B3EDB3/index.m3u8",
+                    "https://dethich.pw/vtv1/index.m3u8"
+                )
             ),
             TvChannel(
                 id = "vtv2_hd",
@@ -615,7 +624,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/yDR4tDRm/V2.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv2/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV2%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv2/index.m3u8")
             ),
             TvChannel(
                 id = "vtv3_hd",
@@ -623,7 +632,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/B8cWZRM0/V3.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv3/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV3%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv3/index.m3u8")
             ),
             TvChannel(
                 id = "vtv4_hd",
@@ -631,7 +640,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/Wqzxnzj0/V4.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV4%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv4/index.m3u8")
             ),
             TvChannel(
                 id = "vtv5_tnb",
@@ -639,17 +648,17 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/68ngzDsM/V5TNB.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV5%20T%C3%A2y%20Nam%20B%E1%BB%99%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv5tnb/index.m3u8")
             ),
             TvChannel(
                 id = "vtv6_hd",
                 name = "VTV6 HD (VTV Cần Thơ)",
                 logoUrl = "https://i.postimg.cc/t7Jc81QZ/V6.png",
-                streamUrl = "https://live.canthotv.vn/live/tv/chunklist.m3u8",
+                streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv6/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
                 backupUrls = listOf(
-                    "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv5tnb/master.m3u8",
-                    "https://a3iptv.goitoi.co/VTV/VTV6%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid"
+                    "https://live.canthotv.vn/live/tv/chunklist.m3u8",
+                    "https://dethich.pw/vtv6/index.m3u8"
                 )
             ),
             TvChannel(
@@ -658,7 +667,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/ykSbYwN8/V7.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV7%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv7/index.m3u8")
             ),
             TvChannel(
                 id = "vtv8_hd",
@@ -666,7 +675,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/k2QYWK8w/V8.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV8%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv8/index.m3u8")
             ),
             TvChannel(
                 id = "vtv9_hd",
@@ -674,7 +683,7 @@ class MovieRepository {
                 logoUrl = "https://i.postimg.cc/phT0NSS6/V9.png",
                 streamUrl = "https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv9/master.m3u8",
                 groupTitle = "VTV Quốc Gia",
-                backupUrls = listOf("https://a3iptv.goitoi.co/VTV/VTV9%20%28HD%208.5Mbps%29?r2h-token=9Pzpebvhp40NGRbSMuid")
+                backupUrls = listOf("https://dethich.pw/vtv9/index.m3u8")
             ),
             TvChannel(
                 id = "antv_hd",
@@ -696,64 +705,37 @@ class MovieRepository {
                 id = "htv1_hd_fpt",
                 name = "HTV1 HD - Thông Tin Công Cộng",
                 logoUrl = "https://i.imgur.com/KEMSBD3.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV1-HD-1080p/playlist.m3u8",
+                streamUrl = "https://dethich.pw/htv1/index.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv2_hd_fpt",
                 name = "HTV2 HD - Vie Channel",
                 logoUrl = "https://i.imgur.com/2npoF3Q.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV2-HD-1080p/playlist.m3u8",
+                streamUrl = "https://dethich.pw/htv2/index.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv3_sd_fpt",
                 name = "HTV3 - Thiếu Nhi & Gia Đình",
                 logoUrl = "https://i.imgur.com/TCoIsVF.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV3-SD-720p/playlist.m3u8",
+                streamUrl = "https://dethich.pw/htv3/index.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv7_hd_fpt",
                 name = "HTV7 HD - Giải Trí Đặc Sắc",
                 logoUrl = "https://i.imgur.com/n2PEK28.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV7-HD-1080p/chunks.m3u8",
+                streamUrl = "https://dethich.pw/htv7/index.m3u8",
                 groupTitle = "HTV TP.HCM"
             ),
             TvChannel(
                 id = "htv9_hd_fpt",
                 name = "HTV9 HD - Tin Tức & Thời Sự",
                 logoUrl = "https://i.imgur.com/6GSN524.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV9-HD-1080p/chunks.m3u8",
-                groupTitle = "HTV TP.HCM"
-            ),
-            TvChannel(
-                id = "htvc_thethao_fpt",
-                name = "HTVC Thể Thao HD",
-                logoUrl = "https://i.imgur.com/ikaiET3.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTV-THETHAO-HD-1080p/chunks.m3u8",
-                groupTitle = "HTV TP.HCM"
-            ),
-            TvChannel(
-                id = "htvc_phim_fpt",
-                name = "HTVC Phim HD",
-                logoUrl = "https://i.imgur.com/P0wqvmu.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-PHIM-HD-1080p/chunks.m3u8",
-                groupTitle = "HTV TP.HCM"
-            ),
-            TvChannel(
-                id = "htvc_thuanviet_fpt",
-                name = "HTVC Thuần Việt HD",
-                logoUrl = "https://i.imgur.com/KtMeo6q.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-THUANVIET-HD-1080p/chunks.m3u8",
-                groupTitle = "HTV TP.HCM"
-            ),
-            TvChannel(
-                id = "htvc_giadinh_fpt",
-                name = "HTVC Gia Đình HD",
-                logoUrl = "https://i.ibb.co/BVQtkHgF/IMG-2899.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HTVC-GIADINH-HD-1080p/chunks.m3u8",
-                groupTitle = "HTV TP.HCM"
+                streamUrl = "https://vtvgoliveapp1-aws-plus-tn.vtvdigital.vn/aws-dp/hcmtv/playlist.m3u8",
+                groupTitle = "HTV TP.HCM",
+                backupUrls = listOf("https://dethich.pw/htv9/index.m3u8")
             ),
 
             // 🏛️ ĐÀI TRUYỀN HÌNH TỈNH THÀNH (CHÍNH THỐNG TỪ CÁC ĐÀI ĐỊA PHƯƠNG)
@@ -772,17 +754,10 @@ class MovieRepository {
                 groupTitle = "Đài Tỉnh Thành"
             ),
             TvChannel(
-                id = "haiphong_sd_fpt",
-                name = "Hải Phòng TV",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HAIPHONG-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
                 id = "danang1_sd_fpt",
                 name = "Đà Nẵng 1 TV",
                 logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DANANG1-SD-720p/playlist.m3u8",
+                streamUrl = "https://live.mediatech.vn/live/285b59a111d76974225a8e3004bfc31a509/chunklist.m3u8",
                 groupTitle = "Đài Tỉnh Thành"
             ),
             TvChannel(
@@ -805,62 +780,6 @@ class MovieRepository {
                 name = "Cà Mau TV (CTV)",
                 logoUrl = "https://i.imgur.com/qWWpYRR.png",
                 streamUrl = "https://tv.ctvcamau.vn/live/tv/tv.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "angiang_sd_fpt",
-                name = "An Giang TV (ATV1)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/ANGIANG-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "tiengiang_sd_fpt",
-                name = "Tiền Giang TV (THTG)",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/TIENGIANG-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "dongnai1_sd_fpt",
-                name = "Đồng Nai 1 (ĐNRTV1)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DONGNAI1-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "dongnai2_sd_fpt",
-                name = "Đồng Nai 2 (ĐNRTV2)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DONGNAI2-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "binhthuan_sd_fpt",
-                name = "Bình Thuận TV (BTV)",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/BINHTHUAN-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "khanhhoa_sd_fpt",
-                name = "Khánh Hòa TV (KTV)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/KHANHHOA-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "daklak_sd_fpt",
-                name = "Đắk Lắk TV (DRT)",
-                logoUrl = "https://i.imgur.com/qWWpYRR.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/DAKLAK-SD-720p/playlist.m3u8",
-                groupTitle = "Đài Tỉnh Thành"
-            ),
-            TvChannel(
-                id = "hatinh_sd_fpt",
-                name = "Hà Tĩnh TV (HTTV)",
-                logoUrl = "https://i.imgur.com/vZYlGIW.png",
-                streamUrl = "https://1011154949.vnns.net/CDN-FPT02/HATINH-SD-720p/playlist.m3u8",
                 groupTitle = "Đài Tỉnh Thành"
             ),
             TvChannel(
@@ -927,6 +846,10 @@ class MovieRepository {
             if (trimmed.startsWith("#EXTINF:")) {
                 currentExt = trimmed
             } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                if (trimmed.contains(".coin") || trimmed.contains("dropboxusercontent.coin")) {
+                    currentExt = null
+                    continue
+                }
                 val ext = currentExt
                 if (ext != null) {
                     val logo = logoRegex.find(ext)?.groupValues?.get(1)

@@ -265,4 +265,52 @@ class VoiceCommandParserTest {
         val accentVinhLong = VoiceCommandParser.parse("mở đài vỉnh long", channels)
         assertTrue(accentVinhLong is VoiceCommand.SwitchChannel && (accentVinhLong as VoiceCommand.SwitchChannel).channel.name.contains("THVL1"))
     }
+
+    @Test
+    fun `test isQuickTriggerCommand prevents premature cut-off on partial inputs`() {
+        // Các từ lửng lơ KHÔNG ĐƯỢC ngắt sớm để đợi người dùng nói số kênh
+        val incompletePrefixes = listOf(
+            "mở kênh", "mở đài", "xem đài", "bật kênh",
+            "kênh", "đài", "vtv", "htv", "vtc", "thvl",
+            "vĩnh long", "vinh long"
+        )
+        for (prefix in incompletePrefixes) {
+            assertFalse(
+                "Prefix '$prefix' should NOT quick-trigger prematurely on partial speech",
+                VoiceCommandParser.isQuickTriggerCommand(prefix)
+            )
+        }
+
+        // Các câu lệnh hoàn chỉnh ĐƯỢC kích hoạt tức thì 0ms
+        val completeCommands = listOf(
+            "vtv1", "vtv 1", "vtv2", "vtv 2", "vtv3", "vtv 3",
+            "vĩnh long 1", "vĩnh long 2", "thvl 1", "thvl2",
+            "htv7", "htv 7", "htv9", "htv 9",
+            "kênh 5", "số 10", "đài 3",
+            "mở đài đồng tháp", "đồng tháp", "thdt", "antv", "qpvn",
+            "dừng", "tạm dừng", "tiếp tục", "phát", "tắt tiếng", "tăng âm", "giảm âm"
+        )
+        for (cmd in completeCommands) {
+            assertTrue(
+                "Command '$cmd' should quick-trigger immediately",
+                VoiceCommandParser.isQuickTriggerCommand(cmd)
+            )
+        }
+    }
+
+    @Test
+    fun `test official stream urls are healthy and dead domains are purged`() {
+        for (ch in channels) {
+            assertFalse("Channel ${ch.name} streamUrl contains dead vnns.net", ch.streamUrl.contains("vnns.net"))
+            assertFalse("Channel ${ch.name} streamUrl contains dead freem3u.xyz", ch.streamUrl.contains("freem3u.xyz"))
+            assertFalse("Channel ${ch.name} streamUrl contains dead fptplay", ch.streamUrl.contains("fptplay"))
+            assertFalse("Channel ${ch.name} streamUrl contains fake coin domain", ch.streamUrl.contains(".coin"))
+            for (backup in ch.backupUrls) {
+                assertFalse("Channel ${ch.name} backup contains dead vnns.net", backup.contains("vnns.net"))
+                assertFalse("Channel ${ch.name} backup contains dead freem3u.xyz", backup.contains("freem3u.xyz"))
+                assertFalse("Channel ${ch.name} backup contains dead fptplay", backup.contains("fptplay"))
+                assertFalse("Channel ${ch.name} backup contains fake coin domain", backup.contains(".coin"))
+            }
+        }
+    }
 }
