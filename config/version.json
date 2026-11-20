@@ -1,7 +1,7 @@
 {
   "versionCode": 85,
   "versionName": "2.6.9",
-  "sha256": "",
+  "sha256": "039F3E4FEADC6EA546EE692A48E2C57247756D3F4FDD9EC0DC0B56FBD0A6E0FA",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
   "releaseNotes": "v2.6.9 (Build #85): Hệ thống Tự Hành Auto-Pilot 24/7 tự động tìm kiếm nguồn phim, loại bỏ nguồn sập, tự động kiểm định kênh truyền hình sạch (config/tv_channels_clean.m3u) và tự động kích hoạt tiến trình Build APK mới."
 }
