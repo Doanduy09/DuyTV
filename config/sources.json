@@ -22,8 +22,7 @@
     },
     "cobephim": {
       "name": "CoBePhim",
-      "api_base": "https://cobephim.tv",
-      "api_backend": "https://egluy2hhb21vaw5ndw9pbmhl.darkbytes.xyz",
+      "api_base": "https://cobephim.mom",
       "enabled": true
     },
     "torrent4k": {
