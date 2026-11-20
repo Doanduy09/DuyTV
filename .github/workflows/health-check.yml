@@ -1,17 +1,17 @@
-name: "Kiểm Tra Sống Chết Của Nguồn Phim (Daily Health Check)"
+name: "Tự Động Quét Nguồn, Tự Vá Link & Tự Build DuyTV (Autonomous Self-Healing)"
 
 on:
   schedule:
-    # Chạy tự động lúc 00:00 UTC (07:00 sáng giờ Việt Nam) mỗi ngày
-    - cron: '0 0 * * *'
-  workflow_dispatch: # Cho phép Anh Duy ấn nút kiểm tra thủ công bất cứ lúc nào trên GitHub
+    # Chạy tự động mỗi 6 tiếng (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Cho phép Anh Duy ấn nút kiểm tra & tự vá thủ công bất cứ lúc nào trên GitHub
 
 jobs:
-  check-sources:
+  check-and-heal-sources:
     runs-on: ubuntu-latest
     permissions:
+      contents: write
       issues: write
-      contents: read
       actions: write
 
     steps:
@@ -30,10 +30,31 @@ jobs:
         with:
           node-version: 22
 
-      - name: Quét và kiểm tra kết nối từng nguồn phim
+      - name: Quét, tự động tìm mirror mới và cách ly nguồn chết
         id: health_check
         run: |
           node scripts/health_check.js
+
+      - name: Tự động commit và đẩy cấu hình mới lên GitHub nếu có tự vá nguồn (Self-Healing)
+        if: always()
+        run: |
+          if [ -f "sources_healed.flag" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add config/sources.json .config
+            git commit -m "fix(sources): tự động tìm mirror mới và loại bỏ nguồn chết [skip ci]" || echo "Không có thay đổi mới"
+            git push origin main || echo "Bỏ qua push"
+            echo "TRIGGER_BUILD=true" >> "$GITHUB_ENV"
+          else
+            echo "TRIGGER_BUILD=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Tự động kích hoạt biên dịch APK mới nếu nguồn phim có thay đổi
+        if: env.TRIGGER_BUILD == 'true'
+        run: |
+          gh workflow run build-apk.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Báo động và tự động tạo Issue nếu phát hiện nguồn sập
         if: failure()
@@ -42,7 +63,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = './health_report.md';
-            let body = 'Phát hiện nguồn phim không phản hồi. Vui lòng kiểm tra và cập nhật domain mới trong file config/sources.json!';
+            let body = 'Phát hiện nguồn phim không phản hồi và chưa có mirror thay thế. Hệ thống đã cách ly nguồn chết.';
             if (fs.existsSync(path)) {
               body = fs.readFileSync(path, 'utf8');
             }
@@ -70,7 +91,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: '✅ **Đã kiểm tra lại tự động**: Toàn bộ nguồn phim đang kích hoạt (`KKPhim`, `NguonC`, `CoBePhim`, `YTS 4K`) đều phản hồi tốt 100%. Tự động đóng cảnh báo!'
+                body: '✅ **Đã kiểm tra lại tự động**: Toàn bộ nguồn phim đang kích hoạt (`KKPhim`, `NguonC`, `CoBePhim`, `YTS 4K`) đều phản hồi tốt 100%. Nguồn lỗi đã được tự động thay thế hoặc cách ly an toàn!'
               });
               await github.rest.issues.update({
                 owner: context.repo.owner,

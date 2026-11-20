@@ -50,9 +50,11 @@ lines.forEach((url, idx) => {
 
     // Nhận diện nguồn quen thuộc
     if (lower.includes('ophim') || lower.includes('rapphim')) {
+        const existingMirrors = sourcesConfig.sources.ophim?.mirrors || [];
         sourcesConfig.sources.ophim = {
             name: "OPhim",
             api_base: lower.includes('rapphim') ? "https://ophim.cc" : cleanUrl,
+            mirrors: existingMirrors.length > 0 ? existingMirrors : ["https://ophim.cc", "https://ophim1.com"],
             enabled: true
         };
     } else if (lower.includes('phimapi') || lower.includes('mephim')) {
@@ -69,9 +71,11 @@ lines.forEach((url, idx) => {
             enabled: true
         };
     } else if (lower.includes('cobe')) {
+        const existingBackend = sourcesConfig.sources.cobephim?.api_backend;
         sourcesConfig.sources.cobephim = {
             name: "CoBePhim",
             api_base: cleanUrl,
+            api_backend: existingBackend || "https://egluy2hhb21vaw5ndw9pbmhl.darkbytes.xyz",
             enabled: true
         };
     } else if (lower.includes('yts')) {

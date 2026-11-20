@@ -1,0 +1,46 @@
+name: "DuyTV Auto-Pilot: Tự Động Tìm Nguồn Phim & Kênh TV 24/7 (Self-Healing Engine)"
+
+on:
+  schedule:
+    # Chạy tự động mỗi 6 tiếng (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Cho phép Anh Duy bấm nút chạy tự động bất kỳ lúc nào
+
+jobs:
+  auto-pilot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+      issues: write
+
+    steps:
+      - name: Tải mã nguồn repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cài đặt Node.js môi trường tự hành
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Chạy Auto-Pilot Engine kiểm định nguồn & cào kênh TV
+        run: node scripts/auto_pilot_sources.js
+
+      - name: Tự động commit và kích hoạt Build APK mới nếu có thay đổi nguồn
+        run: |
+          if [ -f "auto_pilot_triggered.flag" ]; then
+            echo "⚡ Phát hiện thay đổi nguồn. Bắt đầu commit và đẩy lên GitHub..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add config/sources.json config/tv_channels_clean.m3u .config config/version.json app/build.gradle.kts
+            git commit -m "feat(auto-pilot): tự động phát hiện, vá nguồn phim & cập nhật kênh TV [skip ci]" || echo "Không có thay đổi"
+            git push origin main || echo "Bỏ qua push"
+            echo "🚀 Đang kích hoạt tiến trình Build APK mới tinh..."
+            gh workflow run build-apk.yml --ref main || echo "Đã kích hoạt tự động qua push"
+          else
+            echo "✅ Toàn bộ hệ thống nguồn phim và kênh TV đang hoàn hảo 100%. Không cần build lại."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -50,6 +50,7 @@ class MovieRepository {
         val iptvOrgVnUrl = RemoteConfigManager.IPTV_ORG_VN_M3U
         val iptvOrgSportsUrl = RemoteConfigManager.IPTV_ORG_SPORTS_M3U
         val giangnamUrl = RemoteConfigManager.GIANGNAM_IPTV_M3U
+        val duytvCleanTvUrl = RemoteConfigManager.DUYTV_CLEAN_TV_M3U
         val customEntries = RemoteConfigManager.getCustomSportsSources()
 
         val khogaApiDef = async { fetchKhoGaLiveApiMatches(now) }
@@ -59,6 +60,19 @@ class MovieRepository {
             try {
                 val req = Request.Builder()
                     .url(giangnamUrl)
+                    .header("User-Agent", "TiviMate/4.7.0")
+                    .build()
+                val res = executeSafe(req)
+                if (res.isSuccessful) res.body?.string() else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        val duytvCleanTvDef = async {
+            try {
+                val req = Request.Builder()
+                    .url(duytvCleanTvUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
                 val res = executeSafe(req)
@@ -225,6 +239,7 @@ class MovieRepository {
         val iptvOrgVnBody = iptvOrgVnDef.await()
         val iptvOrgSportsBody = iptvOrgSportsDef.await()
         val giangnamBody = giangnamDef.await()
+        val duytvCleanTvBody = duytvCleanTvDef.await()
         val customResults = customDefs.map { it.await() }
 
         val parsedSports = if (!sportsBody.isNullOrBlank()) parseM3uData(sportsBody, "Bóng Đá") else TvSportsData()
@@ -235,11 +250,12 @@ class MovieRepository {
         val parsedIptvOrgVn = if (!iptvOrgVnBody.isNullOrBlank()) parseM3uData(iptvOrgVnBody, "Truyền Hình") else TvSportsData()
         val parsedIptvOrgSports = if (!iptvOrgSportsBody.isNullOrBlank()) parseM3uData(iptvOrgSportsBody, "Thể Thao") else TvSportsData()
         val parsedGiangnam = if (!giangnamBody.isNullOrBlank()) parseM3uData(giangnamBody, "Bóng Đá & Truyền Hình") else TvSportsData()
+        val parsedDuytvCleanTv = if (!duytvCleanTvBody.isNullOrBlank()) parseM3uData(duytvCleanTvBody, "Truyền Hình") else TvSportsData()
 
-        // 1. Gộp tất cả kênh truyền hình (Chính thống + GiangNam All-In-One + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao CoBan66 & CooCaa)
+        // 1. Gộp tất cả kênh truyền hình (DuyTV Clean M3U + Chính thống + GiangNam + A3 IPTV VIP + M3U Tự thêm + M3U Truyền hình + IPTV-Org VN/Sports + M3U Thể thao)
         val officialChannels = getVerifiedOfficialChannels()
         val customChannels = customResults.flatMap { it.channels }
-        val rawAllChannels = officialChannels + parsedGiangnam.channels + parsedA3.channels + customChannels + parsedTv.channels + parsedIptvOrgVn.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels + parsedIptvOrgSports.channels
+        val rawAllChannels = parsedDuytvCleanTv.channels + officialChannels + parsedGiangnam.channels + parsedA3.channels + customChannels + parsedTv.channels + parsedIptvOrgVn.channels + parsedSports.channels + parsedCoban.channels + parsedCoocaa.channels + parsedIptvOrgSports.channels
         val mergedChannels = mergeAndDeduplicateChannels(rawAllChannels)
 
         // 2. Gộp các trận bóng từ tất cả nguồn (Nguồn tự thêm + Kho Gà Live API + Thập Cẩm TV + GiangNam + Kho Gà M3U + IPTV) & lọc bỏ trận đã kết thúc (FINISHED)

@@ -1,7 +1,7 @@
 {
-  "versionCode": 84,
-  "versionName": "2.6.8",
-  "sha256": "B768C5BAB0AF42510918718FF3964DDE724BDEB329B717487C6E9628F247B46A",
+  "versionCode": 85,
+  "versionName": "2.6.9",
+  "sha256": "",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
-  "releaseNotes": "v2.6.8 (Build #84): Đồng bộ tự động SHA-256 trên GitHub CI cho cập nhật OTA 1-chạm chính xác 100%; Cập nhật CoBePhim sang tên miền sống mới https://cobephim.tv và kiểm tra trực tiếp API backend; Tăng cường bảo mật (allowBackup=false) và log chẩn đoán OTA rõ ràng; Nâng cấp kiểm thử tự động bộ lọc luồng chết và CDN quốc gia."
+  "releaseNotes": "v2.6.9 (Build #85): Hệ thống Tự Hành Auto-Pilot 24/7 tự động tìm kiếm nguồn phim, loại bỏ nguồn sập, tự động kiểm định kênh truyền hình sạch (config/tv_channels_clean.m3u) và tự động kích hoạt tiến trình Build APK mới."
 }
