@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
         var pendingVoiceTrigger: Boolean = false
 
         @Volatile
-        var globalVoiceManagerInstance: com.duytv.app.util.VoiceAssistantManager? = null
+        private var globalVoiceManagerRef: java.lang.ref.WeakReference<com.duytv.app.util.VoiceAssistantManager>? = null
 
         @Volatile
         var familyNotificationMessage: String? = null
@@ -90,6 +90,15 @@ class MainActivity : ComponentActivity() {
                 act.runOnUiThread {
                     familyNotificationMessage = message
                     familyNotificationTick++
+                }
+            }
+        }
+
+        fun returnToHomeFromCast() {
+            val act = activeInstance?.get()
+            if (act != null) {
+                act.runOnUiThread {
+                    act.navigateToScreen(AppScreen.Home)
                 }
             }
         }
@@ -127,7 +136,7 @@ class MainActivity : ComponentActivity() {
         }
 
         fun executeRemoteCommand(text: String, context: android.content.Context) {
-            val mgr = globalVoiceManagerInstance
+            val mgr = globalVoiceManagerRef?.get()
             val act = activeInstance?.get()
             if (mgr != null && isActivityInForeground && act != null) {
                 act.runOnUiThread {
@@ -319,7 +328,7 @@ class MainActivity : ComponentActivity() {
         handleLauncherIntent(intent)
         intent.getStringExtra("remote_command_text")?.let { cmd ->
             intent.removeExtra("remote_command_text")
-            globalVoiceManagerInstance?.submitExternalResult(cmd)
+            globalVoiceManagerRef?.get()?.submitExternalResult(cmd)
         }
     }
 
@@ -334,6 +343,7 @@ class MainActivity : ComponentActivity() {
                keyCode == android.view.KeyEvent.KEYCODE_SEARCH
     }
 
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         lastUserInteractionMs = System.currentTimeMillis()
         val keyCode = event.keyCode
@@ -520,7 +530,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 DisposableEffect(Unit) {
-                    globalVoiceManagerInstance = globalVoiceManager
+                    globalVoiceManagerRef = java.lang.ref.WeakReference(globalVoiceManager)
                     intent?.getStringExtra("remote_command_text")?.let { cmd ->
                         intent?.removeExtra("remote_command_text")
                         globalVoiceManager.submitExternalResult(cmd)
@@ -544,7 +554,7 @@ class MainActivity : ComponentActivity() {
                         true
                     }
                     onDispose {
-                        globalVoiceManagerInstance = null
+                        globalVoiceManagerRef = null
                         onGlobalVoiceKeyEvent = null
                         globalVoiceManager.destroy()
                         globalTts.destroy()

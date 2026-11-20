@@ -41,9 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
@@ -725,7 +728,7 @@ fun HomeScreen(
                                     .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
                                 Text(
-                                    text = "📲 TRUYỀN TỪ ĐT",
+                                    text = "📲 TRUYỀN ĐT",
                                     color = if (phoneCastActive) Color.White else Color(0xFF00E5FF),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
@@ -1585,10 +1588,12 @@ fun HomeScreen(
 
         if (showPhoneCastHelpDialog) {
             val localIp = remember { com.duytv.app.util.DlnaMediaRenderer.getLocalIpv4Address() }
+            val webHubUrl = remember(localIp) { "http://$localIp:8888" }
+            val qrMatrix = remember(webHubUrl) { com.duytv.app.util.QrCodeGenerator.encode(webHubUrl) }
             androidx.compose.ui.window.Dialog(onDismissRequest = { showPhoneCastHelpDialog = false }) {
                 Box(
                     modifier = Modifier
-                        .width(520.dp)
+                        .width(660.dp)
                         .background(Color(0xFF151D30), RoundedCornerShape(16.dp))
                         .border(1.5.dp, Color(0xFF00E5FF), RoundedCornerShape(16.dp))
                         .padding(24.dp)
@@ -1614,39 +1619,79 @@ fun HomeScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(14.dp))
-                        Column(
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF0B0F19), RoundedCornerShape(10.dp))
-                                .padding(14.dp)
+                                .background(Color(0xFF0B0F19), RoundedCornerShape(12.dp))
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "1. TRUYỀN QUA BỘ SƯU TẬP (SAMSUNG / ANDROID):",
-                                color = Color(0xFF00E5FF),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Mở ảnh hoặc video trong Thư viện điện thoại -> Bấm biểu tượng [Truyền / Smart View] -> Chọn \"DuyTV (Tivi Sharp)\" để chiếu ngay.",
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "2. TRUYỀN QUA TRÌNH DUYỆT WEB (MỌI ĐIỆN THOẠI / IPHONE):",
-                                color = Color(0xFFFFD600),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Mở Safari hoặc Chrome trên điện thoại gõ:\nhttp://$localIp:8888\n(Không cần cài app, chọn ảnh/video là bay lên Tivi ngay)",
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
+                            // Cột trái: Mã QR Quét 1 Chạm
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(end = 16.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(136.dp)
+                                        .background(Color.White, RoundedCornerShape(10.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val n = qrMatrix.size
+                                        val cell = size.width / n.toFloat()
+                                        for (y in 0 until n) {
+                                            for (x in 0 until n) {
+                                                if (qrMatrix[x, y]) {
+                                                    drawRect(
+                                                        color = Color.Black,
+                                                        topLeft = Offset(x * cell, y * cell),
+                                                        size = Size(cell + 0.4f, cell + 0.4f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "📷 Quét QR mở ngay",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            // Cột phải: 2 Cách Truyền
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "1. TRUYỀN QUA BỘ SƯU TẬP (SAMSUNG / ANDROID):",
+                                    color = Color(0xFF00E5FF),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Mở ảnh/video trong Thư viện -> Bấm biểu tượng [Truyền / Smart View] -> Chọn \"DuyTV (Tivi Sharp)\".",
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "2. QUÉT QR HOẶC MỞ TRÌNH DUYỆT (IPHONE / ANDROID):",
+                                    color = Color(0xFFFFD600),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Đưa Camera điện thoại quét Mã QR bên trái hoặc mở trình duyệt vào:\n$webHubUrl\n(Chọn ảnh/video từ máy là bay lên Tivi ngay!)",
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                         val closeInter = remember { MutableInteractionSource() }

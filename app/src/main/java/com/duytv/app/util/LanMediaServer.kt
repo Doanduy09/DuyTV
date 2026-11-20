@@ -1,44 +1,58 @@
 package com.duytv.app.util
 
 import android.content.Context
+import android.media.AudioManager
 import android.util.Log
+import com.duytv.app.BuildConfig
 import com.duytv.app.MainActivity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.io.BufferedReader
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 
 /**
  * Máy chủ LAN Media, DLNA UPnP Digital Media Renderer & Web Control Hub nhúng siêu nhẹ (Port 8888).
- * Cho phép điện thoại Samsung, iPhone, Xiaomi, PC trong cùng mạng Wi-Fi:
- * 1. Tự động hiển thị tên "DuyTV (Tivi Sharp)" trên điện thoại (Samsung Smart View, Gallery "Truyền", DLNA).
- * 2. Bắn trực tiếp ảnh chụp (WebP/JPEG) lên màn hình TV với độ trễ < 30ms (0ms Internet, 0 tốn 4G).
- * 3. Bắn link video MP4/HLS phát trực tiếp bằng phần cứng MediaCodec trên Tivi Sharp.
- * 4. Gửi thông báo / lời nhắc việc gia đình HUD mờ 4s không gián đoạn video.
- * 5. Bàn điều khiển Web Remote mượt mà ngay trên trình duyệt điện thoại không cần cài app!
+ * - Tự động hiển thị "DuyTV (Tivi Sharp)" qua DLNA/SSDP.
+ * - Chiếu ảnh từ điện thoại (nén tự động 1920px trên trình duyệt, file name động chống dính cache).
+ * - Chiếu video trực tiếp từ thư viện điện thoại (streaming 64KB chunk + HTTP Range) hoặc dán link MP4/HLS.
+ * - Bảo vệ chống OOM (giới hạn body), chống CSRF (tắt GET state-changing + không mở CORS bừa bãi),
+ *   SupervisorJob tự phục hồi 24/7.
  */
 object LanMediaServer {
     private const val TAG = "LanMediaServer"
     const val PORT = 8888
+    internal const val MAX_JSON_BODY_BYTES = 10 * 1024 * 1024 // 10 MB trần chống OOM
+    private const val MAX_VIDEO_UPLOAD_BYTES = 150L * 1024 * 1024 // 150 MB trần cho video stream ra đĩa
 
     private var serverJob: Job? = null
     private var serverSocket: ServerSocket? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.w(TAG, "LanMediaServer coroutine error (recovered): ${throwable.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
+
+    @Volatile
+    private var lastTransportState: String = "STOPPED"
 
     fun start(context: Context) {
         if (serverJob != null && serverJob?.isActive == true) return
+        val appCtx = context.applicationContext
 
         serverJob = scope.launch {
             while (isActive) {
@@ -49,7 +63,7 @@ object LanMediaServer {
                     Log.i(TAG, "DuyTV LAN Media Server đang lắng nghe tại cổng HTTP $PORT")
                     while (isActive && serverSocket?.isClosed == false) {
                         val client = serverSocket?.accept() ?: break
-                        launch { handleClient(context, client) }
+                        launch { handleClient(appCtx, client) }
                     }
                 } catch (e: Exception) {
                     Log.d(TAG, "LanMediaServer ServerSocket exception: ${e.message}. Khởi động lại sau 3s...")
@@ -61,35 +75,74 @@ object LanMediaServer {
         }
     }
 
+    private fun readHeaderBlock(bis: BufferedInputStream): String? {
+        val baos = ByteArrayOutputStream(1024)
+        var prev3 = 0
+        var prev2 = 0
+        var prev1 = 0
+        var total = 0
+        while (total < 16384) {
+            val b = bis.read()
+            if (b == -1) return if (baos.size() == 0) null else baos.toString("UTF-8")
+            baos.write(b)
+            total++
+            if (prev3 == '\r'.code && prev2 == '\n'.code && prev1 == '\r'.code && b == '\n'.code) {
+                break
+            }
+            if (prev1 == '\n'.code && b == '\n'.code) {
+                break
+            }
+            prev3 = prev2
+            prev2 = prev1
+            prev1 = b
+        }
+        return baos.toString("UTF-8")
+    }
+
+    private fun readExactBytes(input: InputStream, length: Int): ByteArray? {
+        if (length <= 0) return ByteArray(0)
+        if (length > MAX_JSON_BODY_BYTES) return null
+        val out = ByteArray(length)
+        var total = 0
+        while (total < length) {
+            val r = input.read(out, total, length - total)
+            if (r == -1) break
+            total += r
+        }
+        return if (total == length) out else out.copyOf(total)
+    }
+
     private fun handleClient(context: Context, socket: Socket) {
         try {
-            socket.soTimeout = 8000
-            val input = socket.getInputStream()
+            socket.soTimeout = 15000
+            val bis = BufferedInputStream(socket.getInputStream(), 16 * 1024)
             val output = socket.getOutputStream()
-            val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
 
-            val requestLine = reader.readLine() ?: return
-            val parts = requestLine.split(" ")
+            val headerBlock = readHeaderBlock(bis) ?: return
+            val lines = headerBlock.split("\r\n", "\n")
+            if (lines.isEmpty()) return
+
+            val parts = lines[0].trim().split(" ")
             if (parts.size < 2) return
 
             val method = parts[0].uppercase()
             val rawPath = parts[1]
 
-            // Đọc Headers
             val headers = mutableMapOf<String, String>()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                if (line.isNullOrBlank()) break
-                val colonIdx = line!!.indexOf(":")
+            for (i in 1 until lines.size) {
+                val line = lines[i]
+                if (line.isBlank()) break
+                val colonIdx = line.indexOf(":")
                 if (colonIdx > 0) {
-                    headers[line!!.substring(0, colonIdx).trim().lowercase()] =
-                        line!!.substring(colonIdx + 1).trim()
+                    headers[line.substring(0, colonIdx).trim().lowercase()] =
+                        line.substring(colonIdx + 1).trim()
                 }
             }
 
-            val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
+            val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
             val contentType = headers["content-type"] ?: ""
             val soapAction = headers["soapaction"] ?: ""
+            val rangeHeader = headers["range"]
 
             when {
                 // Trang Web Remote & Bắn Media chính
@@ -99,8 +152,18 @@ object LanMediaServer {
 
                 // Trạng thái hệ thống
                 method == "GET" && rawPath == "/api/status" -> {
-                    val resp = "{\"status\":\"ok\",\"app\":\"DuyTV\",\"version\":\"2.6.4\",\"playing\":${MainActivity.isVideoActivelyPlaying}}"
+                    val resp = JSONObject()
+                        .put("status", "ok")
+                        .put("app", "DuyTV")
+                        .put("version", BuildConfig.VERSION_NAME)
+                        .put("playing", MainActivity.isVideoActivelyPlaying)
+                        .toString()
                     sendHttpResponse(output, 200, "application/json; charset=utf-8", resp.toByteArray(Charsets.UTF_8))
+                }
+
+                // Phục vụ video cục bộ đã upload từ điện thoại (hỗ trợ HTTP Range cho ExoPlayer tua mượt)
+                (method == "GET" || method == "HEAD") && rawPath.startsWith("/local_media/") -> {
+                    serveLocalMediaFile(context, rawPath, rangeHeader, method == "HEAD", output)
                 }
 
                 // --- DLNA UPnP Digital Media Renderer Endpoints ---
@@ -121,92 +184,105 @@ object LanMediaServer {
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/AVTransport") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    handleUpnpAvTransportControl(soapAction, body, output)
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
+                    } else {
+                        handleUpnpAvTransportControl(soapAction, String(bytes, Charsets.UTF_8), output)
+                    }
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/RenderingControl") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    handleUpnpRenderingControl(soapAction, body, output)
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
+                    } else {
+                        handleUpnpRenderingControl(context, soapAction, String(bytes, Charsets.UTF_8), output)
+                    }
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/ConnectionManager") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    handleUpnpConnectionManager(soapAction, body, output)
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
+                    } else {
+                        handleUpnpConnectionManager(output)
+                    }
                 }
 
-                // Bắn ảnh (POST JSON Base64 hoặc Raw bytes)
+                // Bắn ảnh (POST JSON Base64 hoặc Raw bytes an toàn không hỏng binary)
                 method == "POST" && rawPath.startsWith("/api/cast_photo") -> {
-                    handleCastPhoto(context, reader, input, contentLength, contentType, output)
+                    if (contentLength > MAX_JSON_BODY_BYTES) {
+                        sendPayloadTooLarge(output)
+                    } else {
+                        handleCastPhoto(context, bis, contentLength.toInt().coerceAtLeast(0), contentType, output)
+                    }
+                }
+
+                // Tải trực tiếp file video quay trên điện thoại (streaming ra đĩa 64KB chunk, không ăn RAM)
+                method == "POST" && rawPath.startsWith("/api/upload_video") -> {
+                    handleUploadVideo(context, bis, rawPath, contentLength, output)
                 }
 
                 // Bắn link video (POST JSON)
                 method == "POST" && rawPath.startsWith("/api/cast_video") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                    val url = json.optString("url")
-                    val title = json.optString("title", "Video từ điện thoại")
-                    if (url.isNotBlank()) {
-                        MainActivity.openCastVideo(url, title)
-                        sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
                     } else {
-                        sendHttpResponse(output, 400, "application/json", "{\"error\":\"Missing url\"}".toByteArray())
+                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                        val url = json.optString("url")
+                        val title = json.optString("title", "Video từ điện thoại")
+                        if (url.isNotBlank()) {
+                            MainActivity.openCastVideo(url, title)
+                            sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                        } else {
+                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing url"))
+                        }
                     }
                 }
 
-                // Gửi thông báo gia đình (POST JSON)
+                // Gửi thông báo gia đình (POST JSON - chống CSRF)
                 method == "POST" && rawPath.startsWith("/api/notify") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                    val message = json.optString("message").ifBlank { json.optString("msg") }
-                    if (message.isNotBlank()) {
-                        MainActivity.showFamilyNotification(message)
-                        sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
                     } else {
-                        sendHttpResponse(output, 400, "application/json", "{\"error\":\"Missing message\"}".toByteArray())
+                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                        val message = json.optString("message").ifBlank { json.optString("msg") }
+                        if (message.isNotBlank()) {
+                            MainActivity.showFamilyNotification(message)
+                            sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                        } else {
+                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing message"))
+                        }
                     }
                 }
 
-                // Điều khiển nhanh / lệnh giọng nói từ Web
+                // Điều khiển nhanh / lệnh giọng nói từ Web (POST JSON - chống CSRF)
                 method == "POST" && rawPath.startsWith("/api/command") -> {
-                    val body = readBodyStringFromReader(reader, contentLength)
-                    val json = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
-                    val cmd = json.optString("command").ifBlank { json.optString("raw_text") }
-                    if (cmd.isNotBlank()) {
-                        MainActivity.executeRemoteCommand(cmd, context)
-                        sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\",\"command\":\"$cmd\"}".toByteArray())
+                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    if (bytes == null) {
+                        sendPayloadTooLarge(output)
                     } else {
-                        sendHttpResponse(output, 400, "application/json", "{\"error\":\"Missing command\"}".toByteArray())
+                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                        val cmd = json.optString("command").ifBlank { json.optString("raw_text") }
+                        if (cmd.isNotBlank()) {
+                            MainActivity.executeRemoteCommand(cmd, context)
+                            sendJsonResponse(output, 200, JSONObject().put("status", "ok").put("command", cmd))
+                        } else {
+                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing command"))
+                        }
                     }
                 }
 
-                // GET API fallback tiện dụng
-                method == "GET" && rawPath.startsWith("/api/notify?") -> {
-                    val query = rawPath.substringAfter("?")
-                    val params = parseQueryParams(query)
-                    val msg = params["msg"] ?: params["message"] ?: ""
-                    if (msg.isNotBlank()) {
-                        MainActivity.showFamilyNotification(msg)
-                        sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
-                    } else {
-                        sendHttpResponse(output, 400, "application/json", "{\"error\":\"Empty msg\"}".toByteArray())
-                    }
-                }
-
-                method == "GET" && rawPath.startsWith("/api/command?") -> {
-                    val query = rawPath.substringAfter("?")
-                    val params = parseQueryParams(query)
-                    val cmd = params["cmd"] ?: params["command"] ?: ""
-                    if (cmd.isNotBlank()) {
-                        MainActivity.executeRemoteCommand(cmd, context)
-                        sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
-                    } else {
-                        sendHttpResponse(output, 400, "application/json", "{\"error\":\"Empty cmd\"}".toByteArray())
-                    }
+                // Chặn HTTP GET cho các lệnh thay đổi trạng thái TV (bảo vệ chống CSRF qua thẻ <img>)
+                method == "GET" && (rawPath.startsWith("/api/command") || rawPath.startsWith("/api/notify")) -> {
+                    sendJsonResponse(output, 405, JSONObject().put("error", "Method Not Allowed: use POST"))
                 }
 
                 else -> {
-                    sendHttpResponse(output, 404, "text/plain", "Not Found".toByteArray())
+                    sendHttpResponse(output, 404, "text/plain; charset=utf-8", "Not Found".toByteArray(Charsets.UTF_8))
                 }
             }
         } catch (_: Exception) {
@@ -215,57 +291,177 @@ object LanMediaServer {
         }
     }
 
+    private fun cleanupOldTempFiles(cacheDir: File, prefix: String, keepName: String) {
+        try {
+            cacheDir.listFiles()?.forEach { f ->
+                if (f.name.startsWith(prefix) && f.name != keepName) {
+                    f.delete()
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun handleCastPhoto(
         context: Context,
-        reader: BufferedReader,
         input: InputStream,
         length: Int,
         contentType: String,
         output: OutputStream
     ) {
         try {
-            val photoFile = File(context.cacheDir, "cast_photo_latest.jpg")
-            if (contentType.contains("application/json")) {
-                val body = readBodyStringFromReader(reader, length)
-                val json = JSONObject(body)
+            val rawBytes = readExactBytes(input, length)
+            if (rawBytes == null) {
+                sendPayloadTooLarge(output)
+                return
+            }
+            val fileName = "cast_photo_${System.currentTimeMillis()}.jpg"
+            val photoFile = File(context.cacheDir, fileName)
+
+            if (contentType.contains("application/json", ignoreCase = true)) {
+                val json = JSONObject(String(rawBytes, Charsets.UTF_8))
                 val b64 = json.optString("base64").ifBlank { json.optString("image_base64") }
                 val title = json.optString("title", "Ảnh từ điện thoại")
                 if (b64.isNotBlank()) {
                     val cleanB64 = if (b64.contains(",")) b64.substringAfter(",") else b64
                     val decodedBytes = android.util.Base64.decode(cleanB64, android.util.Base64.DEFAULT)
                     FileOutputStream(photoFile).use { it.write(decodedBytes) }
+                    cleanupOldTempFiles(context.cacheDir, "cast_photo_", fileName)
                     MainActivity.openCastPhoto(photoFile.absolutePath, title)
-                    sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
+                    sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
                     return
                 }
             }
 
-            // Raw bytes upload từ reader chars
-            val body = readBodyStringFromReader(reader, length)
-            FileOutputStream(photoFile).use { fos ->
-                fos.write(body.toByteArray(Charsets.ISO_8859_1))
-            }
-
+            // Raw binary upload trực tiếp không qua UTF-8 decoder -> giữ nguyên 100% byte gốc ảnh
+            FileOutputStream(photoFile).use { fos -> fos.write(rawBytes) }
+            cleanupOldTempFiles(context.cacheDir, "cast_photo_", fileName)
             MainActivity.openCastPhoto(photoFile.absolutePath, "Ảnh từ điện thoại")
-            sendHttpResponse(output, 200, "application/json", "{\"status\":\"ok\"}".toByteArray())
+            sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
         } catch (e: Exception) {
-            sendHttpResponse(output, 500, "application/json", "{\"error\":\"${e.message}\"}".toByteArray())
+            sendJsonResponse(output, 500, JSONObject().put("error", e.message ?: "Photo cast error"))
         }
     }
 
-    private fun readBodyStringFromReader(reader: BufferedReader, length: Int): String {
-        if (length <= 0) return ""
-        val chars = CharArray(length)
-        var total = 0
-        while (total < length) {
-            val r = reader.read(chars, total, length - total)
-            if (r == -1) break
-            total += r
+    private fun handleUploadVideo(
+        context: Context,
+        input: InputStream,
+        rawPath: String,
+        contentLength: Long,
+        output: OutputStream
+    ) {
+        if (contentLength <= 0L) {
+            sendJsonResponse(output, 400, JSONObject().put("error", "Empty video payload"))
+            return
         }
-        return String(chars, 0, total)
+        if (contentLength > MAX_VIDEO_UPLOAD_BYTES) {
+            sendPayloadTooLarge(output)
+            return
+        }
+        try {
+            val query = rawPath.substringAfter("?", "")
+            val params = if (query.isNotEmpty()) parseQueryParams(query) else emptyMap()
+            val title = params["title"]?.takeIf { it.isNotBlank() } ?: "Video từ điện thoại"
+            val fileName = "cast_video_${System.currentTimeMillis()}.mp4"
+            val videoFile = File(context.cacheDir, fileName)
+
+            // Stream 64KB chunk trực tiếp xuống đĩa -> 0 spike RAM trên Tivi 1.5GB
+            FileOutputStream(videoFile).use { fos ->
+                val buf = ByteArray(64 * 1024)
+                var remaining = contentLength
+                while (remaining > 0) {
+                    val toRead = minOf(buf.size.toLong(), remaining).toInt()
+                    val r = input.read(buf, 0, toRead)
+                    if (r == -1) break
+                    fos.write(buf, 0, r)
+                    remaining -= r
+                }
+                fos.flush()
+            }
+            cleanupOldTempFiles(context.cacheDir, "cast_video_", fileName)
+
+            val localUrl = "http://127.0.0.1:$PORT/local_media/$fileName"
+            MainActivity.openCastVideo(localUrl, title)
+            sendJsonResponse(output, 200, JSONObject().put("status", "ok").put("url", localUrl))
+        } catch (e: Exception) {
+            sendJsonResponse(output, 500, JSONObject().put("error", e.message ?: "Video upload error"))
+        }
     }
 
-    private fun extractXmlTag(xml: String, tag: String): String {
+    private fun serveLocalMediaFile(
+        context: Context,
+        rawPath: String,
+        rangeHeader: String?,
+        headOnly: Boolean,
+        output: OutputStream
+    ) {
+        val rawName = rawPath.removePrefix("/local_media/").substringBefore("?")
+        // Chống Path Traversal tuyệt đối: chỉ cho phép ký tự an toàn của tên file cast_video_*
+        if (!rawName.matches(Regex("^cast_video_\\d+\\.mp4$"))) {
+            sendHttpResponse(output, 403, "text/plain", "Forbidden".toByteArray())
+            return
+        }
+        val file = File(context.cacheDir, rawName)
+        if (!file.exists()) {
+            sendHttpResponse(output, 404, "text/plain", "Not Found".toByteArray())
+            return
+        }
+
+        val totalLen = file.length()
+        var start = 0L
+        var end = totalLen - 1
+        var isPartial = false
+
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            val rangeVal = rangeHeader.removePrefix("bytes=").substringBefore(",")
+            val dash = rangeVal.indexOf('-')
+            if (dash >= 0) {
+                val s = rangeVal.substring(0, dash).trim().toLongOrNull()
+                val e = rangeVal.substring(dash + 1).trim().toLongOrNull()
+                if (s != null) start = s.coerceIn(0, totalLen - 1)
+                if (e != null) end = e.coerceIn(start, totalLen - 1)
+                isPartial = true
+            }
+        }
+
+        val contentLen = (end - start) + 1
+        val statusLine = if (isPartial) "HTTP/1.1 206 Partial Content" else "HTTP/1.1 200 OK"
+        val header = buildString {
+            append("$statusLine\r\n")
+            append("Content-Type: video/mp4\r\n")
+            append("Accept-Ranges: bytes\r\n")
+            append("Content-Length: $contentLen\r\n")
+            if (isPartial) {
+                append("Content-Range: bytes $start-$end/$totalLen\r\n")
+            }
+            append("Connection: close\r\n\r\n")
+        }
+        output.write(header.toByteArray(Charsets.UTF_8))
+        if (!headOnly) {
+            RandomAccessFile(file, "r").use { raf ->
+                raf.seek(start)
+                val buf = ByteArray(64 * 1024)
+                var remaining = contentLen
+                while (remaining > 0) {
+                    val r = raf.read(buf, 0, minOf(buf.size.toLong(), remaining).toInt())
+                    if (r == -1) break
+                    output.write(buf, 0, r)
+                    remaining -= r
+                }
+            }
+        }
+        output.flush()
+    }
+
+    internal fun unescapeXml(raw: String): String {
+        return raw
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+    }
+
+    internal fun extractXmlTag(xml: String, tag: String): String {
         val open = "<$tag"
         val startIdx = xml.indexOf(open)
         if (startIdx == -1) return ""
@@ -274,11 +470,10 @@ object LanMediaServer {
         val close = "</$tag>"
         val endIdx = xml.indexOf(close, gtIdx)
         if (endIdx == -1) return ""
-        return xml.substring(gtIdx + 1, endIdx).trim()
+        return unescapeXml(xml.substring(gtIdx + 1, endIdx).trim())
     }
 
     private fun serveUpnpDeviceDescription(output: OutputStream) {
-        val localIp = DlnaMediaRenderer.getLocalIpv4Address()
         val xml = """<?xml version="1.0" encoding="utf-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
   <specVersion>
@@ -292,7 +487,7 @@ object LanMediaServer {
     <manufacturerURL>https://github.com/Doanduy09/DuyTV</manufacturerURL>
     <modelDescription>DuyTV Android TV Media Renderer</modelDescription>
     <modelName>DuyTV Aquos</modelName>
-    <modelNumber>2.6.4</modelNumber>
+    <modelNumber>${BuildConfig.VERSION_NAME}</modelNumber>
     <UDN>${DlnaMediaRenderer.UDN}</UDN>
     <serviceList>
       <service>
@@ -372,9 +567,12 @@ object LanMediaServer {
                 val meta = extractXmlTag(body, "CurrentURIMetaData")
                 Log.i(TAG, "DLNA SetAVTransportURI: uri=$uri")
                 if (uri.isNotBlank()) {
-                    val isImage = uri.endsWith(".jpg", true) || uri.endsWith(".jpeg", true) ||
-                            uri.endsWith(".png", true) || uri.endsWith(".webp", true) ||
-                            uri.endsWith(".heic", true) || meta.contains("imageItem", true)
+                    val lowerUri = uri.substringBefore("?").lowercase()
+                    val isImage = lowerUri.endsWith(".jpg") || lowerUri.endsWith(".jpeg") ||
+                            lowerUri.endsWith(".png") || lowerUri.endsWith(".webp") ||
+                            lowerUri.endsWith(".heic") || lowerUri.endsWith(".gif") ||
+                            meta.contains("imageItem", true) || meta.contains("image/", true)
+                    lastTransportState = "PLAYING"
                     if (isImage) {
                         MainActivity.openCastPhoto(uri, "Ảnh từ điện thoại")
                     } else {
@@ -390,6 +588,7 @@ object LanMediaServer {
                 sendHttpResponse(output, 200, "text/xml; charset=utf-8", resp.toByteArray(Charsets.UTF_8))
             }
             soapAction.contains("Play") || body.contains("<u:Play") -> {
+                lastTransportState = "PLAYING"
                 val resp = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -399,6 +598,8 @@ object LanMediaServer {
                 sendHttpResponse(output, 200, "text/xml; charset=utf-8", resp.toByteArray(Charsets.UTF_8))
             }
             soapAction.contains("Stop") || body.contains("<u:Stop") -> {
+                lastTransportState = "STOPPED"
+                MainActivity.returnToHomeFromCast()
                 val resp = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -408,7 +609,7 @@ object LanMediaServer {
                 sendHttpResponse(output, 200, "text/xml; charset=utf-8", resp.toByteArray(Charsets.UTF_8))
             }
             soapAction.contains("GetTransportInfo") || body.contains("GetTransportInfo") -> {
-                val state = if (MainActivity.isVideoActivelyPlaying) "PLAYING" else "STOPPED"
+                val state = if (MainActivity.isVideoActivelyPlaying || lastTransportState == "PLAYING") "PLAYING" else "STOPPED"
                 val resp = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -449,19 +650,71 @@ object LanMediaServer {
         }
     }
 
-    private fun handleUpnpRenderingControl(soapAction: String, body: String, output: OutputStream) {
-        val resp = """<?xml version="1.0" encoding="utf-8"?>
+    private fun handleUpnpRenderingControl(context: Context, soapAction: String, body: String, output: OutputStream) {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val maxVol = (am?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+
+        val resp = when {
+            soapAction.contains("SetVolume") || body.contains("SetVolume") -> {
+                val desiredPct = extractXmlTag(body, "DesiredVolume").toIntOrNull()?.coerceIn(0, 100)
+                if (desiredPct != null && am != null) {
+                    val target = ((desiredPct / 100f) * maxVol).toInt().coerceIn(0, maxVol)
+                    try { am.setStreamVolume(AudioManager.STREAM_MUSIC, target, AudioManager.FLAG_SHOW_UI) } catch (_: Exception) {}
+                }
+                """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:SetVolumeResponse xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>
+  </s:Body>
+</s:Envelope>""".trimIndent()
+            }
+            soapAction.contains("SetMute") || body.contains("SetMute") -> {
+                val muteRaw = extractXmlTag(body, "DesiredMute")
+                val mute = muteRaw == "1" || muteRaw.equals("true", ignoreCase = true)
+                if (am != null) {
+                    try {
+                        am.adjustStreamVolume(
+                            AudioManager.STREAM_MUSIC,
+                            if (mute) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE,
+                            AudioManager.FLAG_SHOW_UI
+                        )
+                    } catch (_: Exception) {}
+                }
+                """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:SetMuteResponse xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>
+  </s:Body>
+</s:Envelope>""".trimIndent()
+            }
+            soapAction.contains("GetMute") || body.contains("GetMute") -> {
+                val isMuted = try { am?.isStreamMute(AudioManager.STREAM_MUSIC) == true } catch (_: Exception) { false }
+                """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:GetMuteResponse xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <CurrentMute>${if (isMuted) 1 else 0}</CurrentMute>
+    </u:GetMuteResponse>
+  </s:Body>
+</s:Envelope>""".trimIndent()
+            }
+            else -> {
+                val curVol = am?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: (maxVol / 2)
+                val pct = ((curVol * 100f) / maxVol).toInt().coerceIn(0, 100)
+                """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
   <s:Body>
     <u:GetVolumeResponse xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
-      <CurrentVolume>50</CurrentVolume>
+      <CurrentVolume>$pct</CurrentVolume>
     </u:GetVolumeResponse>
   </s:Body>
 </s:Envelope>""".trimIndent()
+            }
+        }
         sendHttpResponse(output, 200, "text/xml; charset=utf-8", resp.toByteArray(Charsets.UTF_8))
     }
 
-    private fun handleUpnpConnectionManager(soapAction: String, body: String, output: OutputStream) {
+    private fun handleUpnpConnectionManager(output: OutputStream) {
         val resp = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
   <s:Body>
@@ -487,17 +740,28 @@ object LanMediaServer {
         return result
     }
 
+    private fun sendPayloadTooLarge(output: OutputStream) {
+        sendJsonResponse(output, 413, JSONObject().put("error", "Payload Too Large"))
+    }
+
+    private fun sendJsonResponse(output: OutputStream, statusCode: Int, json: JSONObject) {
+        sendHttpResponse(output, statusCode, "application/json; charset=utf-8", json.toString().toByteArray(Charsets.UTF_8))
+    }
+
     private fun sendHttpResponse(output: OutputStream, statusCode: Int, contentType: String, data: ByteArray) {
         val statusText = when (statusCode) {
             200 -> "OK"
             400 -> "Bad Request"
+            403 -> "Forbidden"
             404 -> "Not Found"
+            405 -> "Method Not Allowed"
+            413 -> "Payload Too Large"
             else -> "Error"
         }
         val header = "HTTP/1.1 $statusCode $statusText\r\n" +
                 "Content-Type: $contentType\r\n" +
                 "Content-Length: ${data.size}\r\n" +
-                "Access-Control-Allow-Origin: *\r\n" +
+                "X-Content-Type-Options: nosniff\r\n" +
                 "Connection: close\r\n\r\n"
         output.write(header.toByteArray(Charsets.UTF_8))
         output.write(data)
@@ -541,6 +805,7 @@ object LanMediaServer {
         .btn-primary:active { transform: scale(0.98); }
         .input-box { width: 100%; padding: 12px; background: #0f172a; border: 1px solid var(--border-color); border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 12px; }
         .status-toast { margin-top: 10px; padding: 10px; border-radius: 8px; background: rgba(0, 229, 255, 0.15); border: 1px solid var(--accent-cyan); color: #fff; font-size: 13px; text-align: center; display: none; }
+        .divider { border-top: 1px solid var(--border-color); margin: 16px 0; }
     </style>
 </head>
 <body>
@@ -552,14 +817,14 @@ object LanMediaServer {
 
         <div class="dlna-tip">
             💡 <b>Truyền trực tiếp từ Thư viện ảnh điện thoại</b>:<br>
-            Mở ảnh/video trong <b>Bộ sưu tập Samsung / Xiaomi / Android</b> $\rightarrow$ Bấm nút <b>Truyền / Smart View</b> $\rightarrow$ Chọn <b>DuyTV (Tivi Sharp)</b>!
+            Mở ảnh/video trong <b>Bộ sưu tập Samsung / Xiaomi / Android</b> &rarr; Bấm nút <b>Truyền / Smart View</b> &rarr; Chọn <b>DuyTV (Tivi Sharp)</b>!
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('photo')">📷 Chiếu Ảnh</button>
-            <button class="tab-btn" onclick="switchTab('video')">🎬 Chiếu Video</button>
-            <button class="tab-btn" onclick="switchTab('notify')">🔔 Nhắc Việc</button>
-            <button class="tab-btn" onclick="switchTab('remote')">🎮 Remote</button>
+            <button class="tab-btn active" onclick="switchTab(this, 'photo')">📷 Chiếu Ảnh</button>
+            <button class="tab-btn" onclick="switchTab(this, 'video')">🎬 Chiếu Video</button>
+            <button class="tab-btn" onclick="switchTab(this, 'notify')">🔔 Nhắc Việc</button>
+            <button class="tab-btn" onclick="switchTab(this, 'remote')">🎮 Remote</button>
         </div>
 
         <!-- TAB 1: CHIẾU ẢNH -->
@@ -573,9 +838,13 @@ object LanMediaServer {
 
         <!-- TAB 2: CHIẾU VIDEO -->
         <div id="tab-video" class="card tab-content" style="display: none;">
-            <h2>🎬 Bắn Link Video Phát Ngay</h2>
+            <h2>🎬 Chiếu Video Quay Từ Điện Thoại</h2>
+            <input type="file" id="videoFile" accept="video/*" class="input-box">
+            <button class="btn-primary" onclick="uploadLocalVideo()">📤 Gửi Video Từ Máy Lên TV</button>
+            <div class="divider"></div>
+            <h2>🔗 Hoặc Dán Link Video MP4 / M3U8</h2>
             <input type="url" id="videoUrlInput" class="input-box" placeholder="Dán link video MP4 / M3U8 tại đây...">
-            <button class="btn-primary" onclick="castVideo()">▶️ Phát Trực Tiếp Trên TV</button>
+            <button class="btn-primary" style="background: #1e40af;" onclick="castVideo()">▶️ Phát Link Trên TV</button>
             <div id="videoStatus" class="status-toast"></div>
         </div>
 
@@ -602,11 +871,11 @@ object LanMediaServer {
     </div>
 
     <script>
-        function switchTab(name) {
+        function switchTab(btn, name) {
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById('tab-' + name).style.display = 'block';
-            event.target.classList.add('active');
+            btn.classList.add('active');
         }
 
         function showToast(id, msg) {
@@ -626,6 +895,31 @@ object LanMediaServer {
             }
         }
 
+        function compressImageToJpegBlob(file, maxDim, quality) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const objUrl = URL.createObjectURL(file);
+                img.onload = () => {
+                    URL.revokeObjectURL(objUrl);
+                    let w = img.naturalWidth || img.width;
+                    let h = img.naturalHeight || img.height;
+                    if (w > maxDim || h > maxDim) {
+                        const scale = maxDim / Math.max(w, h);
+                        w = Math.round(w * scale);
+                        h = Math.round(h * scale);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Compress failed')), 'image/jpeg', quality);
+                };
+                img.onerror = () => { URL.revokeObjectURL(objUrl); reject(new Error('Invalid image')); };
+                img.src = objUrl;
+            });
+        }
+
         async function uploadPhoto() {
             const input = document.getElementById('photoFile');
             if (!input.files || !input.files[0]) {
@@ -633,29 +927,50 @@ object LanMediaServer {
                 return;
             }
             const file = input.files[0];
-            showToast('photoStatus', '⏳ Đang truyền ảnh sang Tivi...');
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const base64Data = e.target.result;
-                    const resp = await fetch('/api/cast_photo', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ base64: base64Data, title: file.name || 'Ảnh từ điện thoại' })
-                    });
-                    if (resp.ok) showToast('photoStatus', '✅ Đã chiếu ảnh lên Tivi thành công!');
-                    else showToast('photoStatus', '❌ Lỗi truyền ảnh: ' + resp.status);
-                } catch (err) {
-                    showToast('photoStatus', '❌ Lỗi mạng: ' + err.message);
-                }
-            };
-            reader.readAsDataURL(file);
+            showToast('photoStatus', '⏳ Đang nén siêu tốc & truyền ảnh lên Tivi...');
+            try {
+                const jpegBlob = await compressImageToJpegBlob(file, 1920, 0.86);
+                const resp = await fetch('/api/cast_photo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'image/jpeg' },
+                    body: jpegBlob
+                });
+                if (resp.ok) showToast('photoStatus', '✅ Đã chiếu ảnh Full HD lên Tivi thành công!');
+                else showToast('photoStatus', '❌ Lỗi truyền ảnh: ' + resp.status);
+            } catch (err) {
+                showToast('photoStatus', '❌ Lỗi truyền ảnh: ' + err.message);
+            }
+        }
+
+        async function uploadLocalVideo() {
+            const input = document.getElementById('videoFile');
+            if (!input.files || !input.files[0]) {
+                alert('Vui lòng chọn video từ điện thoại!');
+                return;
+            }
+            const file = input.files[0];
+            if (file.size > 150 * 1024 * 1024) {
+                alert('Video vượt quá 150MB. Hãy dùng nút Truyền / Smart View trong Bộ sưu tập!');
+                return;
+            }
+            showToast('videoStatus', '⏳ Đang gửi video (' + Math.round(file.size / 1048576) + 'MB) lên Tivi...');
+            try {
+                const resp = await fetch('/api/upload_video?title=' + encodeURIComponent(file.name || 'Video từ điện thoại'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: file
+                });
+                if (resp.ok) showToast('videoStatus', '✅ Tivi đang phát video từ điện thoại!');
+                else showToast('videoStatus', '❌ Lỗi tải video: ' + resp.status);
+            } catch (e) {
+                showToast('videoStatus', '❌ Lỗi mạng: ' + e.message);
+            }
         }
 
         async function castVideo() {
             const url = document.getElementById('videoUrlInput').value.trim();
             if (!url) { alert('Vui lòng nhập link video!'); return; }
-            showToast('videoStatus', '⏳ Đang gửi video sang Tivi...');
+            showToast('videoStatus', '⏳ Đang gửi link video sang Tivi...');
             try {
                 const resp = await fetch('/api/cast_video', {
                     method: 'POST',

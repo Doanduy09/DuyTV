@@ -62,7 +62,7 @@ fun MovieDetailScreen(
     val cachedDetail = remember(slug) { AppCacheManager.getCachedMovieDetail(slug) }
     var isLoading by remember(slug) { mutableStateOf(cachedDetail == null) }
     var detailResponse by remember(slug) { mutableStateOf<MovieDetailResponse?>(cachedDetail) }
-    var selectedServerIndex by remember { mutableStateOf(0) }
+    var selectedServerIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var vietnameseSubtitleUrl by remember { mutableStateOf<String?>(null) }
     var savedHistoryState by remember(slug) { mutableStateOf(WatchHistoryManager.getHistoryForMovie(context, slug)) }
     val savedHistory = savedHistoryState

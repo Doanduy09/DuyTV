@@ -13,43 +13,65 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class AppVersionInfo(
     val versionCode: Int = 0,
     val versionName: String = "",
     val apkUrlLan: String = "http://192.168.1.189:8888/DuyTV-latest.apk",
-    val apkUrlCloud: String = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk",
-    val releaseNotes: String = ""
+    val apkUrlCloud: String = "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
+    val releaseNotes: String = "",
+    val sha256: String? = null
 )
 
 object AppUpdateManager {
     private const val LAN_VERSION_URL = "http://192.168.1.189:8888/version.json"
     private const val CLOUD_VERSION_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/version.json"
+    private const val FALLBACK_RAW_APK_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk"
 
     private val gson = Gson()
 
-    private val lanClient = OkHttpClient.Builder()
-        .connectTimeout(1500, TimeUnit.MILLISECONDS)
-        .readTimeout(1500, TimeUnit.MILLISECONDS)
-        .build()
+    private val lanClient: OkHttpClient by lazy {
+        SharedHttpClients.newClientBuilder()
+            .connectTimeout(1200, TimeUnit.MILLISECONDS)
+            .readTimeout(1200, TimeUnit.MILLISECONDS)
+            .build()
+    }
 
-    private val cloudClient = OkHttpClient.Builder()
-        .dns(HlsAdBlockEngine.ipv4PreferredDns)
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val cloudClient: OkHttpClient by lazy {
+        SharedHttpClients.newClientBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+    }
 
-    private val downloadClient = OkHttpClient.Builder()
-        .dns(HlsAdBlockEngine.ipv4PreferredDns)
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .build()
+    private val downloadClient: OkHttpClient by lazy {
+        SharedHttpClients.newClientBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+
+    internal fun computeFileSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { fis ->
+            val buf = ByteArray(16 * 1024)
+            var n: Int
+            while (fis.read(buf).also { n = it } != -1) {
+                digest.update(buf, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    internal fun verifyOptionalSha256(file: File, expectedSha256: String?): Boolean {
+        val cleanExpected = expectedSha256?.trim()?.lowercase()
+        if (cleanExpected.isNullOrBlank()) return true
+        return computeFileSha256(file).equals(cleanExpected, ignoreCase = true)
+    }
 
     private const val PREFS_NAME = "duytv_update_prefs"
     private const val KEY_LAST_CHECK_TIME = "last_check_timestamp"
@@ -179,8 +201,9 @@ object AppUpdateManager {
 
         val candidateUrls = listOfNotNull(
             versionInfo.apkUrlCloud.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" },
+            "$FALLBACK_RAW_APK_URL?t=${System.currentTimeMillis()}",
             versionInfo.apkUrlLan.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" }
-        )
+        ).distinct()
 
         var downloadedSuccess = false
         for (url in candidateUrls) {
@@ -213,13 +236,15 @@ object AppUpdateManager {
                             output.flush()
                         }
                     }
-                    if (outFile.exists() && outFile.length() > 1_000_000L) {
+                    if (outFile.exists() && outFile.length() > 1_000_000L && verifyOptionalSha256(outFile, versionInfo.sha256)) {
                         downloadedSuccess = true
+                    } else if (outFile.exists()) {
+                        outFile.delete()
                     }
                 }
                 if (downloadedSuccess) break
             } catch (_: Exception) {
-                // Tự động chuyển sang URL dự phòng tiếp theo (Cloud)
+                // Tự động chuyển sang URL dự phòng tiếp theo
             }
         }
 

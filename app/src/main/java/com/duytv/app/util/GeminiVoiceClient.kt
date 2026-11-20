@@ -135,10 +135,12 @@ object GeminiVoiceClient {
     }
 
     private val gson = Gson()
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(2500, TimeUnit.MILLISECONDS)
-        .readTimeout(8000, TimeUnit.MILLISECONDS)
-        .build()
+    private val client: OkHttpClient by lazy {
+        SharedHttpClients.newClientBuilder()
+            .connectTimeout(2500, TimeUnit.MILLISECONDS)
+            .readTimeout(8000, TimeUnit.MILLISECONDS)
+            .build()
+    }
 
     private fun buildSystemPrompt(context: VoiceContext?): String {
         val contextInfo = buildString {

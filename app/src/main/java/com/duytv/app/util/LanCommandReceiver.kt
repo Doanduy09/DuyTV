@@ -2,12 +2,15 @@ package com.duytv.app.util
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import com.duytv.app.MainActivity
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -29,31 +32,43 @@ object LanCommandReceiver {
 
     private var serverJob: Job? = null
     private var serverSocket: ServerSocket? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w(TAG, "LanCommandReceiver coroutine error (recovered): ${e.message}")
+        }
+    )
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
     fun start(context: Context) {
         if (serverJob != null && serverJob?.isActive == true) return
 
-        // 1. Giữ CPU và Wi-Fi thức ở mức tiêu thụ điện cực thấp để nhận socket 24/7
-        try {
-            val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            if (wakeLock == null && pm != null) {
-                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DuyTV:LanCommandWakeLock").apply {
-                    setReferenceCounted(false)
-                    acquire(24 * 60 * 60 * 1000L) // 24h
+        // 1. Chỉ giữ CPU & Wi-Fi thức 24/7 trên Android TV (tránh hao pin trên Điện thoại / Tablet)
+        if (HardwareOptimizer.isTvDevice(context)) {
+            try {
+                val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                if (wakeLock == null && pm != null) {
+                    wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DuyTV:LanCommandWakeLock").apply {
+                        setReferenceCounted(false)
+                        acquire(24 * 60 * 60 * 1000L) // 24h
+                    }
                 }
-            }
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            if (wifiLock == null && wm != null) {
-                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "DuyTV:LanCommandWifiLock").apply {
-                    setReferenceCounted(false)
-                    acquire()
+                val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                if (wifiLock == null && wm != null) {
+                    val lockMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        @Suppress("DEPRECATION")
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    }
+                    wifiLock = wm.createWifiLock(lockMode, "DuyTV:LanCommandWifiLock").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Không thể kích hoạt WakeLock/WifiLock: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Không thể kích hoạt WakeLock/WifiLock: ${e.message}")
         }
 
         serverJob = scope.launch {
@@ -96,9 +111,9 @@ object LanCommandReceiver {
                         val title = json.optString("title", "Ảnh từ điện thoại")
                         if (url.isNotBlank()) {
                             MainActivity.openCastPhoto(url, title)
-                            writer.write("{\"status\":\"ok\",\"action\":\"cast_image\",\"url\":\"$url\"}\n")
+                            writer.write(JSONObject().put("status", "ok").put("action", "cast_image").put("url", url).toString() + "\n")
                         } else {
-                            writer.write("{\"status\":\"error\",\"message\":\"Missing url\"}\n")
+                            writer.write(JSONObject().put("status", "error").put("message", "Missing url").toString() + "\n")
                         }
                     }
                     "cast_video" -> {
@@ -106,18 +121,18 @@ object LanCommandReceiver {
                         val title = json.optString("title", "Video từ điện thoại")
                         if (url.isNotBlank()) {
                             MainActivity.openCastVideo(url, title)
-                            writer.write("{\"status\":\"ok\",\"action\":\"cast_video\",\"url\":\"$url\"}\n")
+                            writer.write(JSONObject().put("status", "ok").put("action", "cast_video").put("url", url).toString() + "\n")
                         } else {
-                            writer.write("{\"status\":\"error\",\"message\":\"Missing url\"}\n")
+                            writer.write(JSONObject().put("status", "error").put("message", "Missing url").toString() + "\n")
                         }
                     }
                     "notify", "family_hud" -> {
                         val msg = json.optString("message").ifBlank { json.optString("msg") }
                         if (msg.isNotBlank()) {
                             MainActivity.showFamilyNotification(msg)
-                            writer.write("{\"status\":\"ok\",\"action\":\"notify\",\"message\":\"$msg\"}\n")
+                            writer.write(JSONObject().put("status", "ok").put("action", "notify").put("message", msg).toString() + "\n")
                         } else {
-                            writer.write("{\"status\":\"error\",\"message\":\"Missing message\"}\n")
+                            writer.write(JSONObject().put("status", "error").put("message", "Missing message").toString() + "\n")
                         }
                     }
                     else -> {
@@ -129,13 +144,15 @@ object LanCommandReceiver {
                             Log.i(TAG, "Nhận lệnh Wi-Fi nội bộ: '$rawText'")
                             MainActivity.executeRemoteCommand(rawText, context)
                         }
-                        writer.write("{\"status\":\"ok\",\"command\":\"$rawText\"}\n")
+                        writer.write(JSONObject().put("status", "ok").put("command", rawText).toString() + "\n")
                     }
                 }
                 writer.flush()
             }
-            socket.close()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        } finally {
+            try { socket.close() } catch (_: Exception) {}
+        }
     }
 
     private fun wakeUpScreenIfAsleep(context: Context) {

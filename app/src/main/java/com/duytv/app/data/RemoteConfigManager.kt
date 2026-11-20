@@ -11,11 +11,12 @@ object RemoteConfigManager {
     private const val REMOTE_CONFIG_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/sources.json"
     private const val RAW_DOT_CONFIG_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/.config"
 
-    private val httpClient = OkHttpClient.Builder()
-        .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(3, TimeUnit.SECONDS)
-        .build()
+    private val httpClient: OkHttpClient by lazy {
+        com.duytv.app.util.SharedHttpClients.newClientBuilder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(3, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val gson = Gson()
 
@@ -54,12 +55,13 @@ object RemoteConfigManager {
                 .header("User-Agent", "DuyTV-AndroidTV/1.0")
                 .build()
 
-            val response = httpClient.newCall(request).execute()
-            if (response.isSuccessful) {
-                response.body?.string()?.let { json ->
-                    val parsed = gson.fromJson(json, RemoteConfig::class.java)
-                    if (parsed != null) {
-                        currentConfig = parsed
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    response.body?.string()?.let { json ->
+                        val parsed = gson.fromJson(json, RemoteConfig::class.java)
+                        if (parsed != null) {
+                            currentConfig = parsed
+                        }
                     }
                 }
             }
@@ -71,50 +73,51 @@ object RemoteConfigManager {
                 .url(RAW_DOT_CONFIG_URL)
                 .header("User-Agent", "DuyTV-AndroidTV/1.0")
                 .build()
-            val res = httpClient.newCall(req).execute()
-            if (res.isSuccessful) {
-                val text = res.body?.string() ?: ""
-                val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
-                for (line in lines) {
-                    var clean = line
-                    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-                        clean = "https://$clean"
-                    }
-                    if (clean.endsWith("/")) clean = clean.dropLast(1)
-                    val lower = clean.lowercase()
+            httpClient.newCall(req).execute().use { res ->
+                if (res.isSuccessful) {
+                    val text = res.body?.string() ?: ""
+                    val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("#") }
+                    for (line in lines) {
+                        var clean = line
+                        if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+                            clean = "https://$clean"
+                        }
+                        if (clean.endsWith("/")) clean = clean.dropLast(1)
+                        val lower = clean.lowercase()
 
-                    when {
-                        lower.contains("ophim") -> {
-                            currentConfig = currentConfig.copy(
-                                sources = currentConfig.sources.copy(
-                                    ophim = currentConfig.sources.ophim.copy(apiBase = clean)
+                        when {
+                            lower.contains("ophim") -> {
+                                currentConfig = currentConfig.copy(
+                                    sources = currentConfig.sources.copy(
+                                        ophim = currentConfig.sources.ophim.copy(apiBase = clean)
+                                    )
                                 )
-                            )
-                        }
-                        lower.contains("phimapi") -> {
-                            currentConfig = currentConfig.copy(
-                                primaryDomain = clean,
-                                sources = currentConfig.sources.copy(
-                                    kkphim = currentConfig.sources.kkphim.copy(apiBase = clean)
+                            }
+                            lower.contains("phimapi") -> {
+                                currentConfig = currentConfig.copy(
+                                    primaryDomain = clean,
+                                    sources = currentConfig.sources.copy(
+                                        kkphim = currentConfig.sources.kkphim.copy(apiBase = clean)
+                                    )
                                 )
-                            )
-                        }
-                        lower.contains("nguonc") || lower.contains("phim.nguon") -> {
-                            currentConfig = currentConfig.copy(
-                                sources = currentConfig.sources.copy(
-                                    nguonc = currentConfig.sources.nguonc.copy(apiBase = clean)
+                            }
+                            lower.contains("nguonc") || lower.contains("phim.nguon") -> {
+                                currentConfig = currentConfig.copy(
+                                    sources = currentConfig.sources.copy(
+                                        nguonc = currentConfig.sources.nguonc.copy(apiBase = clean)
+                                    )
                                 )
-                            )
-                        }
-                        lower.contains("cobe") -> {
-                            currentConfig = currentConfig.copy(
-                                sources = currentConfig.sources.copy(
-                                    cobephim = currentConfig.sources.cobephim.copy(apiBase = clean)
+                            }
+                            lower.contains("cobe") -> {
+                                currentConfig = currentConfig.copy(
+                                    sources = currentConfig.sources.copy(
+                                        cobephim = currentConfig.sources.cobephim.copy(apiBase = clean)
+                                    )
                                 )
-                            )
-                        }
-                        lower.contains("a3iptv") || (lower.contains(".m3u") && !lower.contains("coban") && !lower.contains("coocaa")) -> {
-                            remoteIptvUrl = clean
+                            }
+                            lower.contains("a3iptv") || (lower.contains(".m3u") && !lower.contains("coban") && !lower.contains("coocaa")) -> {
+                                remoteIptvUrl = clean
+                            }
                         }
                     }
                 }

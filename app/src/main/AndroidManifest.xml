@@ -59,6 +59,9 @@
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
 
     <!-- Universal Screen Compatibility (Phone, Tablet, TV Box, Google TV, Full HD, 2K, 4K, 8K, 12K Ultra HD) -->
     <supports-screens

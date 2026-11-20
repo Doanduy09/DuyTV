@@ -60,6 +60,13 @@ class DuyVoiceAccessibilityService : AccessibilityService() {
             } catch (_: Exception) {
             } finally {
                 @Suppress("DEPRECATION")
+                while (queue.isNotEmpty()) {
+                    val rem = queue.poll()
+                    if (rem != null && rem !== root) {
+                        try { rem.recycle() } catch (_: Exception) {}
+                    }
+                }
+                @Suppress("DEPRECATION")
                 try { root.recycle() } catch (_: Exception) {}
             }
             return ScreenUiSnapshot(activePackage = pkg, visibleLabels = labels.toList())
@@ -81,12 +88,31 @@ class DuyVoiceAccessibilityService : AccessibilityService() {
                         var clickableTarget: AccessibilityNodeInfo? = node
                         while (clickableTarget != null) {
                             if (clickableTarget.isClickable) {
-                                return clickableTarget.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                val clicked = clickableTarget.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                if (clickableTarget !== node && clickableTarget !== root) {
+                                    @Suppress("DEPRECATION")
+                                    try { clickableTarget.recycle() } catch (_: Exception) {}
+                                }
+                                if (node !== root) {
+                                    @Suppress("DEPRECATION")
+                                    try { node.recycle() } catch (_: Exception) {}
+                                }
+                                return clicked
                             }
-                            clickableTarget = clickableTarget.parent
+                            val nextParent = clickableTarget.parent
+                            if (clickableTarget !== node && clickableTarget !== root) {
+                                @Suppress("DEPRECATION")
+                                try { clickableTarget.recycle() } catch (_: Exception) {}
+                            }
+                            clickableTarget = nextParent
                         }
                         if (node.isFocusable) {
-                            return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            if (node !== root) {
+                                @Suppress("DEPRECATION")
+                                try { node.recycle() } catch (_: Exception) {}
+                            }
+                            return clicked
                         }
                     }
                     for (i in 0 until node.childCount) {
@@ -99,6 +125,13 @@ class DuyVoiceAccessibilityService : AccessibilityService() {
                 }
             } catch (_: Exception) {
             } finally {
+                @Suppress("DEPRECATION")
+                while (queue.isNotEmpty()) {
+                    val rem = queue.poll()
+                    if (rem != null && rem !== root) {
+                        try { rem.recycle() } catch (_: Exception) {}
+                    }
+                }
                 @Suppress("DEPRECATION")
                 try { root.recycle() } catch (_: Exception) {}
             }
@@ -115,7 +148,12 @@ class DuyVoiceAccessibilityService : AccessibilityService() {
                 while (queue.isNotEmpty()) {
                     val node = queue.poll() ?: continue
                     if (node.isScrollable) {
-                        return node.performAction(action)
+                        val ok = node.performAction(action)
+                        if (node !== root) {
+                            @Suppress("DEPRECATION")
+                            try { node.recycle() } catch (_: Exception) {}
+                        }
+                        return ok
                     }
                     for (i in 0 until node.childCount) {
                         node.getChild(i)?.let { queue.add(it) }
@@ -127,6 +165,13 @@ class DuyVoiceAccessibilityService : AccessibilityService() {
                 }
             } catch (_: Exception) {
             } finally {
+                @Suppress("DEPRECATION")
+                while (queue.isNotEmpty()) {
+                    val rem = queue.poll()
+                    if (rem != null && rem !== root) {
+                        try { rem.recycle() } catch (_: Exception) {}
+                    }
+                }
                 @Suppress("DEPRECATION")
                 try { root.recycle() } catch (_: Exception) {}
             }

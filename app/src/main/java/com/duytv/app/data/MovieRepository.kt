@@ -11,11 +11,23 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 class MovieRepository {
-    private val client = OkHttpClient.Builder()
-        .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
+    private val client: OkHttpClient = com.duytv.app.util.SharedHttpClients.newClientBuilder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+
+    private class SafeHttpBody(private val text: String) {
+        fun string(): String = text
+    }
+
+    private class SafeHttpResponse(val isSuccessful: Boolean, bodyText: String?) {
+        val body: SafeHttpBody? = if (bodyText != null) SafeHttpBody(bodyText) else null
+    }
+
+    private fun executeSafe(req: Request): SafeHttpResponse =
+        client.newCall(req).execute().use { res ->
+            SafeHttpResponse(res.isSuccessful, if (res.isSuccessful) res.body?.string() else null)
+        }
 
     private val gson = Gson()
 
@@ -49,7 +61,7 @@ class MovieRepository {
                     .url(giangnamUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (_: Exception) {
                 null
@@ -62,7 +74,7 @@ class MovieRepository {
                     .url(a3IptvUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (e: Exception) {
                 null
@@ -76,7 +88,7 @@ class MovieRepository {
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                     .header("Cache-Control", "no-cache")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (e: Exception) {
                 null
@@ -89,7 +101,7 @@ class MovieRepository {
                     .url(tvUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (e: Exception) {
                 null
@@ -102,7 +114,7 @@ class MovieRepository {
                     .url(cobanUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (e: Exception) {
                 null
@@ -115,7 +127,7 @@ class MovieRepository {
                     .url(coocaaUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (e: Exception) {
                 null
@@ -128,7 +140,7 @@ class MovieRepository {
                     .url(iptvOrgVnUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (_: Exception) {
                 null
@@ -141,7 +153,7 @@ class MovieRepository {
                     .url(iptvOrgSportsUrl)
                     .header("User-Agent", "TiviMate/4.7.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) res.body?.string() else null
             } catch (_: Exception) {
                 null
@@ -193,7 +205,7 @@ class MovieRepository {
                             .url(rawEntry)
                             .header("User-Agent", "TiviMate/4.7.0")
                             .build()
-                        val res = client.newCall(req).execute()
+                        val res = executeSafe(req)
                         val body = if (res.isSuccessful) res.body?.string() else null
                         if (!body.isNullOrBlank()) parseM3uData(body, "Bóng Đá") else TvSportsData()
                     }
@@ -1048,7 +1060,7 @@ class MovieRepository {
                     .header("Accept", "application/json")
                     .header("Cache-Control", "no-cache")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (!res.isSuccessful) continue
                 val body = res.body?.string() ?: continue
                 val root = JsonParser.parseString(body).asJsonObject
@@ -1180,7 +1192,7 @@ class MovieRepository {
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
                 .header("Cache-Control", "no-cache")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (!res.isSuccessful) return@withContext emptyList()
             val html = res.body?.string() ?: return@withContext emptyList()
 
@@ -1233,7 +1245,7 @@ class MovieRepository {
                             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
                             .header("Referer", "${RemoteConfigManager.THAPCAM_LIVE_URL}/")
                             .build()
-                        val mRes = client.newCall(mReq).execute()
+                        val mRes = executeSafe(mReq)
                         if (!mRes.isSuccessful) return@async null
                         val mHtml = mRes.body?.string() ?: return@async null
 
@@ -1323,7 +1335,7 @@ class MovieRepository {
                 .header("User-Agent", "DuyTV/1.0")
                 .header("Cache-Control", "no-cache, no-store, must-revalidate")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return@withContext emptyList()
                 val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -1402,7 +1414,7 @@ class MovieRepository {
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                     .header("Cache-Control", "no-cache")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val body = res.body?.string() ?: continue
                     val jsonTree = JsonParser.parseString(body).asJsonObject
@@ -1452,7 +1464,7 @@ class MovieRepository {
                     .url("$base/phim/$cleanSlug")
                     .header("User-Agent", "DuyTV/1.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val bodyStr = res.body?.string() ?: continue
                     val rawDetail = gson.fromJson(bodyStr, MovieDetailResponse::class.java)
@@ -1564,7 +1576,7 @@ class MovieRepository {
                 .url("${getNguonCOrigin()}/api/film/$slug")
                 .header("User-Agent", "DuyTV/1.0")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return@withContext null
                 val root = JsonParser.parseString(json).asJsonObject
@@ -1653,7 +1665,7 @@ class MovieRepository {
                     .url(detailUrl)
                     .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val body = res.body?.string()
                     if (!body.isNullOrBlank()) {
@@ -1717,7 +1729,7 @@ class MovieRepository {
                             .url("https://torrentio.strem.fun/stream/movie/$imdbCode.json")
                             .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                             .build()
-                        val tioRes = client.newCall(tioReq).execute()
+                        val tioRes = executeSafe(tioReq)
                         if (tioRes.isSuccessful) {
                             val tioBody = tioRes.body?.string()
                             if (!tioBody.isNullOrBlank()) {
@@ -1807,7 +1819,7 @@ class MovieRepository {
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                 .header("Referer", "https://cobephim.mom/")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return@withContext emptyList()
                 val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -1850,7 +1862,7 @@ class MovieRepository {
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                 .header("Referer", "https://cobephim.mom/")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return@withContext null
                 val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -1993,7 +2005,7 @@ class MovieRepository {
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                 .header("Referer", "https://cobephim.mom/")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val html = res.body?.string() ?: return@withContext null
                 val match = Regex("\"encrypted_url\"\\s*:\\s*\"([^\"]+)\"").find(html)
@@ -2095,7 +2107,7 @@ class MovieRepository {
                     .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
                     .header("Referer", "https://cobephim.mom/")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val json = res.body?.string() ?: continue
                     val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -2203,7 +2215,7 @@ class MovieRepository {
                 .url(url)
                 .header("User-Agent", "DuyTV/1.0")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return@withContext emptyList()
                 val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -2249,7 +2261,7 @@ class MovieRepository {
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val body = res.body?.string() ?: continue
                     val jsonTree = JsonParser.parseString(body).asJsonObject
@@ -2367,7 +2379,7 @@ class MovieRepository {
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val json = res.body?.string() ?: continue
                     val root = JsonParser.parseString(json).asJsonObject
@@ -2408,7 +2420,7 @@ class MovieRepository {
                     .url(url)
                     .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                     .build()
-                val res = client.newCall(req).execute()
+                val res = executeSafe(req)
                 if (res.isSuccessful) {
                     val json = res.body?.string() ?: continue
                     val jsonTree = JsonParser.parseString(json).asJsonObject
@@ -2425,7 +2437,7 @@ class MovieRepository {
                                             .url(subUrl)
                                             .header("User-Agent", "Mozilla/5.0 DuyTV/1.0")
                                             .build()
-                                        val subRes = client.newCall(subReq).execute()
+                                        val subRes = executeSafe(subReq)
                                         if (subRes.isSuccessful) {
                                             val rawSub = subRes.body?.string()
                                             if (!rawSub.isNullOrBlank()) {
@@ -2454,7 +2466,7 @@ class MovieRepository {
                 .header("Cache-Control", "no-cache, no-store, must-revalidate")
                 .header("Pragma", "no-cache")
                 .build()
-            val res = client.newCall(req).execute()
+            val res = executeSafe(req)
             if (res.isSuccessful) {
                 val json = res.body?.string() ?: return emptyList()
                 val parsed = gson.fromJson(json, MovieListResponse::class.java)

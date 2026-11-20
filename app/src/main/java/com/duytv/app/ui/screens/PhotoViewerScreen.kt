@@ -27,36 +27,40 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import java.io.File
 
 /**
  * Màn hình trình chiếu ảnh chụp không dây từ Điện thoại lên Tivi (Local LAN Cast).
- * - Sử dụng Bitmap.Config.RGB_565 (tiết kiệm 50% RAM)
- * - Tắt Hardware Bitmaps (allowHardware = false) để chống tràn bộ nhớ đồ họa EGL_BAD_ALLOC trên Tivi 1.5GB RAM
+ * - Giới hạn kích thước giải mã tối đa 1920x1080 + Bitmap.Config.RGB_565 (chống OOM trên TV 1.5GB RAM)
+ * - Tắt cache với file cục bộ để mỗi lần bắn ảnh mới luôn hiển thị ảnh mới tức thì
+ * - Tắt Hardware Bitmaps (allowHardware = false) để chống tràn bộ nhớ đồ họa EGL_BAD_ALLOC
  * - Nhấn Back hoặc bấm bất kỳ phím nào để đóng và quay về màn hình trước
  */
 @Composable
 fun PhotoViewerScreen(
     imagePathOrUrl: String,
-    title: String = "Ảnh từ điện thoại",
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Ảnh từ điện thoại"
 ) {
     val context = LocalContext.current
-    val imageModel = remember(imagePathOrUrl) {
-        if (imagePathOrUrl.startsWith("/") || imagePathOrUrl.contains("cacheDir")) {
-            File(imagePathOrUrl)
-        } else {
-            imagePathOrUrl
-        }
+    val isLocalFile = remember(imagePathOrUrl) {
+        imagePathOrUrl.startsWith("/") || imagePathOrUrl.contains("cacheDir")
+    }
+    val imageModel = remember(imagePathOrUrl, isLocalFile) {
+        if (isLocalFile) File(imagePathOrUrl) else imagePathOrUrl
     }
 
-    val request = remember(imageModel) {
+    val request = remember(imagePathOrUrl, imageModel) {
         ImageRequest.Builder(context)
             .data(imageModel)
+            .size(1920, 1080)
             .bitmapConfig(Bitmap.Config.RGB_565)
             .allowHardware(false)
+            .memoryCachePolicy(if (isLocalFile) CachePolicy.DISABLED else CachePolicy.ENABLED)
+            .diskCachePolicy(if (isLocalFile) CachePolicy.DISABLED else CachePolicy.ENABLED)
             .crossfade(250)
             .build()
     }

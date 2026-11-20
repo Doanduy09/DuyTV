@@ -94,17 +94,14 @@ jobs:
             echo "DUYTV_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
           fi
 
-      - name: Biên dịch gói APK Android
-        run: ./gradlew :app:assembleRelease --stacktrace
+      - name: Chạy Unit Test & Biên dịch gói APK Android
+        run: ./gradlew :app:testReleaseUnitTest :app:assembleRelease --stacktrace
 
-      - name: Chuẩn bị file APK hoàn thiện
+      - name: Chuẩn bị file APK hoàn thiện từ bản Build mới nhất
         run: |
           mkdir -p release_apk
-          if [ -f release/DuyTV-latest.apk ]; then
-            cp release/DuyTV-latest.apk release_apk/DuyTV-Full-Latest.apk
-          else
-            cp app/build/outputs/apk/release/app-release.apk release_apk/DuyTV-Full-Latest.apk
-          fi
+          cp app/build/outputs/apk/release/app-release.apk release_apk/DuyTV-Full-Latest.apk
+          sha256sum release_apk/DuyTV-Full-Latest.apk
 
       - name: Lưu trữ APK lên GitHub Artifacts
         uses: actions/upload-artifact@v4

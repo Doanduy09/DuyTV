@@ -1,5 +1,7 @@
 {
-  "versionCode": 80,
-  "versionName": "2.6.4",
-  "releaseNotes": "v2.6.4: Phát sóng DLNA Digital Media Renderer & mDNS tự động hiển thị DuyTV (Tivi Sharp) trên điện thoại Samsung, Xiaomi, iPhone; Sửa lỗi truyền ảnh trực tiếp; Thêm hộp thoại hướng dẫn kết nối 1-chạm."
+  "versionCode": 81,
+  "versionName": "2.6.5",
+  "sha256": "8B3594C9CE07D1F60BCAB7BA0FC89444CBD3573D24C2599F525A8A273C7D7950",
+  "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
+  "releaseNotes": "v2.6.5 (Build #81): Thêm Mã QR quét mở Web Hub 1-chạm trên Tivi; Hỗ trợ bắn video quay từ điện thoại & tự động nén ảnh Full HD chống tràn RAM; Sửa lỗi dính cache ảnh lần 2; Hợp nhất 1 OkHttpClient & đóng 30 kết nối rò rỉ; Vá bảo mật LAN/DLNA & đạt 0 lỗi Android Lint."
 }

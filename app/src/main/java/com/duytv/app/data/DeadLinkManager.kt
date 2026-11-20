@@ -3,8 +3,10 @@ package com.duytv.app.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,7 +32,11 @@ object DeadLinkManager {
 
     private var deadPrefs: SharedPreferences? = null
     private var workingPrefs: SharedPreferences? = null
-    private val ioScope = CoroutineScope(Dispatchers.IO)
+    private val ioScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.w(TAG, "DeadLinkManager ioScope error: ${e.message}")
+        }
+    )
     @Volatile
     private var isInitialized = false
 

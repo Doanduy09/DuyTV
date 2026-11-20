@@ -66,7 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -116,6 +116,7 @@ enum class CinematicFilter(val title: String, val desc: String) {
     VIBRANT_CINEMA("💎 ĐIỆN ẢNH SỐNG ĐỘNG", "Tăng độ bão hòa và độ trong trẻo cho phim chiếu rạp")
 }
 
+@OptIn(UnstableApi::class)
 enum class VideoAspectMode(val mode: Int, val label: String, val desc: String) {
     FILL(AspectRatioFrameLayout.RESIZE_MODE_FILL, "↔️ TỰ CO GIÃN TRÀN MÀN HÌNH (100%)", "Tự co giãn theo tỷ lệ mọi màn hình, xóa sạch 100% khúc đen và giữ trọn phụ đề/tỷ số"),
     ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "🌟 PHÓNG TRÀN VIỀN (CẮT VIỀN)", "Xóa sạch 100% viền đen, lấp kín toàn màn hình"),
@@ -215,10 +216,10 @@ private fun PlayerScreenContent(
             } else 0L
         } else 0L
     }
-    var currentPosMs by remember { mutableStateOf(resolvedInitialPositionMs) }
+    var currentPosMs by remember { mutableLongStateOf(resolvedInitialPositionMs) }
     var voiceKeyDownTimeMs by remember { mutableLongStateOf(0L) }
     var lastVoiceTriggerTimestampMs by remember { mutableLongStateOf(0L) }
-    var totalDurationMs by remember { mutableStateOf(1L) }
+    var totalDurationMs by remember { mutableLongStateOf(1L) }
     var pendingSeekPosMs by remember { mutableStateOf<Long?>(null) }
     var seekDeltaText by remember { mutableStateOf("") }
     var seekJob by remember { mutableStateOf<Job?>(null) }
@@ -263,7 +264,7 @@ private fun PlayerScreenContent(
             if (resolvedInitialPositionMs > 5000L) {
                 val mins = (resolvedInitialPositionMs / 60000L)
                 val secs = (resolvedInitialPositionMs % 60000L) / 1000L
-                aspectBadgeText = String.format("📌 TIẾP TỤC XEM TỪ %02d:%02d", mins, secs)
+                aspectBadgeText = String.format(java.util.Locale.US, "📌 TIẾP TỤC XEM TỪ %02d:%02d", mins, secs)
                 scope.launch {
                     delay(3500L)
                     if (aspectBadgeText?.startsWith("📌") == true) {
@@ -652,8 +653,7 @@ private fun PlayerScreenContent(
                     exoPlayer.play()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
-                    val isInPip = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N &&
-                        (context as? Activity)?.isInPictureInPictureMode == true
+                    val isInPip = (context as? Activity)?.isInPictureInPictureMode == true
                     if (isInPip) {
                         showControls = false
                     } else {
@@ -1224,14 +1224,12 @@ private fun PlayerScreenContent(
 
     // Smooth Fade-out Sleep Timer Volume Control
     LaunchedEffect(sleepTimerMinutes, exoPlayer) {
-        if (exoPlayer != null) {
-            if (sleepTimerMinutes == 2) {
-                exoPlayer.volume = 0.6f
-            } else if (sleepTimerMinutes == 1) {
-                exoPlayer.volume = 0.3f
-            } else if (sleepTimerMinutes == 0) {
-                exoPlayer.volume = 1.0f
-            }
+        if (sleepTimerMinutes == 2) {
+            exoPlayer.volume = 0.6f
+        } else if (sleepTimerMinutes == 1) {
+            exoPlayer.volume = 0.3f
+        } else if (sleepTimerMinutes == 0) {
+            exoPlayer.volume = 1.0f
         }
     }
 
@@ -3203,6 +3201,7 @@ private fun PlayerScreenContent(
                         }
                     }
 
+                    val isVoiceActive = voiceManager.state.collectAsState().value !is VoiceState.Idle
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3260,7 +3259,7 @@ private fun PlayerScreenContent(
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(
                                 text = "🎙️ GIỌNG NÓI",
-                                highlight = voiceManager.state.value !is VoiceState.Idle,
+                                highlight = isVoiceActive,
                                 onClick = { voiceManager.startListening() }
                             )
                         } else {
@@ -3332,7 +3331,7 @@ private fun PlayerScreenContent(
                             Spacer(modifier = Modifier.width(8.dp))
                             QuickSeekPill(
                                 text = "🎙️ GIỌNG NÓI",
-                                highlight = voiceManager.state.value !is VoiceState.Idle,
+                                highlight = isVoiceActive,
                                 onClick = { voiceManager.startListening() }
                             )
                         }

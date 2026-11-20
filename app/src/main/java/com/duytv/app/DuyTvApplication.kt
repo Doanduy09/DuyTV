@@ -13,26 +13,29 @@ import java.util.concurrent.TimeUnit
 class DuyTvApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
-        // Crash Shield: Bắt toàn bộ uncaught exception nền để tránh app bị crash popup trên Android TV
+        // Crash Diagnostics: Ghi log lỗi chi tiết trước khi bàn giao lại cho hệ thống (tránh tạo zombie thread)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             android.util.Log.e("CrashShield", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
-            if (throwable is Exception && (thread.name.contains("DefaultDispatcher") || thread.name.contains("OkHttp") || thread.name.contains("ExoPlayer:Playback"))) {
-                android.util.Log.w("CrashShield", "Suppressed non-fatal background crash on thread ${thread.name}")
-            } else {
-                defaultHandler?.uncaughtException(thread, throwable)
-            }
+            defaultHandler?.uncaughtException(thread, throwable)
         }
         AppCacheManager.init(this, MovieRepository.getVerifiedOfficialChannels())
         com.duytv.app.util.GeminiVoiceClient.init(this)
-        com.duytv.app.util.LanCommandReceiver.start(this)
-        com.duytv.app.util.LanMediaServer.start(this)
-        com.duytv.app.util.DlnaMediaRenderer.start(this)
+
+        // Lazy-start các máy chủ LAN/DLNA ở luồng nền sau khi UI sẵn sàng để không chậm Cold Start;
+        // Chỉ tự động giữ máy chủ LAN 24/7 trên Android TV (tránh hao pin trên Điện thoại / Tablet).
+        val appCtx = applicationContext
+        if (com.duytv.app.util.HardwareOptimizer.isTvDevice(appCtx)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                com.duytv.app.util.LanCommandReceiver.start(appCtx)
+                com.duytv.app.util.LanMediaServer.start(appCtx)
+                com.duytv.app.util.DlnaMediaRenderer.start(appCtx)
+            }, 600L)
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
-        val imageHttpClient = OkHttpClient.Builder()
-            .dns(com.duytv.app.util.HlsAdBlockEngine.ipv4PreferredDns)
+        val imageHttpClient = com.duytv.app.util.SharedHttpClients.newClientBuilder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .addInterceptor { chain ->

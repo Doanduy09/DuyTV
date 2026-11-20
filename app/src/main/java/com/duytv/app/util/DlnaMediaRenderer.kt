@@ -5,9 +5,11 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
 import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -31,7 +33,10 @@ object DlnaMediaRenderer {
 
     private var multicastLock: WifiManager.MulticastLock? = null
     private var job: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.w(TAG, "DLNA coroutine error (recovered via SupervisorJob): ${throwable.message}")
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + exceptionHandler)
     private var nsdManager: NsdManager? = null
     private var nsdRegistrationListener: NsdManager.RegistrationListener? = null
 
@@ -57,21 +62,23 @@ object DlnaMediaRenderer {
     fun start(context: Context) {
         if (job?.isActive == true) return
 
-        // 1. Kích hoạt MulticastLock để nhận gói tin SSDP UDP 1900
-        try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            if (multicastLock == null && wm != null) {
-                multicastLock = wm.createMulticastLock("DuyTV:DlnaMulticastLock").apply {
-                    setReferenceCounted(false)
-                    acquire()
+        // 1. Chỉ kích hoạt MulticastLock trên TV để nhận gói tin SSDP UDP 1900 (tránh hao pin trên điện thoại)
+        if (HardwareOptimizer.isTvDevice(context)) {
+            try {
+                val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                if (multicastLock == null && wm != null) {
+                    multicastLock = wm.createMulticastLock("DuyTV:DlnaMulticastLock").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                    Log.i(TAG, "Đã kích hoạt MulticastLock cho Wi-Fi")
                 }
-                Log.i(TAG, "Đã kích hoạt MulticastLock cho Wi-Fi")
+            } catch (e: Exception) {
+                Log.w(TAG, "Không thể acquire MulticastLock: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Không thể acquire MulticastLock: ${e.message}")
         }
 
-        // 2. Đăng ký mDNS Native Service (Bonjour / ZeroConf)
+        // 2. Đăng ký mDNS Native Service chuẩn HTTP WebHub (KHÔNG giả mạo _googlecast._tcp. tránh treo Google Home)
         registerMdns(context)
 
         // 3. Khởi chạy luồng SSDP Multicast Receiver & Alive Announcer
@@ -85,8 +92,8 @@ object DlnaMediaRenderer {
         try {
             nsdManager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return
             val serviceInfo = NsdServiceInfo().apply {
-                serviceName = "DuyTV (Tivi Sharp)"
-                serviceType = "_googlecast._tcp."
+                serviceName = "DuyTV-WebHub"
+                serviceType = "_http._tcp."
                 port = LanMediaServer.PORT
             }
 
@@ -174,7 +181,7 @@ object DlnaMediaRenderer {
                     "CACHE-CONTROL: max-age=1800\r\n" +
                     "EXT:\r\n" +
                     "LOCATION: http://$localIp:${LanMediaServer.PORT}/upnp/description.xml\r\n" +
-                    "SERVER: Linux/4.4 UPnP/1.0 DuyTV/2.6.4\r\n" +
+                    "SERVER: Linux/4.4 UPnP/1.0 DuyTV/${com.duytv.app.BuildConfig.VERSION_NAME}\r\n" +
                     "ST: $targetSt\r\n" +
                     "USN: $UDN::$targetSt\r\n" +
                     "BOOTID.UPNP.ORG: 1\r\n" +
@@ -211,7 +218,7 @@ object DlnaMediaRenderer {
                                 "LOCATION: http://$localIp:${LanMediaServer.PORT}/upnp/description.xml\r\n" +
                                 "NT: $target\r\n" +
                                 "NTS: ssdp:alive\r\n" +
-                                "SERVER: Linux/4.4 UPnP/1.0 DuyTV/2.6.4\r\n" +
+                                "SERVER: Linux/4.4 UPnP/1.0 DuyTV/${com.duytv.app.BuildConfig.VERSION_NAME}\r\n" +
                                 "USN: $UDN::$target\r\n" +
                                 "BOOTID.UPNP.ORG: 1\r\n" +
                                 "CONFIGID.UPNP.ORG: 1\r\n\r\n"

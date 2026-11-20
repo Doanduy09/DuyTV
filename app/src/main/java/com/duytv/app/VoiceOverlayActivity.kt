@@ -50,6 +50,7 @@ class VoiceOverlayActivity : ComponentActivity() {
                keyCode == KeyEvent.KEYCODE_SEARCH
     }
 
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (isVoiceOrAssistKey(event.keyCode)) {
             val now = System.currentTimeMillis()

@@ -33,7 +33,17 @@ import kotlinx.coroutines.async
  */
 object HlsAdBlockEngine {
 
-    private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, List<java.net.InetAddress>>()
+    private data class DnsCacheEntry(val addresses: List<java.net.InetAddress>, val expiresAtMs: Long)
+    private const val DNS_CACHE_TTL_MS = 15 * 60 * 1000L // 15 phút TTL tránh IP CDN bị cũ
+    private val dnsCache = java.util.concurrent.ConcurrentHashMap<String, DnsCacheEntry>()
+
+    internal fun isSinkholeOrInvalidExternalIp(hostname: String, addr: java.net.InetAddress): Boolean {
+        val h = hostname.trim().lowercase()
+        if (h == "localhost" || h == "127.0.0.1" || h.startsWith("192.168.") || h.startsWith("10.") || h.startsWith("172.")) {
+            return false
+        }
+        return addr.isLoopbackAddress || addr.isAnyLocalAddress
+    }
 
     private val dohFallbackClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -95,9 +105,11 @@ object HlsAdBlockEngine {
 
     val ipv4PreferredDns: Dns = object : Dns {
         override fun lookup(hostname: String): List<java.net.InetAddress> {
-            dnsCache[hostname]?.let { return it }
+            val now = System.currentTimeMillis()
+            dnsCache[hostname]?.takeIf { it.expiresAtMs > now }?.let { return it.addresses }
             try {
                 val sysAddrs = Dns.SYSTEM.lookup(hostname)
+                    .filterNot { isSinkholeOrInvalidExternalIp(hostname, it) }
                 if (sysAddrs.isNotEmpty()) {
                     val sorted = sysAddrs.sortedWith(compareBy { addr ->
                         when {
@@ -107,20 +119,20 @@ object HlsAdBlockEngine {
                             else -> 1
                         }
                     })
-                    dnsCache[hostname] = sorted
+                    dnsCache[hostname] = DnsCacheEntry(sorted, now + DNS_CACHE_TTL_MS)
                     return sorted
                 }
             } catch (e: Exception) {
-                val dohAddrs = resolveDohIp(hostname)
+                val dohAddrs = resolveDohIp(hostname).filterNot { isSinkholeOrInvalidExternalIp(hostname, it) }
                 if (dohAddrs.isNotEmpty()) {
-                    dnsCache[hostname] = dohAddrs
+                    dnsCache[hostname] = DnsCacheEntry(dohAddrs, now + DNS_CACHE_TTL_MS)
                     return dohAddrs
                 }
                 throw e
             }
-            val dohAddrs = resolveDohIp(hostname)
+            val dohAddrs = resolveDohIp(hostname).filterNot { isSinkholeOrInvalidExternalIp(hostname, it) }
             if (dohAddrs.isNotEmpty()) {
-                dnsCache[hostname] = dohAddrs
+                dnsCache[hostname] = DnsCacheEntry(dohAddrs, now + DNS_CACHE_TTL_MS)
                 return dohAddrs
             }
             return Dns.SYSTEM.lookup(hostname)
@@ -447,9 +459,7 @@ object HlsAdBlockEngine {
     }
 
     private val sharedStreamOkHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .dns(ipv4PreferredDns)
-            .connectionPool(sharedConnectionPool)
+        SharedHttpClients.newClientBuilder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
