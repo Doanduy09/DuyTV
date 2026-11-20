@@ -127,7 +127,7 @@ object HardwareOptimizer {
                     vodMinBufferMs = 10_000,
                     vodMaxBufferMs = 40_000
                 )
-                !isLowRam -> HardwareProfile(
+                totalRamMb >= 2800L -> HardwareProfile( // Tầng TV Box cao cấp (Nvidia Shield, Mecool 4GB, Apple-tier box)
                     socFamily = socFamily,
                     rawHardware = "${Build.HARDWARE}/${Build.BOARD}",
                     totalRamMb = totalRamMb,
@@ -135,25 +135,39 @@ object HardwareOptimizer {
                     allowHardwareBitmaps = allowHardwareBitmaps,
                     useAsyncMediaCodec = useAsyncMediaCodec,
                     liveTargetBufferBytes = 40 * 1024 * 1024,
-                    vodTargetBufferBytes = 28 * 1024 * 1024,
+                    vodTargetBufferBytes = 32 * 1024 * 1024,
                     liveMinBufferMs = 10_000,
                     liveMaxBufferMs = 35_000,
                     vodMinBufferMs = 8_000,
                     vodMaxBufferMs = 25_000
                 )
-                else -> HardwareProfile(
+                totalRamMb > 1300L -> HardwareProfile( // Tầng Google TV & Smart TV phổ thông (1.5GB - 2GB RAM: Sharp, TCL, Mi Box S, Chromecast 4K)
                     socFamily = socFamily,
                     rawHardware = "${Build.HARDWARE}/${Build.BOARD}",
                     totalRamMb = totalRamMb,
-                    isLowRamDevice = true,
+                    isLowRamDevice = isLowRam,
                     allowHardwareBitmaps = allowHardwareBitmaps,
                     useAsyncMediaCodec = useAsyncMediaCodec,
-                    liveTargetBufferBytes = 28 * 1024 * 1024,
+                    liveTargetBufferBytes = 24 * 1024 * 1024,
                     vodTargetBufferBytes = 16 * 1024 * 1024,
                     liveMinBufferMs = 10_000,
                     liveMaxBufferMs = 28_000,
                     vodMinBufferMs = 5_000,
                     vodMaxBufferMs = 15_000
+                )
+                else -> HardwareProfile( // Tầng TV Box giá rẻ siêu nhẹ (<= 1.2GB RAM: TX3 Mini 1GB, X96 Mini 1GB, TV Stick 1GB)
+                    socFamily = socFamily,
+                    rawHardware = "${Build.HARDWARE}/${Build.BOARD}",
+                    totalRamMb = totalRamMb,
+                    isLowRamDevice = true,
+                    allowHardwareBitmaps = allowHardwareBitmaps,
+                    useAsyncMediaCodec = false, // Tắt async codec trên chip yếu để giảm tải luồng xử lý
+                    liveTargetBufferBytes = 14 * 1024 * 1024, // 14MB buffer chống OOM
+                    vodTargetBufferBytes = 10 * 1024 * 1024,
+                    liveMinBufferMs = 8_000,
+                    liveMaxBufferMs = 20_000,
+                    vodMinBufferMs = 4_000,
+                    vodMaxBufferMs = 12_000
                 )
             }
 
@@ -216,9 +230,10 @@ object HardwareOptimizer {
     }
 
     /**
-     * [✅ ĐÃ CHUẨN - CẤM SỬA]
-     * Nhận diện chuẩn xác thiết bị Android TV / TV Box qua Leanback, UiModeManager & Touchscreen.
-     * Trả về true nếu là TV, false nếu là Phone, Fold hoặc Tablet (như Xiaomi Pad 7 Pro 1163dp).
+     * [✅ ĐÃ CHUẨN - MỞ RỘNG TV BOX & GOOGLE TV]
+     * Nhận diện chuẩn xác thiết bị Android TV, Google TV & Android TV Box qua Leanback, UiModeManager,
+     * Touchscreen và phần cứng không pin (Battery absent) / SoC box đặc thù.
+     * Trả về true nếu là TV hoặc Android TV Box; false nếu là Phone, Fold hoặc Tablet (như Xiaomi Pad 7 Pro 1163dp).
      */
     fun isTvDevice(context: Context): Boolean {
         return try {
@@ -230,10 +245,89 @@ object HardwareOptimizer {
                 @Suppress("DEPRECATION")
                 pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION) -> true
                 !pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) -> true
-                else -> false
+                else -> isTvBoxHardware(context)
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun isTvBoxHardware(context: Context): Boolean {
+        return try {
+            val fp = "${Build.HARDWARE} ${Build.BOARD} ${Build.MODEL} ${Build.DEVICE} ${Build.PRODUCT}".lowercase()
+            val hasBoxKeyword = fp.contains("box") || fp.contains("tv") || fp.contains("stb") ||
+                fp.contains("dongle") || fp.contains("droidlogic") || fp.contains("x96") ||
+                fp.contains("tanix") || fp.contains("tx3") || fp.contains("mecool") ||
+                fp.contains("ugoos") || fp.contains("shield") || fp.contains("chromecast") ||
+                fp.contains("h96") || fp.contains("magicsee")
+            if (hasBoxKeyword) return true
+
+            // Kiểm tra phần cứng không có pin (Battery absent) - Đặc trưng của 100% Android Box & TV cắm nguồn AC liên tục
+            val ifilter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+            val bStatus = context.registerReceiver(null, ifilter)
+            val hasBattery = bStatus?.getBooleanExtra(android.os.BatteryManager.EXTRA_PRESENT, true) ?: true
+            !hasBattery
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Tự động sinh tên thiết bị thân thiện (Friendly Name) hiển thị trên DLNA/mDNS/Web Hub:
+     * - Tivi Sharp: "DuyTV (Tivi Sharp)"
+     * - Sony Google TV: "DuyTV (Sony Bravia Google TV)"
+     * - Xiaomi Mi Box / TV: "DuyTV (Xiaomi Mi Box)"
+     * - Nvidia Shield: "DuyTV (Nvidia Shield TV)"
+     * - Chromecast: "DuyTV (Chromecast Google TV)"
+     * - Các dòng TV Box phổ biến (X96, Tanix, Mecool, TX3): "DuyTV (X96 Android Box)"...
+     */
+    fun getDeviceFriendlyName(context: Context): String {
+        return try {
+            val manufacturer = Build.MANUFACTURER.trim().lowercase()
+            val model = Build.MODEL.trim()
+            val brand = Build.BRAND.trim().lowercase()
+
+            val brandLabel = when {
+                manufacturer.contains("sharp") || brand.contains("sharp") -> "Tivi Sharp"
+                manufacturer.contains("sony") || brand.contains("sony") -> "Sony Bravia Google TV"
+                manufacturer.contains("tcl") || brand.contains("tcl") -> "TCL Google TV"
+                manufacturer.contains("xiaomi") || brand.contains("xiaomi") -> {
+                    if (model.contains("box", ignoreCase = true) || model.contains("stick", ignoreCase = true)) {
+                        "Xiaomi Mi Box"
+                    } else "Xiaomi TV"
+                }
+                manufacturer.contains("nvidia") || brand.contains("nvidia") || model.contains("shield", ignoreCase = true) -> "Nvidia Shield TV"
+                manufacturer.contains("google") || model.contains("chromecast", ignoreCase = true) -> "Chromecast Google TV"
+                manufacturer.contains("casper") || brand.contains("casper") -> "Casper TV"
+                manufacturer.contains("samsung") -> "Samsung Smart TV"
+                manufacturer.contains("lg") -> "LG Smart TV"
+                model.contains("x96", ignoreCase = true) -> "X96 Android Box"
+                model.contains("tx3", ignoreCase = true) -> "TX3 Android Box"
+                model.contains("tanix", ignoreCase = true) -> "Tanix Android Box"
+                model.contains("mecool", ignoreCase = true) -> "Mecool TV Box"
+                model.contains("ugoos", ignoreCase = true) -> "Ugoos TV Box"
+                isTvDevice(context) -> "DuyTV ($model)"
+                else -> model.ifBlank { "Thiết bị DuyTV" }
+            }
+            if (brandLabel.startsWith("DuyTV")) brandLabel else "DuyTV ($brandLabel)"
+        } catch (_: Exception) {
+            "DuyTV (Android TV)"
+        }
+    }
+
+    /**
+     * Sinh mã UDN duy nhất cho từng thiết bị theo Android ID để tránh xung đột
+     * khi trong một hộ gia đình có nhiều Tivi hoặc TV Box trên cùng mạng Wi-Fi/LAN.
+     */
+    fun getUdn(context: Context): String {
+        return try {
+            val androidId = android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            )
+            if (!androidId.isNullOrBlank()) "uuid:duytv-renderer-$androidId" else "uuid:duytv-renderer-default"
+        } catch (_: Exception) {
+            "uuid:duytv-renderer-default"
         }
     }
 

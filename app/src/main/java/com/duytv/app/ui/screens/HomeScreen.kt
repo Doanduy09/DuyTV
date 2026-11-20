@@ -1587,6 +1587,8 @@ fun HomeScreen(
         }
 
         if (showPhoneCastHelpDialog) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val friendlyName = remember(ctx) { com.duytv.app.util.HardwareOptimizer.getDeviceFriendlyName(ctx) }
             val localIp = remember { com.duytv.app.util.DlnaMediaRenderer.getLocalIpv4Address() }
             val webHubUrl = remember(localIp) { "http://$localIp:8888" }
             val qrMatrix = remember(webHubUrl) { com.duytv.app.util.QrCodeGenerator.encode(webHubUrl) }
@@ -1612,7 +1614,7 @@ fun HomeScreen(
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "● Đang phát sóng Wi-Fi: \"DuyTV (Tivi Sharp)\"",
+                                text = "● Đang phát sóng LAN/Wi-Fi: \"$friendlyName\"",
                                 color = Color(0xFF34D399),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -1672,7 +1674,7 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Mở ảnh/video trong Thư viện -> Bấm biểu tượng [Truyền / Smart View] -> Chọn \"DuyTV (Tivi Sharp)\".",
+                                    text = "Mở ảnh/video trong Thư viện -> Bấm biểu tượng [Truyền / Smart View] -> Chọn \"$friendlyName\".",
                                     color = Color(0xFFE2E8F0),
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp

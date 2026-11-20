@@ -31,6 +31,7 @@ object DlnaMediaRenderer {
     private const val SSDP_PORT = 1900
     const val UDN = "uuid:duytv-sharp-aquos-renderer"
 
+    private var appContext: Context? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var job: Job? = null
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -59,8 +60,11 @@ object DlnaMediaRenderer {
         return "127.0.0.1"
     }
 
+    fun getUdn(): String = appContext?.let { HardwareOptimizer.getUdn(it) } ?: UDN
+
     fun start(context: Context) {
         if (job?.isActive == true) return
+        appContext = context.applicationContext
 
         // 1. Chỉ kích hoạt MulticastLock trên TV để nhận gói tin SSDP UDP 1900 (tránh hao pin trên điện thoại)
         if (HardwareOptimizer.isTvDevice(context)) {
@@ -91,8 +95,9 @@ object DlnaMediaRenderer {
     private fun registerMdns(context: Context) {
         try {
             nsdManager = context.applicationContext.getSystemService(Context.NSD_SERVICE) as? NsdManager ?: return
+            val friendlyName = HardwareOptimizer.getDeviceFriendlyName(context).replace(Regex("[^a-zA-Z0-9_-]"), "-")
             val serviceInfo = NsdServiceInfo().apply {
-                serviceName = "DuyTV-WebHub"
+                serviceName = friendlyName.ifBlank { "DuyTV-WebHub" }
                 serviceType = "_http._tcp."
                 port = LanMediaServer.PORT
             }
@@ -183,7 +188,7 @@ object DlnaMediaRenderer {
                     "LOCATION: http://$localIp:${LanMediaServer.PORT}/upnp/description.xml\r\n" +
                     "SERVER: Linux/4.4 UPnP/1.0 DuyTV/${com.duytv.app.BuildConfig.VERSION_NAME}\r\n" +
                     "ST: $targetSt\r\n" +
-                    "USN: $UDN::$targetSt\r\n" +
+                    "USN: ${getUdn()}::$targetSt\r\n" +
                     "BOOTID.UPNP.ORG: 1\r\n" +
                     "CONFIGID.UPNP.ORG: 1\r\n\r\n"
 
@@ -219,7 +224,7 @@ object DlnaMediaRenderer {
                                 "NT: $target\r\n" +
                                 "NTS: ssdp:alive\r\n" +
                                 "SERVER: Linux/4.4 UPnP/1.0 DuyTV/${com.duytv.app.BuildConfig.VERSION_NAME}\r\n" +
-                                "USN: $UDN::$target\r\n" +
+                                "USN: ${getUdn()}::$target\r\n" +
                                 "BOOTID.UPNP.ORG: 1\r\n" +
                                 "CONFIGID.UPNP.ORG: 1\r\n\r\n"
 

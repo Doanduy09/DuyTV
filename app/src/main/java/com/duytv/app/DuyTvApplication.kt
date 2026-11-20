@@ -48,9 +48,10 @@ class DuyTvApplication : Application(), ImageLoaderFactory {
 
         val hwProfile = com.duytv.app.util.HardwareOptimizer.getProfile(this)
         val ramCacheBytes = when {
-            hwProfile.isLowRamDevice -> 12 * 1024 * 1024 // 12MB RAM cho TV RAM thấp tránh tràn GraphicBuffer (EGL_BAD_ALLOC)
+            hwProfile.totalRamMb <= 1300L -> 8 * 1024 * 1024 // 8MB cho TV Box 1GB RAM (TX3 Mini, X96 Mini)
+            hwProfile.isLowRamDevice -> 12 * 1024 * 1024 // 12MB RAM cho TV 1.5GB - 2GB RAM (Sharp, TCL, Chromecast 4K)
             hwProfile.totalRamMb >= 5500L -> 64 * 1024 * 1024 // 64MB RAM cho Tablet 3.2K 144Hz (Xiaomi Pad 7 Pro) & Z Fold
-            else -> 32 * 1024 * 1024 // 32MB RAM cho thiết bị tầm trung
+            else -> 24 * 1024 * 1024 // 24MB RAM cho TV Box cao cấp (Nvidia Shield 3GB, Mecool 4GB)
         }
         val diskCacheBytes = if (hwProfile.isLowRamDevice) 50L * 1024 * 1024 else 100L * 1024 * 1024
         return ImageLoader.Builder(this)

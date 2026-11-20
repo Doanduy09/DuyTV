@@ -147,7 +147,7 @@ object LanMediaServer {
             when {
                 // Trang Web Remote & Bắn Media chính
                 method == "GET" && (rawPath == "/" || rawPath.startsWith("/index")) -> {
-                    serveWebHubHtml(output)
+                    serveWebHubHtml(context, output)
                 }
 
                 // Trạng thái hệ thống
@@ -168,7 +168,7 @@ object LanMediaServer {
 
                 // --- DLNA UPnP Digital Media Renderer Endpoints ---
                 method == "GET" && rawPath.startsWith("/upnp/description.xml") -> {
-                    serveUpnpDeviceDescription(output)
+                    serveUpnpDeviceDescription(context, output)
                 }
 
                 method == "GET" && rawPath.startsWith("/upnp/AVTransport.xml") -> {
@@ -473,7 +473,9 @@ object LanMediaServer {
         return unescapeXml(xml.substring(gtIdx + 1, endIdx).trim())
     }
 
-    private fun serveUpnpDeviceDescription(output: OutputStream) {
+    private fun serveUpnpDeviceDescription(context: Context, output: OutputStream) {
+        val friendlyName = HardwareOptimizer.getDeviceFriendlyName(context)
+        val udn = HardwareOptimizer.getUdn(context)
         val xml = """<?xml version="1.0" encoding="utf-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
   <specVersion>
@@ -482,13 +484,13 @@ object LanMediaServer {
   </specVersion>
   <device>
     <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-    <friendlyName>DuyTV (Tivi Sharp)</friendlyName>
+    <friendlyName>$friendlyName</friendlyName>
     <manufacturer>DuyTV Team</manufacturer>
     <manufacturerURL>https://github.com/Doanduy09/DuyTV</manufacturerURL>
     <modelDescription>DuyTV Android TV Media Renderer</modelDescription>
-    <modelName>DuyTV Aquos</modelName>
+    <modelName>${android.os.Build.MODEL}</modelName>
     <modelNumber>${BuildConfig.VERSION_NAME}</modelNumber>
-    <UDN>${DlnaMediaRenderer.UDN}</UDN>
+    <UDN>$udn</UDN>
     <serviceList>
       <service>
         <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
@@ -768,8 +770,9 @@ object LanMediaServer {
         output.flush()
     }
 
-    private fun serveWebHubHtml(output: OutputStream) {
+    private fun serveWebHubHtml(context: Context, output: OutputStream) {
         val localIp = DlnaMediaRenderer.getLocalIpv4Address()
+        val friendlyName = HardwareOptimizer.getDeviceFriendlyName(context)
         val html = """
 <!DOCTYPE html>
 <html lang="vi">
@@ -812,12 +815,12 @@ object LanMediaServer {
     <div class="container">
         <div class="header">
             <h1>📺 <span>DUY</span>TV LAN CAST & REMOTE</h1>
-            <p>Phát sóng Wi-Fi: "DuyTV (Tivi Sharp)" • $localIp</p>
+            <p>Phát sóng LAN/Wi-Fi: "$friendlyName" • $localIp</p>
         </div>
 
         <div class="dlna-tip">
             💡 <b>Truyền trực tiếp từ Thư viện ảnh điện thoại</b>:<br>
-            Mở ảnh/video trong <b>Bộ sưu tập Samsung / Xiaomi / Android</b> &rarr; Bấm nút <b>Truyền / Smart View</b> &rarr; Chọn <b>DuyTV (Tivi Sharp)</b>!
+            Mở ảnh/video trong <b>Bộ sưu tập Samsung / Xiaomi / Android</b> &rarr; Bấm nút <b>Truyền / Smart View</b> &rarr; Chọn <b>$friendlyName</b>!
         </div>
 
         <div class="tabs">
