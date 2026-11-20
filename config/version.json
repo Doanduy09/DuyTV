@@ -1,7 +1,7 @@
 {
-  "versionCode": 82,
-  "versionName": "2.6.6",
-  "sha256": "018973941925AF4B4E6E914ABEECDBCBB5E79BDB3CE6E3B062638D7365F113F9",
+  "versionCode": 83,
+  "versionName": "2.6.7",
+  "sha256": "3284DE9A401E03E6A4CBCC2BB7A982E06D0CB75E7CA39533DF83FB10FC4CF182",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
-  "releaseNotes": "v2.6.6 (Build #82): Mở rộng toàn diện cho Google TV & Android TV Box mọi cấu hình; Phân tầng bộ nhớ 4 cấp thích ứng (1GB RAM đến 4GB+ RAM); Tự động nhận diện tên thiết bị thực tế (Sony Bravia, Xiaomi Mi Box, Nvidia Shield, Chromecast...); Sinh UDN DLNA chống trùng lặp đa phòng; Hỗ trợ cáp mạng LAN Ethernet RJ45 & tối ưu chuột bay/D-pad."
+  "releaseNotes": "v2.6.7 (Build #83): Khắc phục triệt để lỗi chuyển kênh giọng nói trên Nvidia Shield TV & Google TV; Chống ngắt sớm STT khi chưa nói số kênh; Tẩy chay toàn bộ nguồn stream chết (vnns.net, freem3u.xyz, fptplay53.net) và link giả mạo .coin; Ưu tiên tối đa CDN chính thống quốc gia (VTV Digital, Truyền hình số, dethich.pw) phát 1080p tức thì 0ms."
 }
