@@ -32,6 +32,11 @@ jobs:
       - name: Tải mã nguồn repository
         uses: actions/checkout@v4
 
+      - name: Cài đặt Node.js để xử lý cấu hình
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Dọn sạch các bản Build (Workflow Runs) & Release cũ trước khi Build
         run: node scripts/clean_old_releases.js
         env:
@@ -50,11 +55,6 @@ jobs:
             fs.appendFileSync(envFile, 'APP_BUILD=' + v.versionCode + '\n');
             fs.appendFileSync(envFile, 'APP_NOTES<<EOF\n' + (v.releaseNotes || 'Bản cập nhật mới nhất') + '\nEOF\n');
           "
-
-      - name: Cài đặt Node.js để xử lý cấu hình
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
       - name: Tự động phân tích nguồn từ file .config
         run: |
