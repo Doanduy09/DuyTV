@@ -1136,12 +1136,21 @@ class MovieRepository {
     private suspend fun fetchThapCamLiveMatches(nowMillis: Long): List<FootballMatchGroup> = withContext(Dispatchers.IO) {
         val results = mutableListOf<FootballMatchGroup>()
         try {
-            val req = Request.Builder()
-                .url(RemoteConfigManager.THAPCAM_LIVE_URL)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
-                .header("Cache-Control", "no-cache")
-                .build()
-            val res = executeSafe(req)
+            var res = SafeHttpResponse(false, null)
+            for (tcUrl in listOf(RemoteConfigManager.THAPCAM_LIVE_URL, "https://thapcamtv.live", "https://vebotv.live", "https://90phuttv.live")) {
+                try {
+                    val req = Request.Builder()
+                        .url(tcUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36")
+                        .header("Cache-Control", "no-cache")
+                        .build()
+                    val r = executeSafe(req)
+                    if (r.isSuccessful && !r.body?.string().isNullOrBlank()) {
+                        res = r
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
             if (!res.isSuccessful) return@withContext emptyList()
             val html = res.body?.string() ?: return@withContext emptyList()
 

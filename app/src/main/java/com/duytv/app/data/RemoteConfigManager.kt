@@ -27,7 +27,7 @@ object RemoteConfigManager {
     const val KHOGA_LIVE_API_PRIMARY = "https://khoga1.live/api/matches/?has_commentator=true&page_size=50&ordering=smart"
     const val KHOGA_LIVE_API_MIRROR = "https://khoga.live/api/matches/?has_commentator=true&page_size=50&ordering=smart"
     const val KHOGA_ALL_LIVE_API = "https://khoga1.live/api/matches/?status=live&page_size=40"
-    const val THAPCAM_LIVE_URL = "https://thapcamtvt1.com"
+    const val THAPCAM_LIVE_URL = "https://thapcamtv.live"
     const val DUYTV_CLEAN_TV_M3U = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/tv_channels_clean.m3u"
     const val COBAN66_SPORTS_M3U = "https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0"
     const val COOCAA_SPORTS_M3U = "https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u"
