@@ -559,6 +559,18 @@ const MASTER_CHANNELS = [
 ];
 
 async function runAutoPilot() {
+    console.log('--- BÆ¯á»šC 0: Tá»° Äá»˜NG KIá»‚M Äá»ŠNH 5 NGUá»’N TRá»°C TIáº¾P BÃ“NG ÄÃ ---');
+    const footballEndpoints = [
+        { name: 'Kho GÃ  & XÃ´i ChÃ¨ Live API #1', url: 'https://khoga1.live/api/matches/?has_commentator=true&page_size=10&ordering=smart' },
+        { name: 'Kho GÃ  Live Mirror API #2', url: 'https://khoga.live/api/matches/?has_commentator=true&page_size=10&ordering=smart' },
+        { name: 'Tháº­p Cáº©m TV / AntLive', url: 'https://thapcamtv.live' },
+        { name: 'CoBan66 Thá»ƒ Thao & VTVcab', url: 'https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0' },
+        { name: 'CooCaa BÃ³ng ÄÃ¡ Viá»‡t & ON Sports', url: 'https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u' }
+    ];
+    for (const fb of footballEndpoints) {
+        const res = await fetchText(fb.url, { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/2.7' }, 3, 7000);
+        console.log(`âš½ [${fb.name}]: ${res.ok ? 'âœ… ONLINE (HTTP ' + res.status + ')' : 'âš ï¸ OFFLINE'}`);
+    }
     let hasSourcesChanges = false;
     let hasTvChanges = false;
     const actionLogs = [];
