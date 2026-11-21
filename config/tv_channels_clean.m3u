@@ -22,7 +22,7 @@ https://a3iptv.goitoi.co/VTV/VTV3?r2h-token=9Pzpebvhp40NGRbSMuid
 https://dethich.pw/vtv4/index.m3u8
 
 #EXTINF:-1 tvg-id="vtv4_hd_bk" tvg-name="VTV4 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/4N3yLzG.png" group-title="VTV Quốc Gia",VTV4 HD (Dự Phòng)
-https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv4/master.m3u8
+https://a3iptv.goitoi.co/VTV/VTV4?r2h-token=9Pzpebvhp40NGRbSMuid
 
 #EXTINF:-1 tvg-id="vtv5_hd" tvg-name="VTV5 HD" tvg-logo="https://i.imgur.com/5O4wMzH.png" group-title="VTV Quốc Gia",VTV5 HD
 https://dethich.pw/vtv5/index.m3u8
@@ -63,6 +63,9 @@ https://dethich.pw/thvl4/index.m3u8
 #EXTINF:-1 tvg-id="htv7_hd" tvg-name="HTV7 HD" tvg-logo="https://i.imgur.com/8T4q4pY.png" group-title="HTV TP.HCM",HTV7 HD
 https://dethich.pw/htv7/index.m3u8
 
+#EXTINF:-1 tvg-id="htv7_hd_bk" tvg-name="HTV7 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/8T4q4pY.png" group-title="HTV TP.HCM",HTV7 HD (Dự Phòng)
+https://live.tvon.vn/s2/abr_hls/htv7/720p.m3u8
+
 #EXTINF:-1 tvg-id="htv9_hd" tvg-name="HTV9 HD" tvg-logo="https://i.imgur.com/8M2qNpE.png" group-title="HTV TP.HCM",HTV9 HD
 https://dethich.pw/htv9/index.m3u8
 
@@ -70,11 +73,14 @@ https://dethich.pw/htv9/index.m3u8
 https://618b88f69e53b.streamlock.net/THDT/thdttv/playlist.m3u8
 
 #EXTINF:-1 tvg-id="đà_nẵng_1_hd" tvg-name="Đà Nẵng 1 HD" tvg-logo="https://i.imgur.com/D1nW8xK.png" group-title="Đài Tỉnh Thành",Đà Nẵng 1 HD
+https://dethich.pw/danang1/index.m3u8
+
+#EXTINF:-1 tvg-id="đà_nẵng_1_hd_bk" tvg-name="Đà Nẵng 1 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/D1nW8xK.png" group-title="Đài Tỉnh Thành",Đà Nẵng 1 HD (Dự Phòng)
 https://live.mediatech.vn/live/285b59a111d76974225a8e3004bfc31a509/chunklist.m3u8
 
 #EXTINF:-1 tvg-id="cần_thơ_hd" tvg-name="Cần Thơ HD" tvg-logo="https://i.imgur.com/CTnW7xL.png" group-title="Đài Tỉnh Thành",Cần Thơ HD
-https://live.canthotv.vn/cs2/live.stream/chunklist.m3u8
+https://live.canthotv.vn/cs2/live.stream/chunklist_w1497265452.m3u8
 
 #EXTINF:-1 tvg-id="cần_thơ_hd_bk" tvg-name="Cần Thơ HD (Dự Phòng)" tvg-logo="https://i.imgur.com/CTnW7xL.png" group-title="Đài Tỉnh Thành",Cần Thơ HD (Dự Phòng)
-https://live.canthotv.vn/cs2/live.stream/playlist.m3u8
+https://live.canthotv.vn/cs2/live.stream/chunklist.m3u8
 
