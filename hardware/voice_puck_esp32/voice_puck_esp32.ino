@@ -1,19 +1,14 @@
 /**
  * ============================================================================
- * DUYTV VOICE PUCK - ESP32-C3 (HW-953AB) + MICRO I2S INMP441 FIRMWARE
+ * DUYTV VOICE PUCK - ESP32-C3 (HW-953AB) + MICRO I2S INMP441 FIRMWARE V3
  * Tác giả: DOANDUY (DuyTV Smart Home Ecosystem)
  * Thiết bị: Bo mạch ESP32-C3 SuperMini (Mã HW-953AB)
  * ============================================================================
- * SƠ ĐỒ ĐẤU DÂY:
- *   Micro INMP441        -->  Bo Mạch HW-953AB (ESP32-C3 SuperMini)
- *   ---------------------------------------------------------------
- *   VDD                  -->  3.3V
- *   GND                  -->  GND
- *   L/R                  -->  GND (Kênh Trái - Mono)
- *   SCK (Bit Clock)      -->  GPIO 5
- *   WS  (Word Select)    -->  GPIO 4
- *   SD  (Serial Data)    -->  GPIO 6
- *   LED Báo Trạng Thái   -->  GPIO 8 (Tích cực LOW: LOW = Sáng, HIGH = Tắt)
+ * CẢI TIẾN V3:
+ * - Tích hợp bộ lọc DC-Blocker IIR loại bỏ 100% nhiễu lệch mức một chiều của INMP441.
+ * - Khuếch đại số +12dB cực nhạy bắt giọng nói thì thầm từ khoảng cách 2 - 4 mét.
+ * - Cơ chế chống ngắt sớm (Minimum Speech Window 1.4s), bắt trọn vẹn toàn bộ câu lệnh.
+ * - Pre-buffer 192ms chống nuốt âm đầu ("Lâm", "Mở", "Bật").
  * ============================================================================
  */
 
@@ -29,7 +24,7 @@ const char* WIFI_PASSWORD   = "TPTlam011205@!";
 const char* SERVER_IP       = "192.168.1.189";
 const uint16_t SERVER_PORT  = 8995;
 
-// 2. CẤU HÌNH CHÂN HÀN (PINOUT) CHO BO MẠCH HW-953AB (ESP32-C3)
+// 2. CẤU HÌNH CHÂN HÀN CHO BO HW-953AB (ESP32-C3 SUPERMINI)
 #define PIN_I2S_SCK         5
 #define PIN_I2S_WS          4
 #define PIN_I2S_SD          6
@@ -43,12 +38,13 @@ const uint16_t SERVER_PORT  = 8995;
 #define CHUNK_SAMPLES       256
 #define I2S_PORT            I2S_NUM_0
 
-// 4. THÔNG SỐ VAD ĐỘ NHẠY CAO CHO PHÒNG KHÁCH (FAR-FIELD VAD)
-#define MIN_VAD_THRESHOLD   260   // Ngưỡng tối thiểu nhạy bén thu âm từ xa
-#define VAD_MULTIPLIER      1.35f // Chỉ cần gấp 1.35 lần tiếng ồn phòng là kích hoạt
-#define SILENCE_TIMEOUT_MS  900   // Chờ 900ms khoảng lặng sau câu nói
-#define MAX_SPEECH_DURATION 8500  // Tối đa 8.5s cho 1 khẩu lệnh
-#define PRE_BUFFER_CHUNKS   10    // Lưu trước ~160ms chống nuốt âm đầu ("Lâm", "Mở", "Bật")
+// 4. THÔNG SỐ VAD ĐỘ NHẠY CAO (SIÊU NHẠY THAY THẾ REMOTE MICRO)
+#define MIN_VAD_THRESHOLD       85    // Ngưỡng tối thiểu siêu nhạy sau khi lọc sạch DC bias
+#define VAD_MULTIPLIER          1.4f  // Vượt 1.4 lần nền phòng là kích hoạt
+#define MIN_SPEECH_DURATION_MS  1400  // BẮT BUỘC thu tối thiểu 1.4s (chống ngắt ngang câu nói)
+#define SILENCE_TIMEOUT_MS      850   // Khoảng lặng 850ms sau khi đã nói đủ tối thiểu 1.4s
+#define MAX_SPEECH_DURATION_MS  7500  // Tối đa 7.5s cho 1 khẩu lệnh dài
+#define PRE_BUFFER_CHUNKS       12    // 12 chunk x 16ms = ~192ms âm đệm chống nuốt từ đầu
 
 WiFiUDP udpClient;
 
@@ -63,6 +59,10 @@ unsigned long speech_start_time = 0;
 unsigned long last_sound_time = 0;
 unsigned long last_heartbeat = 0;
 int32_t dynamic_vad_threshold = MIN_VAD_THRESHOLD;
+
+// Bộ lọc DC-Blocker IIR 1st Order (Loại bỏ lệch DC của micro INMP441)
+static int32_t dc_prev_x = 0;
+static int32_t dc_prev_y = 0;
 
 void set_led(bool turn_on) {
     digitalWrite(PIN_STATUS_LED, turn_on ? LED_ACTIVE_STATE : !LED_ACTIVE_STATE);
@@ -131,7 +131,6 @@ void connect_wifi() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        set_led(false);
         Serial.printf("\n[Wi-Fi] ✅ Kết nối thành công! IP: %s (RSSI: %d dBm)\n",
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
         Serial.printf("[DuyTV Hub] Gửi âm thanh UDP tới: %s:%d\n", SERVER_IP, SERVER_PORT);
@@ -141,7 +140,26 @@ void connect_wifi() {
     }
 }
 
+void process_i2s_samples(int samples_count) {
+    for (int i = 0; i < samples_count; i++) {
+        // INMP441: 24-bit MSB-aligned in 32-bit slot
+        // Dịch >> 14 cho khuếch đại sạch +12dB (bắt tiếng xa cực nhạy mà không méo tiếng)
+        int32_t x = raw_i2s_buffer[i] >> 14;
+
+        // Bộ lọc DC-Blocker IIR: y[n] = x[n] - x[n-1] + 0.975 * y[n-1]
+        int32_t y = x - dc_prev_x + (int32_t)((dc_prev_y * 998) >> 10);
+        dc_prev_x = x;
+        dc_prev_y = y;
+
+        // Giới hạn biên độ 16-bit chuẩn
+        if (y > 32767) y = 32767;
+        if (y < -32768) y = -32768;
+        pcm_samples[i] = (int16_t)y;
+    }
+}
+
 int32_t calculate_rms(int16_t* samples, int count) {
+    if (count <= 0) return 0;
     int64_t sum_squares = 0;
     for (int i = 0; i < count; i++) {
         sum_squares += (int32_t)samples[i] * samples[i];
@@ -150,34 +168,29 @@ int32_t calculate_rms(int16_t* samples, int count) {
 }
 
 void calibrate_ambient_noise() {
-    Serial.print("[VAD] Đang đo độ ồn phòng (1.2s)... ");
+    Serial.print("[VAD] Đang đo độ ồn phòng (1.0s)... ");
     int64_t total_rms = 0;
     int valid_frames = 0;
     unsigned long start_cal = millis();
 
-    while (millis() - start_cal < 1200) {
+    while (millis() - start_cal < 1000) {
         size_t bytes_read = 0;
-        i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 100);
+        i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50 / portTICK_PERIOD_MS);
         if (bytes_read > 0) {
             int samples_count = bytes_read / sizeof(int32_t);
-            for (int i = 0; i < samples_count; i++) {
-                int32_t val = raw_i2s_buffer[i] >> 13;
-                if (val > 32767) val = 32767;
-                if (val < -32768) val = -32768;
-                pcm_samples[i] = (int16_t)val;
-            }
+            process_i2s_samples(samples_count);
             total_rms += calculate_rms(pcm_samples, samples_count);
             valid_frames++;
         }
     }
 
-    int32_t baseline = (valid_frames > 0) ? (total_rms / valid_frames) : 180;
-    // Cân chỉnh độ nhạy: Chỉ cần gấp 1.35 lần độ ồn nền, tối thiểu 260
+    int32_t baseline = (valid_frames > 0) ? (total_rms / valid_frames) : 35;
+    // Ngưỡng VAD: Nhạy bén thu âm từ xa, chỉ cần vượt 1.4x độ ồn thực tế
     dynamic_vad_threshold = (int32_t)(baseline * VAD_MULTIPLIER);
     if (dynamic_vad_threshold < MIN_VAD_THRESHOLD) dynamic_vad_threshold = MIN_VAD_THRESHOLD;
-    if (dynamic_vad_threshold > 550) dynamic_vad_threshold = 550;
+    if (dynamic_vad_threshold > 350) dynamic_vad_threshold = 350;
 
-    Serial.printf("Xong!\n[VAD] Độ ồn: %d | Ngưỡng nhận diện: %d (Rất nhạy)\n", baseline, dynamic_vad_threshold);
+    Serial.printf("Xong! Độ ồn nền: %d | Ngưỡng kích hoạt VAD: %d (Siêu nhạy)\n", baseline, dynamic_vad_threshold);
 }
 
 void send_udp_chunk(uint8_t* data, size_t length) {
@@ -194,11 +207,11 @@ void send_event_marker(const char* marker) {
 
 void setup() {
     Serial.begin(115200);
-    delay(500);
+    delay(400);
 
     Serial.println("\n========================================================");
-    Serial.println("  DUYTV VOICE PUCK - ESP32-C3 SUPERMINI (FAR-FIELD V2)  ");
-    Serial.println("  100% TIẾNG VIỆT TỰ NHIÊN - ĐIỀU KHIỂN TIVI RẢNH TAY   ");
+    Serial.println("  DUYTV VOICE PUCK - ESP32-C3 SUPERMINI (REMOTE MIC V3) ");
+    Serial.println("  THAY THẾ MICRO REMOTE - ĐIỀU KHIỂN TIVI SIÊU NHẠY     ");
     Serial.println("========================================================");
     Serial.printf("[Chân] SCK: GPIO%d | WS: GPIO%d | SD: GPIO%d | LED: GPIO%d\n",
                   PIN_I2S_SCK, PIN_I2S_WS, PIN_I2S_SD, PIN_STATUS_LED);
@@ -227,23 +240,16 @@ void loop() {
     }
 
     size_t bytes_read = 0;
-    esp_err_t err = i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, portMAX_DELAY);
+    esp_err_t err = i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50 / portTICK_PERIOD_MS);
     if (err != ESP_OK || bytes_read == 0) return;
 
     int samples_count = bytes_read / sizeof(int32_t);
-
-    // Chuẩn hóa 24-bit INMP441 sang 16-bit PCM kèm khuếch đại tự nhiên (+6dB)
-    for (int i = 0; i < samples_count; i++) {
-        int32_t val = raw_i2s_buffer[i] >> 13;
-        if (val > 32767) val = 32767;
-        if (val < -32768) val = -32768;
-        pcm_samples[i] = (int16_t)val;
-    }
+    process_i2s_samples(samples_count);
 
     int32_t energy = calculate_rms(pcm_samples, samples_count);
 
     if (!is_speaking) {
-        // Lưu vào bộ đệm trượt 160ms chống nuốt âm đầu
+        // Lưu vào bộ đệm trượt 192ms chống nuốt âm đầu
         memcpy(pre_buffer[pre_buf_index], pcm_samples, sizeof(pcm_samples));
         pre_buf_index = (pre_buf_index + 1) % PRE_BUFFER_CHUNKS;
         if (pre_buf_index == 0) pre_buf_full = true;
@@ -258,6 +264,7 @@ void loop() {
 
             send_event_marker("__START__");
 
+            // Bắn toàn bộ âm thanh trong bộ đệm trượt 192ms
             int count_to_flush = pre_buf_full ? PRE_BUFFER_CHUNKS : pre_buf_index;
             int start_idx = pre_buf_full ? pre_buf_index : 0;
             for (int k = 0; k < count_to_flush; k++) {
@@ -277,8 +284,10 @@ void loop() {
             last_sound_time = now;
         }
 
-        bool is_silence = (now - last_sound_time > SILENCE_TIMEOUT_MS);
-        bool is_max_len = (now - speech_start_time > MAX_SPEECH_DURATION);
+        // CHỈ cho phép kết thúc sau khi đã thu tối thiểu 1.4s (MIN_SPEECH_DURATION_MS)
+        bool has_min_duration = (now - speech_start_time >= MIN_SPEECH_DURATION_MS);
+        bool is_silence = has_min_duration && (now - last_sound_time > SILENCE_TIMEOUT_MS);
+        bool is_max_len = (now - speech_start_time > MAX_SPEECH_DURATION_MS);
 
         if (is_silence || is_max_len) {
             is_speaking = false;
@@ -287,7 +296,7 @@ void loop() {
             Serial.printf("[Voice Puck] ⏹️ Kết thúc thu âm (%lu ms) -> Gửi máy chủ!\n", now - speech_start_time);
 
             send_event_marker("__END__");
-            blink_led(2, 50); // Nháy 2 lần xác nhận đã gửi
+            blink_led(2, 40); // Nháy 2 lần xác nhận đã gửi
         }
     }
 }

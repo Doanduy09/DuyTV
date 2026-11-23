@@ -284,8 +284,15 @@ def transcribe_audio_whisper_or_google(wav_bytes):
     Hoạt động 100% chuẩn xác với thư viện speech_recognition chính thức.
     """
     try:
+        # Ghi file debug để kiểm tra âm thanh thực tế từ micro ESP32
+        try:
+            with open("last_voice.wav", "wb") as f:
+                f.write(wav_bytes)
+        except Exception:
+            pass
+
         r = sr.Recognizer()
-        r.energy_threshold = 250
+        r.energy_threshold = 80
         r.dynamic_energy_threshold = False
         with sr.AudioFile(io.BytesIO(wav_bytes)) as source:
             audio = r.record(source)
@@ -738,13 +745,18 @@ def process_voice_command(wav_data):
 # =============================================================================
 
 def udp_voice_listener():
-    """Lắng nghe luồng âm thanh PCM liên tục từ ESP32 qua UDP 8995."""
+    """
+    Lắng nghe luồng âm thanh PCM từ ESP32 qua UDP 8995.
+    Tích hợp Watchdog chống rớt gói tin và tự động giải mã ngay khi hết câu nói.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((UDP_BIND_IP, UDP_BIND_PORT))
+    sock.settimeout(0.3)
     print(f"🎙️  [Voice Hub] Đang lắng nghe micro ESP32 tại UDP {UDP_BIND_PORT}...")
 
     audio_buffer = bytearray()
     is_recording = False
+    last_chunk_time = 0
 
     while True:
         try:
@@ -752,14 +764,20 @@ def udp_voice_listener():
             if not data:
                 continue
 
+            now = time.time()
+
+            if data == b"__PING__":
+                continue
+
             if data == b"__START__":
                 is_recording = True
                 audio_buffer = bytearray()
+                last_chunk_time = now
                 print(f"\n[ESP32 -> {addr[0]}] 🔴 Bắt đầu thu âm câu lệnh...")
                 continue
 
             if data == b"__END__":
-                if is_recording and len(audio_buffer) > 3200:
+                if len(audio_buffer) >= 9600:
                     duration_s = len(audio_buffer) / 32000.0
                     print(f"[ESP32] ⏹️ Kết thúc thu âm ({duration_s:.2f}s). Đang giải mã...")
                     wav_data = pcm_to_wav(bytes(audio_buffer))
@@ -768,11 +786,27 @@ def udp_voice_listener():
                 audio_buffer = bytearray()
                 continue
 
-            if is_recording:
-                audio_buffer.extend(data)
+            if len(data) >= 256:
+                if not is_recording:
+                    is_recording = True
+                    audio_buffer = bytearray()
+                    print(f"\n[ESP32 -> {addr[0]}] 🔴 Bắt đầu thu âm (nhận luồng PCM)...")
 
+                audio_buffer.extend(data)
+                last_chunk_time = now
+
+        except socket.timeout:
+            # Watchdog timeout: Nếu đang thu âm mà quá 0.9s không có thêm gói tin -> Tự động giải mã
+            now = time.time()
+            if is_recording and len(audio_buffer) >= 9600 and (now - last_chunk_time > 0.9):
+                duration_s = len(audio_buffer) / 32000.0
+                print(f"[ESP32] ⏱️ Timeout khoảng lặng ({duration_s:.2f}s). Tự động giải mã...")
+                wav_data = pcm_to_wav(bytes(audio_buffer))
+                threading.Thread(target=process_voice_command, args=(wav_data,), daemon=True).start()
+                is_recording = False
+                audio_buffer = bytearray()
         except Exception as e:
-            time.sleep(0.05)
+            time.sleep(0.02)
 
 # =============================================================================
 # 7. WEB REMOTE SERVER (HTTP 8996) CHO SAMSUNG PHONE & BROWSER
