@@ -32,8 +32,9 @@
 // ============================================================================
 // 1. CẤU HÌNH MẠNG WI-FI & MÁY CHỦ DUYTV VOICE HUB
 // ============================================================================
-const char* WIFI_SSID       = "Duy_WiFi";          // Tên Wi-Fi nhà anh Duy
-const char* WIFI_PASSWORD   = "mat_khau_wifi";     // Mật khẩu Wi-Fi
+const char* WIFI_SSID_1     = "TPT Lam";          // Tên Wi-Fi 2.4GHz chính nhà anh Duy
+const char* WIFI_SSID_2     = "TPT Lam 5G";       // Tên Wi-Fi dự phòng
+const char* WIFI_PASSWORD   = "TPTlam011205@!";   // Mật khẩu Wi-Fi
 const char* SERVER_IP       = "192.168.1.189";     // IP máy tính chạy duytv_voice_hub.py
 const uint16_t SERVER_PORT  = 8995;                // Cổng UDP nhận luồng âm thanh
 
@@ -153,16 +154,28 @@ void setup_i2s() {
 // KẾT NỐI WI-FI VỚI WATCHDOG TỰ ĐỘNG PHỤC HỒI
 // ============================================================================
 void connect_wifi() {
-    Serial.printf("\n[Wi-Fi] Đang kết nối tới: %s\n", WIFI_SSID);
+    Serial.printf("\n[Wi-Fi] Đang kết nối tới: %s\n", WIFI_SSID_1);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(WIFI_SSID_1, WIFI_PASSWORD);
 
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 35) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 24) {
         delay(250);
         set_led(attempts % 2 == 0);
         Serial.print(".");
         attempts++;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.printf("\n[Wi-Fi] Thử mạng thứ 2: %s\n", WIFI_SSID_2);
+        WiFi.begin(WIFI_SSID_2, WIFI_PASSWORD);
+        attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(250);
+            set_led(attempts % 2 == 0);
+            Serial.print(".");
+            attempts++;
+        }
     }
 
     if (WiFi.status() == WL_CONNECTED) {
