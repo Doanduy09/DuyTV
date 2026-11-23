@@ -40,6 +40,14 @@ DEVICES = {
         "port": 8990,
         "adb": "192.168.1.172:5555"
     },
+    "shield_tv": {
+        "id": "shield_tv",
+        "name": "NVIDIA Shield TV",
+        "aliases": ["shield", "tivi shield", "tv shield", "nvidia", "shield tv", "phòng ngủ"],
+        "ip": "192.168.1.218",
+        "port": 8990,
+        "adb": "192.168.1.218:5555"
+    },
     "fpt_box": {
         "id": "fpt_box",
         "name": "FPT Play Box",
