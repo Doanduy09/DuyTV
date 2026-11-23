@@ -44,8 +44,29 @@ HERMES_BRIDGE_URL = "http://127.0.0.1:8100/v1/chat/completions"
 
 # BẢNG THIẾT BỊ NỘI MẠNG ĐỘNG (DYNAMIC LAN REGISTRY)
 DEVICES_LOCK = threading.Lock()
-DISCOVERED_DEVICES = {}
-LAST_ACTIVE_DEVICE_ID = "sharp_tv"
+DISCOVERED_DEVICES = {
+    "sharp_tv": {
+        "id": "sharp_tv",
+        "name": "Tivi Sharp",
+        "model": "AQUOS_4KTVX17",
+        "ip": "192.168.1.170",
+        "port": 8990,
+        "adb": "192.168.1.170:5555",
+        "aliases": ["sharp", "tivi sharp", "tv sharp", "sharp tivi", "sharp tv", "aquos", "phòng khách"],
+        "last_seen": time.time()
+    },
+    "shield_tv": {
+        "id": "shield_tv",
+        "name": "NVIDIA Shield TV",
+        "model": "SHIELD_Android_TV",
+        "ip": "192.168.1.218",
+        "port": 8990,
+        "adb": "192.168.1.218:5555",
+        "aliases": ["shield", "tivi shield", "tv shield", "shield tivi", "shield tv", "tivi box", "tv box", "box", "nvidia", "đầu thu", "box shield", "phòng ngủ"],
+        "last_seen": time.time()
+    }
+}
+LAST_ACTIVE_DEVICE_ID = "shield_tv"  # Ưu tiên mặc định Shield TV khi khởi động hoặc thiết bị đang thức
 
 # ANDROID KEYCODES
 KEY_HOME = 3
@@ -195,11 +216,11 @@ def scan_network_for_tvs():
         if "aquos" in combined or "sharp" in combined or "lc_theux" in combined:
             dev_id = "sharp_tv"
             dev_name = "Tivi Sharp"
-            aliases = ["sharp", "tivi sharp", "tv sharp", "sharp tv", "aquos", "phòng khách"]
+            aliases = ["sharp", "tivi sharp", "tv sharp", "sharp tivi", "sharp tv", "sharp_tv", "aquos", "phòng khách"]
         elif "shield" in combined or "darcy" in combined or "nvidia" in combined:
             dev_id = "shield_tv"
             dev_name = "NVIDIA Shield TV"
-            aliases = ["shield", "tivi box", "tv box", "box", "nvidia", "shield tv", "phòng ngủ", "đầu thu"]
+            aliases = ["shield", "tivi shield", "tv shield", "shield tivi", "shield tv", "shield_tv", "tivi box", "tv box", "box", "nvidia", "đầu thu", "box shield", "phòng ngủ"]
         elif "fpt" in combined or "sei" in combined or "amlogic" in combined:
             dev_id = "fpt_box"
             dev_name = "FPT Play Box"
@@ -407,22 +428,22 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm tắt tiếng rồi ạ"
         }
 
-    # Power On / Wakeup: "mở tivi cho anh", "bật tivi cho anh", "mở tivi", "bật tivi"
-    if re.search(r"(mở\s+tivi(\s+cho\s+anh)?|bật\s+tivi(\s+cho\s+anh)?|mở\s+tv|bật\s+tv)", text):
+    # Power On / Wakeup: "mở tivi cho anh", "mở shield", "mở shield tivi", "mở tivi box cho anh", "bật shield", "mở box", "mở tivi sharp"
+    if re.search(r"(mở|bật)\s+(tivi|tv|shield|box|đầu\s+thu)(\s+(sharp|shield|box|tivi|tv))?(\s+cho\s+anh)?", text) or re.search(r"^(mở|bật)\s+(shield|box|sharp)$", text):
         return {
             "action": "power_key",
             "keycode": KEY_WAKEUP,
             "repeat": 1,
-            "tts_reply": "Dạ Lâm mở tivi cho anh Duy ngay đây ạ"
+            "tts_reply": "Dạ Lâm mở thiết bị cho anh Duy ngay đây ạ"
         }
 
-    # Power Off / Sleep: "tắt tivi cho anh", "tắt tivi đi ngủ", "tắt tivi", "đi ngủ"
-    if re.search(r"(tắt\s+tivi(\s+cho\s+anh)?(\s+đi\s+ngủ)?|tắt\s+tv|tắt\s+hết\s+tivi|đi\s+ngủ\s+đây|\bđi\s+ngủ\b)", text):
+    # Power Off / Sleep: "tắt tivi cho anh", "tắt shield", "tắt tivi box", "tắt tivi đi ngủ"
+    if re.search(r"(tắt)\s+(tivi|tv|shield|box|đầu\s+thu)(\s+(sharp|shield|box|tivi|tv))?(\s+cho\s+anh)?(\s+đi\s+ngủ)?", text) or re.search(r"^(tắt)\s+(shield|box|sharp)$", text) or "đi ngủ" in text or "tắt hết tivi" in text:
         return {
             "action": "power_key",
             "keycode": KEY_SLEEP,
             "repeat": 1,
-            "tts_reply": "Dạ Lâm tắt tivi cho anh Duy đi ngủ, chúc anh ngủ ngon ạ"
+            "tts_reply": "Dạ Lâm tắt thiết bị cho anh Duy đi ngủ, chúc anh ngủ ngon ạ"
         }
 
     # Media Pause: "tạm dừng", "dừng lại", "pause"
@@ -586,7 +607,7 @@ def run_adb_async(adb_serial, cmd_args):
     def _worker():
         try:
             full_cmd = ["adb", "-s", adb_serial] + cmd_args
-            subprocess.run(full_cmd, capture_output=True, timeout=5)
+            subprocess.run(full_cmd, capture_output=True, timeout=12)
         except Exception:
             pass
     threading.Thread(target=_worker, daemon=True).start()
@@ -640,9 +661,11 @@ def dispatch_command(action_data, raw_text=""):
             run_adb_async(dev_adb, ["shell", "monkey", "-p", target, "-c", "android.intent.category.LAUNCHER", "1"])
             print(f"🚀 [ADB Launch] -> {dev_name}: Mở ứng dụng {target}")
 
-        elif action == "play_tv":
-            # Nếu đang ở ngoài DuyTV, khởi chạy DuyTV lên
-            run_adb_async(dev_adb, ["shell", "monkey", "-p", "com.duytv.app", "-c", "android.intent.category.LAUNCHER", "1"])
+        elif action in ("play_tv", "play_movie"):
+            # Truyền lệnh kênh/phim trực tiếp vào DuyTV qua Android Intent
+            cmd_text = query if query else ("phim lẻ" if action == "play_movie" else "")
+            run_adb_async(dev_adb, ["shell", "am", "start", "-n", "com.duytv.app/.MainActivity", "--es", "remote_command_text", cmd_text])
+            print(f"🎬 [ADB Intent] -> {dev_name}: Phát '{cmd_text}' trên DuyTV")
 
 def process_voice_command(wav_data):
     """Quy trình trọn gói: Âm thanh WAV -> Text -> Fast-Path / AI Intent -> Điều khiển TV."""
@@ -753,10 +776,28 @@ def start_http_remote_server():
                 self.wfile.write(json.dumps(dev_list, ensure_ascii=False).encode('utf-8'))
                 return
 
+            # API: Chọn thiết bị điều khiển mặc định
+            if parsed.path == "/set_target":
+                params = urllib.parse.parse_qs(parsed.query)
+                dev = params.get("device", [""])[0].strip()
+                global LAST_ACTIVE_DEVICE_ID
+                if dev and dev in DISCOVERED_DEVICES:
+                    LAST_ACTIVE_DEVICE_ID = dev
+                    print(f"🎯 [Target Switch]: Đã chuyển thiết bị mặc định -> {dev}")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+                return
+
             # API: Nhận lệnh giọng nói hoặc văn bản từ Web Remote
             if parsed.path == "/command":
                 params = urllib.parse.parse_qs(parsed.query)
                 text = params.get("text", [""])[0].strip()
+                dev_target = params.get("device", [""])[0].strip()
+                if dev_target and dev_target in DISCOVERED_DEVICES:
+                    LAST_ACTIVE_DEVICE_ID = dev_target
                 if text:
                     print(f"\n📱 [Samsung Web Remote]: \"{text}\"")
                     cleaned = clean_spoken_text(text)
@@ -892,6 +933,7 @@ function setTarget(t) {
   currentTarget = t;
   document.querySelectorAll('.dev-pill').forEach(el => el.classList.remove('active'));
   event.target.classList.add('active');
+  if (t) fetch('/set_target?device=' + encodeURIComponent(t)).catch(()=>{});
 }
 
 function loadDevices() {
@@ -940,7 +982,7 @@ function toggleSpeech() {
 function sendCmd(text) {
   let fullText = currentTarget ? (currentTarget + ' ' + text) : text;
   document.getElementById('status').innerText = '⚡ Đang gửi: "' + text + '"...';
-  fetch('/command?text=' + encodeURIComponent(fullText))
+  fetch('/command?text=' + encodeURIComponent(fullText) + '&device=' + encodeURIComponent(currentTarget))
     .then(r => r.json())
     .then(d => {
       document.getElementById('status').innerText = '💬 ' + (d.action.tts_reply || 'Đã thực hiện!');
