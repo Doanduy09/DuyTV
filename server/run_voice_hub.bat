@@ -11,7 +11,7 @@ echo.
 where uv >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo [Khoi Dong] Chay bang trinh quan ly uv python...
-    uv run python duytv_voice_hub.py
+    uv run --with speechrecognition python duytv_voice_hub.py
 ) else (
     echo [Khoi Dong] Chay bang trinh python mac dinh...
     python duytv_voice_hub.py

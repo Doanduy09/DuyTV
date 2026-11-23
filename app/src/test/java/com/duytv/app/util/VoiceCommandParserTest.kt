@@ -46,6 +46,12 @@ class VoiceCommandParserTest {
         val thvlCmd = VoiceCommandParser.parse("mở đài vĩnh long cho anh", channels) as VoiceCommand.SwitchChannel
         assertTrue(thvlCmd.channel.name.contains("THVL1", ignoreCase = true))
 
+        val lamThvlCmd1 = VoiceCommandParser.parse("lâm ơi mở đài vĩnh long", channels) as VoiceCommand.SwitchChannel
+        assertTrue(lamThvlCmd1.channel.name.contains("THVL1", ignoreCase = true))
+
+        val lamThvlCmd2 = VoiceCommandParser.parse("lâm em mở đài vĩnh long cho anh", channels) as VoiceCommand.SwitchChannel
+        assertTrue(lamThvlCmd2.channel.name.contains("THVL1", ignoreCase = true))
+
         val dtCmd = VoiceCommandParser.parse("mở đài đồng tháp", channels) as VoiceCommand.SwitchChannel
         assertTrue(dtCmd.channel.name.contains("Đồng Tháp", ignoreCase = true) || dtCmd.channel.name.contains("THĐT", ignoreCase = true))
 

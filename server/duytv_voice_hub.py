@@ -276,24 +276,25 @@ def pcm_to_wav(pcm_bytes, sample_rate=16000, channels=1, sampwidth=2):
         wav_file.writeframes(pcm_bytes)
     return wav_io.getvalue()
 
+import speech_recognition as sr
+
 def transcribe_audio_whisper_or_google(wav_bytes):
-    """Chuyển đổi âm thanh WAV thành text tiếng Việt qua Google STT tốc độ cao."""
+    """
+    Chuyển đổi âm thanh WAV thành văn bản tiếng Việt qua Google Speech Recognition.
+    Hoạt động 100% chuẩn xác với thư viện speech_recognition chính thức.
+    """
     try:
-        req = urllib.request.Request(
-            "http://www.google.com/speech-api/v2/recognize?client=chromium&lang=vi-VN&maxresults=1",
-            data=wav_bytes,
-            headers={'Content-type': 'audio/l16; rate=16000'}
-        )
-        with urllib.request.urlopen(req, timeout=4.0) as response:
-            result = response.read().decode('utf-8')
-            for line in result.split('\n'):
-                if not line.strip(): continue
-                js = json.loads(line)
-                if "result" in js and len(js["result"]) > 0:
-                    hypo = js["result"][0]["alternative"][0]["transcript"]
-                    return hypo.strip()
+        r = sr.Recognizer()
+        r.energy_threshold = 250
+        r.dynamic_energy_threshold = False
+        with sr.AudioFile(io.BytesIO(wav_bytes)) as source:
+            audio = r.record(source)
+        text = r.recognize_google(audio, language="vi-VN")
+        return text.strip()
+    except sr.UnknownValueError:
+        print("[STT] Âm thanh không rõ hoặc quá nhỏ.")
     except Exception as e:
-        print(f"[STT] Lỗi nhận diện: {e}")
+        print(f"[STT] Lỗi nhận diện giọng nói: {e}")
     return ""
 
 def clean_spoken_text(raw_text):
@@ -334,12 +335,68 @@ def extract_repeat_count(text):
     return 1
 
 def match_fast_path(cleaned_text):
-    """Khớp lệnh remote vật lý siêu tốc (<15ms) không cần qua LLM."""
+    """
+    Phân tích ngữ nghĩa tự nhiên linh hoạt (Natural Semantic Intent Parser).
+    Không ràng buộc cú pháp cứng nhắc, hiểu mọi biến thể tự nhiên của tiếng Việt.
+    """
     text = cleaned_text.lower()
     repeat = extract_repeat_count(text)
 
-    # D-Pad Right: "sang phải", "chuyền qua nữa đi em", "qua phải", "tiếp đi", "qua nữa"
-    if re.search(r"(chuyền\s+qua(\s+nữa)?(\s+đi\s+em)?|qua\s+tiếp|qua\s+nữa|tiếp\s+đi|sang\s+phải|qua\s+phải|bên\s+phải|bấm\s+phải)", text):
+    # 1. KÊNH TRUYỀN HÌNH (Vĩnh Long, Thời sự, VTV, HTV...)
+    if any(k in text for k in ["vĩnh long", "vinh long", "thvl", "thvl1", "thvl 1"]):
+        return {
+            "action": "play_tv",
+            "query": "THVL1 HD",
+            "tts_reply": "Dạ Lâm mở đài Vĩnh Long THVL1 cho anh Duy ngay đây ạ"
+        }
+
+    if any(k in text for k in ["thời sự", "thoi su", "vtv1", "vtv 1"]):
+        return {
+            "action": "play_tv",
+            "query": "VTV1 HD",
+            "tts_reply": "Dạ Lâm mở bản tin Thời sự VTV1 cho anh Duy đây ạ"
+        }
+
+    if any(k in text for k in ["vtv3", "vtv 3"]):
+        return {
+            "action": "play_tv",
+            "query": "VTV3 HD",
+            "tts_reply": "Dạ Lâm mở VTV3 cho anh Duy đây ạ"
+        }
+
+    if any(k in text for k in ["htv7", "htv 7"]):
+        return {
+            "action": "play_tv",
+            "query": "HTV7 HD",
+            "tts_reply": "Dạ Lâm mở HTV7 cho anh Duy đây ạ"
+        }
+
+    # 2. PHIM VOD (Phim lẻ, phim bộ, hoạt hình)
+    if any(k in text for k in ["phim lẻ", "phim le", "chiếu rạp", "phim rạp"]):
+        return {
+            "action": "play_movie",
+            "query": "phim lẻ",
+            "tts_reply": "Dạ Lâm mở kho Phim Lẻ cho anh Duy lựa chọn ạ"
+        }
+
+    if any(k in text for k in ["phim bộ", "phim bo", "dài tập", "tập phim"]):
+        return {
+            "action": "play_movie",
+            "query": "phim bộ",
+            "tts_reply": "Dạ Lâm mở kho Phim Bộ cho anh Duy theo dõi ạ"
+        }
+
+    # 3. YOUTUBE & NHẠC KARAOKE (Chỉ mở app YouTube khi có động từ mở/bật/vào/xem)
+    is_nav_command = any(k in text for k in ["chuyền qua", "qua nữa", "tiếp đi", "tiếp nữa", "sang phải", "qua phải", "sang trái", "qua trái", "lên", "xuống", "bấm", "chọn", "tua", "lùi"])
+    if not is_nav_command and any(k in text for k in ["mở youtube", "vào youtube", "bật youtube", "xem youtube", "coi youtube", "chạy youtube", "youtube", "bài hát", "ca nhạc", "karaoke"]):
+        return {
+            "action": "open_app",
+            "target": "com.google.android.youtube.tv",
+            "tts_reply": "Dạ Lâm mở YouTube cho anh Duy đây ạ"
+        }
+
+    # 4. ĐIỀU HƯỚNG D-PAD (Phải, Trái, Lên, Xuống, Chọn, Quay lại, Trang chủ)
+    if any(k in text for k in ["chuyền qua", "qua nữa", "tiếp đi", "tiếp nữa", "tiếp", "qua tiếp", "sang phải", "qua phải", "bên phải", "kế bên", "bấm qua", "next"]):
         return {
             "action": "remote_key",
             "keycode": KEY_DPAD_RIGHT,
@@ -347,8 +404,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm qua phải cho anh rồi ạ"
         }
 
-    # D-Pad Left: "sang trái", "qua trái", "bên trái"
-    if re.search(r"(sang\s+trái|qua\s+trái|bên\s+trái|bấm\s+trái)", text):
+    if any(k in text for k in ["sang trái", "qua trái", "bên trái", "lùi lại", "lùi về"]):
         return {
             "action": "remote_key",
             "keycode": KEY_DPAD_LEFT,
@@ -356,8 +412,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm qua trái cho anh rồi ạ"
         }
 
-    # D-Pad Up: "lên", "lên trên", "lên đi"
-    if re.search(r"(lên\s+trên|lên\s+đi|\blên\b|bấm\s+lên)", text):
+    if any(k in text for k in ["lên trên", "lên đi", "bấm lên"]) or (re.search(r"\blên\b", text) and not any(k in text for k in ["to lên", "lớn lên"])):
         return {
             "action": "remote_key",
             "keycode": KEY_DPAD_UP,
@@ -365,8 +420,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm bấm lên rồi ạ"
         }
 
-    # D-Pad Down: "xuống", "xuống dưới", "xuống đi"
-    if re.search(r"(xuống\s+dưới|xuống\s+đi|\bxuống\b|bấm\s+xuống)", text):
+    if any(k in text for k in ["xuống dưới", "xuống đi", "bấm xuống"]) or (re.search(r"\bxuống\b", text) and not any(k in text for k in ["nhỏ xuống"])):
         return {
             "action": "remote_key",
             "keycode": KEY_DPAD_DOWN,
@@ -374,8 +428,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm bấm xuống rồi ạ"
         }
 
-    # Select / OK: "chọn", "ok", "mở cái này", "bấm vào", "enter"
-    if re.search(r"(mở\s+cái\s+này|bấm\s+vào|\bchọn\b|\bok\b|\benter\b|đồng\s+ý|xác\s+nhận)", text):
+    if any(k in text for k in ["chọn", "ok", "mở cái này", "chọn cái này", "bấm vào", "enter", "vào đây", "đồng ý"]):
         return {
             "action": "remote_key",
             "keycode": KEY_DPAD_CENTER,
@@ -383,8 +436,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm chọn cho anh rồi ạ"
         }
 
-    # Back / Thoát: "quay lại", "trở về", "thoát", "lùi lại"
-    if re.search(r"(quay\s+lại|trở\s+về|thoát\s+ra|\bthoát\b|lùi\s+lại|\bback\b)", text):
+    if any(k in text for k in ["quay lại", "trở về", "thoát ra", "thoát", "lùi ra", "back"]):
         return {
             "action": "remote_key",
             "keycode": KEY_BACK,
@@ -392,8 +444,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm quay lại cho anh rồi ạ"
         }
 
-    # Home / Trang chủ: "về trang chủ", "trang chủ", "màn hình chính", "home"
-    if re.search(r"(về\s+trang\s+chủ|trang\s+chủ|màn\s+hình\s+chính|\bhome\b)", text):
+    if any(k in text for k in ["trang chủ", "về màn hình chính", "màn hình chính", "home"]):
         return {
             "action": "remote_key",
             "keycode": KEY_HOME,
@@ -401,8 +452,8 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm về màn hình chính cho anh rồi ạ"
         }
 
-    # Volume Up: "mở lớn hơn cho anh", "lớn hơn", "to lên", "tăng âm lượng", "cho to lên"
-    if re.search(r"(mở\s+lớn\s+hơn|lớn\s+hơn(\s+cho\s+anh)?|to\s+lên|tăng\s+âm\s+lượng|cho\s+to|nghe\s+không\s+rõ)", text):
+    # 5. ÂM LƯỢNG (Lớn hơn, Nhỏ hơn, Tắt tiếng)
+    if any(k in text for k in ["lớn hơn", "to lên", "tăng âm", "nghe không rõ", "cho to", "bật to"]):
         return {
             "action": "volume_key",
             "keycode": KEY_VOLUME_UP,
@@ -410,8 +461,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm tăng âm lượng cho anh Duy rồi ạ"
         }
 
-    # Volume Down: "nhỏ hơn", "nhỏ hơn cho anh", "cho nhỏ lại", "nhỏ lại", "giảm âm lượng", "bớt ồn đi em"
-    if re.search(r"(nhỏ\s+hơn(\s+cho\s+anh)?|cho\s+nhỏ|nhỏ\s+lại|giảm\s+âm\s+lượng|bớt\s+ồn(\s+đi\s+em)?|bớt\s+tiếng)", text):
+    if any(k in text for k in ["nhỏ hơn", "nhỏ lại", "giảm âm", "bớt ồn", "cho nhỏ", "nhỏ bớt", "nhỏ tiếng"]):
         return {
             "action": "volume_key",
             "keycode": KEY_VOLUME_DOWN,
@@ -419,8 +469,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm giảm âm lượng cho anh Duy rồi ạ"
         }
 
-    # Mute: "tắt tiếng", "im lặng", "mute"
-    if re.search(r"(tắt\s+tiếng|im\s+lặng|\bmute\b)", text):
+    if any(k in text for k in ["tắt tiếng", "im lặng", "mute", "ngắt tiếng"]):
         return {
             "action": "remote_key",
             "keycode": KEY_MUTE,
@@ -428,8 +477,8 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm tắt tiếng rồi ạ"
         }
 
-    # Power On / Wakeup: "mở tivi cho anh", "mở shield", "mở shield tivi", "mở tivi box cho anh", "bật shield", "mở box", "mở tivi sharp"
-    if re.search(r"(mở|bật)\s+(tivi|tv|shield|box|đầu\s+thu)(\s+(sharp|shield|box|tivi|tv))?(\s+cho\s+anh)?", text) or re.search(r"^(mở|bật)\s+(shield|box|sharp)$", text):
+    # 6. NGUỒN & ĐÁNH THỨC (Mở tivi, mở shield, tắt tivi, đi ngủ...)
+    if any(k in text for k in ["mở", "bật"]) and any(k in text for k in ["tivi", "tv", "shield", "box", "máy", "đầu thu"]):
         return {
             "action": "power_key",
             "keycode": KEY_WAKEUP,
@@ -437,8 +486,7 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm mở thiết bị cho anh Duy ngay đây ạ"
         }
 
-    # Power Off / Sleep: "tắt tivi cho anh", "tắt shield", "tắt tivi box", "tắt tivi đi ngủ"
-    if re.search(r"(tắt)\s+(tivi|tv|shield|box|đầu\s+thu)(\s+(sharp|shield|box|tivi|tv))?(\s+cho\s+anh)?(\s+đi\s+ngủ)?", text) or re.search(r"^(tắt)\s+(shield|box|sharp)$", text) or "đi ngủ" in text or "tắt hết tivi" in text:
+    if any(k in text for k in ["tắt", "đi ngủ"]) and (any(k in text for k in ["tivi", "tv", "shield", "box", "máy", "hết"]) or "đi ngủ" in text):
         return {
             "action": "power_key",
             "keycode": KEY_SLEEP,
@@ -446,26 +494,8 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm tắt thiết bị cho anh Duy đi ngủ, chúc anh ngủ ngon ạ"
         }
 
-    # Media Pause: "tạm dừng", "dừng lại", "pause"
-    if re.search(r"(tạm\s+dừng|dừng\s+lại|\bpause\b|ngưng\s+lại)", text):
-        return {
-            "action": "remote_key",
-            "keycode": KEY_PLAY_PAUSE,
-            "repeat": 1,
-            "tts_reply": "Dạ Lâm tạm dừng cho anh rồi ạ"
-        }
-
-    # Media Play: "tiếp tục", "phát tiếp", "play"
-    if re.search(r"(tiếp\s+tục|phát\s+tiếp|chạy\s+tiếp|\bplay\b)", text):
-        return {
-            "action": "remote_key",
-            "keycode": KEY_PLAY,
-            "repeat": 1,
-            "tts_reply": "Dạ Lâm phát tiếp cho anh rồi ạ"
-        }
-
-    # Next Episode / Video: "tập này coi rồi", "tập tiếp", "qua tập khác", "bài tiếp theo"
-    if re.search(r"(tập\s+này\s+coi\s+rồi|tập\s+tiếp(\s+theo)?|qua\s+tập\s+khác|bài\s+tiếp|qua\s+bài\s+khác|đổi\s+bài)", text):
+    # 7. PHÁT MEDIA (Tập tiếp, tạm dừng, tiếp tục)
+    if any(k in text for k in ["tập này coi rồi", "tập tiếp", "qua tập khác", "đổi tập", "qua bài khác", "đổi bài", "bài tiếp"]):
         return {
             "action": "remote_key",
             "keycode": KEY_MEDIA_NEXT,
@@ -473,61 +503,23 @@ def match_fast_path(cleaned_text):
             "tts_reply": "Dạ Lâm chuyển qua tập tiếp theo cho anh rồi ạ"
         }
 
-    # Channel: Vĩnh Long THVL1
-    if re.search(r"(mở\s+đài\s+vĩnh\s+long|đài\s+vĩnh\s+long|kênh\s+vĩnh\s+long|\bvĩnh\s+long\b|\bthvl1\b|\bthvl\b)", text):
+    if any(k in text for k in ["tạm dừng", "dừng lại", "pause", "ngưng lại"]):
         return {
-            "action": "play_tv",
-            "query": "THVL1 HD",
-            "tts_reply": "Dạ Lâm mở đài Vĩnh Long THVL1 cho anh Duy ngay đây ạ"
+            "action": "remote_key",
+            "keycode": KEY_PLAY_PAUSE,
+            "repeat": 1,
+            "tts_reply": "Dạ Lâm tạm dừng cho anh rồi ạ"
         }
 
-    # Channel: Thời sự VTV1
-    if re.search(r"(mở\s+thời\s+sự|bản\s+tin\s+thời\s+sự|\bthời\s+sự\b|\bvtv1\b)", text):
+    if any(k in text for k in ["tiếp tục", "phát tiếp", "chạy tiếp", "play"]):
         return {
-            "action": "play_tv",
-            "query": "VTV1 HD",
-            "tts_reply": "Dạ Lâm mở bản tin Thời sự VTV1 cho anh Duy đây ạ"
+            "action": "remote_key",
+            "keycode": KEY_PLAY,
+            "repeat": 1,
+            "tts_reply": "Dạ Lâm phát tiếp cho anh rồi ạ"
         }
 
-    # Channel: VTV3
-    if re.search(r"(mở\s+vtv3|bật\s+vtv3|\bvtv3\b)", text):
-        return {
-            "action": "play_tv",
-            "query": "VTV3 HD",
-            "tts_reply": "Dạ Lâm mở VTV3 cho anh Duy đây ạ"
-        }
-
-    # Channel: HTV7
-    if re.search(r"(mở\s+htv7|bật\s+htv7|\bhtv7\b)", text):
-        return {
-            "action": "play_tv",
-            "query": "HTV7 HD",
-            "tts_reply": "Dạ Lâm mở HTV7 cho anh Duy đây ạ"
-        }
-
-    # Movie: Phim lẻ
-    if re.search(r"(mở\s+phim\s+lẻ|coi\s+phim\s+lẻ|xem\s+phim\s+lẻ|\bphim\s+lẻ\b)", text):
-        return {
-            "action": "play_movie",
-            "query": "phim lẻ",
-            "tts_reply": "Dạ Lâm mở kho Phim Lẻ cho anh Duy lựa chọn ạ"
-        }
-
-    # Movie: Phim bộ
-    if re.search(r"(mở\s+phim\s+bộ|coi\s+phim\s+bộ|xem\s+phim\s+bộ|\bphim\s+bộ\b)", text):
-        return {
-            "action": "play_movie",
-            "query": "phim bộ",
-            "tts_reply": "Dạ Lâm mở kho Phim Bộ cho anh Duy theo dõi ạ"
-        }
-
-    # Launch YouTube
-    if re.search(r"(mở\s+youtube|vào\s+youtube|bật\s+youtube)", text):
-        return {
-            "action": "open_app",
-            "target": "com.google.android.youtube.tv",
-            "tts_reply": "Dạ Lâm mở YouTube cho anh Duy đây ạ"
-        }
+    return None
 
     return None
 
@@ -612,7 +604,7 @@ def run_adb_async(adb_serial, cmd_args):
             pass
     threading.Thread(target=_worker, daemon=True).start()
 
-def dispatch_command(action_data, raw_text=""):
+def dispatch_command(action_data, raw_text="", cleaned_text=""):
     """
     Thực thi lệnh đến Tivi mục tiêu:
     - Gửi đồng thời qua TCP cổng 8990 (app DuyTV nhận trong 10ms).
@@ -624,6 +616,36 @@ def dispatch_command(action_data, raw_text=""):
     repeat = action_data.get("repeat", 1)
     query = action_data.get("query", "")
     target = action_data.get("target", "")
+
+    # Ánh xạ thông minh: Chuyển query chữ từ Gemini AI sang Android Keycode chuẩn
+    if not keycode and action in ("remote_key", "volume_key", "power_key", "playback_control", "system_action"):
+        q = f"{query} {target}".lower()
+        query_map = {
+            "power_off": KEY_SLEEP, "power": KEY_SLEEP, "sleep": KEY_SLEEP, "tắt": KEY_SLEEP,
+            "power_on": KEY_WAKEUP, "wakeup": KEY_WAKEUP, "bật": KEY_WAKEUP, "mở": KEY_WAKEUP,
+            "right": KEY_DPAD_RIGHT, "phải": KEY_DPAD_RIGHT,
+            "left": KEY_DPAD_LEFT, "trái": KEY_DPAD_LEFT,
+            "up": KEY_DPAD_UP, "lên": KEY_DPAD_UP,
+            "down": KEY_DPAD_DOWN, "xuống": KEY_DPAD_DOWN,
+            "select": KEY_DPAD_CENTER, "ok": KEY_DPAD_CENTER, "chọn": KEY_DPAD_CENTER,
+            "back": KEY_BACK, "thoát": KEY_BACK, "quay lại": KEY_BACK,
+            "home": KEY_HOME, "trang chủ": KEY_HOME,
+            "vol_up": KEY_VOLUME_UP, "tăng âm": KEY_VOLUME_UP, "lớn hơn": KEY_VOLUME_UP,
+            "vol_down": KEY_VOLUME_DOWN, "giảm âm": KEY_VOLUME_DOWN, "nhỏ hơn": KEY_VOLUME_DOWN,
+            "mute": KEY_MUTE, "tắt tiếng": KEY_MUTE,
+            "next": KEY_MEDIA_NEXT, "tập tiếp": KEY_MEDIA_NEXT, "bài tiếp": KEY_MEDIA_NEXT,
+            "prev": KEY_MEDIA_PREV, "tập trước": KEY_MEDIA_PREV,
+            "pause": KEY_PLAY_PAUSE, "tạm dừng": KEY_PLAY_PAUSE,
+            "play": KEY_PLAY, "tiếp tục": KEY_PLAY
+        }
+        for k, code in query_map.items():
+            if k in q:
+                keycode = code
+                if "vol" in k: repeat = 2
+                break
+
+    # Lựa chọn nội dung lệnh hiệu quả nhất cho DuyTV Voice Command Parser
+    effective_cmd = query if (query and action in ("play_tv", "play_movie")) else (cleaned_text if cleaned_text else raw_text)
 
     for dev in targets:
         dev_name = dev["name"]
@@ -637,7 +659,9 @@ def dispatch_command(action_data, raw_text=""):
             s.settimeout(0.3)
             s.connect((dev_ip, dev_port))
             packet = {
-                "raw_text": raw_text,
+                "command": effective_cmd,
+                "raw_text": effective_cmd,
+                "original_speech": raw_text,
                 "action": action,
                 "keycode": keycode,
                 "query": query,
@@ -646,7 +670,7 @@ def dispatch_command(action_data, raw_text=""):
             }
             s.sendall((json.dumps(packet, ensure_ascii=False) + "\n").encode('utf-8'))
             s.close()
-            print(f"⚡ [TCP 8990] -> {dev_name} ({dev_ip}): Gửi thành công!")
+            print(f"⚡ [TCP 8990] -> {dev_name} ({dev_ip}): Gửi thành công! ('{effective_cmd}')")
         except Exception:
             pass
 
@@ -703,7 +727,7 @@ def process_voice_command(wav_data):
             print(f"💬 [Lâm]: \"{tts}\"")
 
         # 3. Điều khiển Tivi / TV Box đích
-        dispatch_command(action_data, raw_text=raw_text)
+        dispatch_command(action_data, raw_text=raw_text, cleaned_text=cleaned_text)
         total_ms = (time.time() - t0) * 1000
         print(f"✨ [Hoàn thành]: Tổng thời gian: {total_ms:.0f}ms\n")
     else:
@@ -806,7 +830,7 @@ def start_http_remote_server():
                         action_data = query_gemini_voice_bridge(cleaned)
 
                     if action_data:
-                        dispatch_command(action_data, raw_text=text)
+                        dispatch_command(action_data, raw_text=text, cleaned_text=cleaned)
                         self.send_response(200)
                         self.send_header("Content-Type", "application/json; charset=utf-8")
                         self.send_header("Access-Control-Allow-Origin", "*")

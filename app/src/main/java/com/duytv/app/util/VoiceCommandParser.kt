@@ -152,6 +152,7 @@ object VoiceCommandParser {
 
     // Tiền tố câu chào giao tiếp tự nhiên của người Việt
     private val CONVERSATIONAL_SALUTATIONS = listOf(
+        "lâm ơi hãy ", "lâm hãy ", "lâm ơi ", "lâm em hãy ", "lâm em ơi ", "lâm em ", "lâm à ", "lâm ", "ơi lâm ", "ê lâm ",
         "em ơi hãy ", "em hãy ", "em ơi ", "ơi em ", "anh ơi ", "chị ơi ", "bạn ơi ",
         "trợ lý ơi ", "duy ơi ", "duytv ơi ", "ok google ", "ê duy ", "này em ", "này duy ",
         "làm ơn ", "vui lòng "
@@ -159,6 +160,8 @@ object VoiceCommandParser {
 
     // Tiền tố hành động phong phú
     private val ACTION_PREFIXES = listOf(
+        "lâm hãy mở cho anh kênh ", "lâm hãy mở cho anh đài ", "lâm hãy mở cho anh ", "lâm hãy mở ",
+        "lâm mở cho anh kênh ", "lâm mở cho anh đài ", "lâm mở cho anh ", "lâm mở đài ", "lâm mở kênh ", "lâm mở ",
         "em hãy mở cho anh kênh ", "em hãy mở cho em kênh ", "em hãy mở cho anh đài ", "em hãy mở cho em đài ",
         "em hãy mở cho anh ứng dụng ", "em hãy mở ứng dụng ", "em hãy mở app ", "em hãy mở cho anh ", "em hãy mở cho em ",
         "em hãy mở đài ", "em hãy mở kênh ", "em hãy mở phim ", "em hãy mở ",
@@ -1013,9 +1016,10 @@ object VoiceCommandParser {
             val idx = channels.indexOfFirst { it.name.startsWith("VTC1", ignoreCase = true) }
             if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
         }
-        if (cleanedTarget == "thvl" || targetNoAccent == "thvl" || cleanedTarget == "vinh long" ||
-            targetNoAccent == "vinh long" || cleanedTarget == "vĩnh long" || cleanedTarget.contains("miền tây") ||
-            targetNoAccent.contains("mientay") || targetNoAccent.contains("mien tay")) {
+        if (cleanedTarget == "thvl" || targetNoAccent == "thvl" || cleanedTarget.contains("thvl") || targetNoAccent.contains("thvl") ||
+            cleanedTarget == "vinh long" || targetNoAccent == "vinh long" || cleanedTarget == "vĩnh long" ||
+            cleanedTarget.contains("vĩnh long") || targetNoAccent.contains("vinh long") ||
+            cleanedTarget.contains("miền tây") || targetNoAccent.contains("mientay") || targetNoAccent.contains("mien tay")) {
             val idx = channels.indexOfFirst { it.name.startsWith("THVL1", ignoreCase = true) }
             if (idx >= 0) return VoiceCommand.SwitchChannel(idx, channels[idx])
         }
