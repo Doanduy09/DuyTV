@@ -14,7 +14,7 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <driver/i2s.h>
+#include <driver/i2s_std.h>
 #include <math.h>
 
 // 1. CẤU HÌNH MẠNG WI-FI & MÁY CHỦ DUYTV VOICE HUB
@@ -25,9 +25,9 @@ const char* SERVER_IP       = "192.168.1.189";
 const uint16_t SERVER_PORT  = 8995;
 
 // 2. CẤU HÌNH CHÂN HÀN CHO BO HW-953AB (ESP32-C3 SUPERMINI)
-#define PIN_I2S_SCK         5
-#define PIN_I2S_WS          4
-#define PIN_I2S_SD          6
+int pin_i2s_sck = 5;
+int pin_i2s_ws  = 4;
+int pin_i2s_sd  = 6;
 #define PIN_STATUS_LED      8
 #define LED_ACTIVE_STATE    LOW
 
@@ -39,8 +39,8 @@ const uint16_t SERVER_PORT  = 8995;
 #define I2S_PORT            I2S_NUM_0
 
 // 4. THÔNG SỐ VAD ĐỘ NHẠY CAO (SIÊU NHẠY THAY THẾ REMOTE MICRO)
-#define MIN_VAD_THRESHOLD       85    // Ngưỡng tối thiểu siêu nhạy sau khi lọc sạch DC bias
-#define VAD_MULTIPLIER          1.4f  // Vượt 1.4 lần nền phòng là kích hoạt
+#define MIN_VAD_THRESHOLD       55    // Ngưỡng tối thiểu siêu nhạy sau khi lọc sạch DC bias
+#define VAD_MULTIPLIER          1.35f // Vượt 1.35 lần nền phòng là kích hoạt
 #define MIN_SPEECH_DURATION_MS  1400  // BẮT BUỘC thu tối thiểu 1.4s (chống ngắt ngang câu nói)
 #define SILENCE_TIMEOUT_MS      850   // Khoảng lặng 850ms sau khi đã nói đủ tối thiểu 1.4s
 #define MAX_SPEECH_DURATION_MS  7500  // Tối đa 7.5s cho 1 khẩu lệnh dài
@@ -48,7 +48,7 @@ const uint16_t SERVER_PORT  = 8995;
 
 WiFiUDP udpClient;
 
-int32_t raw_i2s_buffer[CHUNK_SAMPLES];
+int32_t raw_i2s_buffer[CHUNK_SAMPLES * 2]; // Hỗ trợ Stereo (Left + Right)
 int16_t pcm_samples[CHUNK_SAMPLES];
 int16_t pre_buffer[PRE_BUFFER_CHUNKS][CHUNK_SAMPLES];
 int pre_buf_index = 0;
@@ -58,7 +58,9 @@ bool is_speaking = false;
 unsigned long speech_start_time = 0;
 unsigned long last_sound_time = 0;
 unsigned long last_heartbeat = 0;
+unsigned long last_diag_log = 0;
 int32_t dynamic_vad_threshold = MIN_VAD_THRESHOLD;
+static int active_channel = -1; // -1: chưa khóa, 0: Left, 1: Right
 
 // Bộ lọc DC-Blocker IIR 1st Order (Loại bỏ lệch DC của micro INMP441)
 static int32_t dc_prev_x = 0;
@@ -77,32 +79,153 @@ void blink_led(int count, int delay_ms) {
     }
 }
 
+struct PinCandidate {
+    int sck;
+    int ws;
+    int sd;
+    const char* desc;
+};
+
+static const PinCandidate pin_candidates[] = {
+    {5, 4, 6, "SCK=5, WS=4, SD=6 (Mặc định)"},
+    {4, 5, 6, "SCK=4, WS=5, SD=6 (Hoán đổi SCK/WS)"},
+    {6, 4, 5, "SCK=6, WS=4, SD=5 (SD/SCK đổi chỗ)"},
+    {5, 6, 4, "SCK=5, WS=6, SD=4"},
+    {4, 6, 5, "SCK=4, WS=6, SD=5"},
+    {6, 5, 4, "SCK=6, WS=5, SD=4"},
+    {2, 3, 4, "SCK=2, WS=3, SD=4 (ESP32-C3 Tutorial)"},
+    {3, 2, 4, "SCK=3, WS=2, SD=4"},
+    {4, 3, 2, "SCK=4, WS=3, SD=2"},
+    {1, 2, 3, "SCK=1, WS=2, SD=3"},
+    {2, 1, 3, "SCK=2, WS=1, SD=3"},
+    {0, 1, 2, "SCK=0, WS=1, SD=2"},
+    {1, 0, 2, "SCK=1, WS=0, SD=2"},
+    {5, 6, 7, "SCK=5, WS=6, SD=7"},
+    {6, 5, 7, "SCK=6, WS=5, SD=7"},
+    {7, 6, 5, "SCK=7, WS=6, SD=5"},
+    {3, 4, 5, "SCK=3, WS=4, SD=5"},
+    {10, 5, 6, "SCK=10, WS=5, SD=6"}
+};
+
+static i2s_chan_handle_t rx_chan = NULL;
+
+bool init_i2s(int sck, int ws, int sd) {
+    if (rx_chan != NULL) {
+        i2s_channel_disable(rx_chan);
+        i2s_del_channel(rx_chan);
+        rx_chan = NULL;
+    }
+
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    chan_cfg.dma_desc_num = DMA_BUF_COUNT;
+    chan_cfg.dma_frame_num = DMA_BUF_LEN;
+
+    esp_err_t ret = i2s_new_channel(&chan_cfg, NULL, &rx_chan);
+    if (ret != ESP_OK) {
+        Serial.printf("[I2S Error] i2s_new_channel thất bại: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+        .gpio_cfg = {
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = (gpio_num_t)sck,
+            .ws   = (gpio_num_t)ws,
+            .dout = I2S_GPIO_UNUSED,
+            .din  = (gpio_num_t)sd,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+    std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
+
+    ret = i2s_channel_init_std_mode(rx_chan, &std_cfg);
+    if (ret != ESP_OK) {
+        Serial.printf("[I2S Error] i2s_channel_init_std_mode thất bại: %s\n", esp_err_to_name(ret));
+        i2s_del_channel(rx_chan);
+        rx_chan = NULL;
+        return false;
+    }
+
+    ret = i2s_channel_enable(rx_chan);
+    if (ret != ESP_OK) {
+        Serial.printf("[I2S Error] i2s_channel_enable thất bại: %s\n", esp_err_to_name(ret));
+        i2s_del_channel(rx_chan);
+        rx_chan = NULL;
+        return false;
+    }
+
+    return true;
+}
+
+bool probe_pins(int sck, int ws, int sd) {
+    if (!init_i2s(sck, ws, sd)) return false;
+    delay(40);
+
+    int32_t buf[128];
+    size_t br = 0;
+    // Đọc 2 lần để loại bỏ nhiễu khởi động
+    for (int t = 0; t < 2; t++) {
+        i2s_channel_read(rx_chan, buf, sizeof(buf), &br, 50);
+    }
+
+    int non_zero_count = 0;
+    int total_samples = br / sizeof(int32_t);
+    for (int i = 0; i < total_samples; i++) {
+        if (buf[i] != 0 && buf[i] != (int32_t)0xFFFFFFFF) {
+            non_zero_count++;
+        }
+    }
+
+    // Giải phóng kênh I2S sau khi test
+    i2s_channel_disable(rx_chan);
+    i2s_del_channel(rx_chan);
+    rx_chan = NULL;
+
+    if (non_zero_count > 10) {
+        Serial.printf("[Samples: %d, non-zero: %d, val0: 0x%08lX, val1: 0x%08lX] ",
+                      total_samples, non_zero_count, (unsigned long)buf[0], (unsigned long)buf[1]);
+        return true;
+    }
+    return false;
+}
+
+void auto_detect_pins() {
+    Serial.println("[Auto-Pin] 🔍 Đang quét tự động dò chân micro INMP441...");
+    int total_cands = sizeof(pin_candidates) / sizeof(pin_candidates[0]);
+    int best_cand = -1;
+    for (int i = 0; i < total_cands; i++) {
+        const auto& cand = pin_candidates[i];
+        Serial.printf("  [%d/%d] Thử %s ... ", i + 1, total_cands, cand.desc);
+        if (probe_pins(cand.sck, cand.ws, cand.sd)) {
+            Serial.println(">>> ✅ CÓ TÍN HIỆU ÂM THANH!");
+            best_cand = i;
+            break;
+        } else {
+            Serial.println("Không có tín hiệu.");
+        }
+    }
+    if (best_cand != -1) {
+        pin_i2s_sck = pin_candidates[best_cand].sck;
+        pin_i2s_ws  = pin_candidates[best_cand].ws;
+        pin_i2s_sd  = pin_candidates[best_cand].sd;
+        Serial.printf("[Auto-Pin] 🎯 Khóa chân tối ưu: SCK=%d, WS=%d, SD=%d\n", pin_i2s_sck, pin_i2s_ws, pin_i2s_sd);
+    } else {
+        Serial.println("[Auto-Pin] ⚠️ Không phát hiện chân tự động, giữ mặc định: SCK=5, WS=4, SD=6");
+    }
+}
+
 void setup_i2s() {
-    i2s_config_t i2s_config = {
-        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-        .sample_rate = SAMPLE_RATE,
-        .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-        .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = DMA_BUF_COUNT,
-        .dma_buf_len = DMA_BUF_LEN,
-        .use_apll = false,
-        .tx_desc_auto_clear = false,
-        .fixed_mclk = 0
-    };
-
-    i2s_pin_config_t pin_config = {
-        .bck_io_num = PIN_I2S_SCK,
-        .ws_io_num = PIN_I2S_WS,
-        .data_out_num = I2S_PIN_NO_CHANGE,
-        .data_in_num = PIN_I2S_SD
-    };
-
-    i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
-    i2s_set_pin(I2S_PORT, &pin_config);
-    i2s_zero_dma_buffer(I2S_PORT);
-    Serial.println("[I2S] Micro INMP441 đã sẵn sàng!");
+    bool ok = init_i2s(pin_i2s_sck, pin_i2s_ws, pin_i2s_sd);
+    delay(200);
+    Serial.printf("[I2S Init] (SCK:%d, WS:%d, SD:%d) => %s\n",
+                  pin_i2s_sck, pin_i2s_ws, pin_i2s_sd, ok ? "HOÀN TẤT THÀNH CÔNG" : "THẤT BẠI");
 }
 
 void connect_wifi() {
@@ -140,11 +263,31 @@ void connect_wifi() {
     }
 }
 
-void process_i2s_samples(int samples_count) {
-    for (int i = 0; i < samples_count; i++) {
-        // INMP441: 24-bit MSB-aligned in 32-bit slot
-        // Dịch >> 14 cho khuếch đại sạch +12dB (bắt tiếng xa cực nhạy mà không méo tiếng)
-        int32_t x = raw_i2s_buffer[i] >> 14;
+void process_i2s_samples(int frames_count) {
+    if (active_channel == -1) {
+        int64_t sum_l = 0;
+        int64_t sum_r = 0;
+        for (int i = 0; i < frames_count; i++) {
+            sum_l += abs(raw_i2s_buffer[2 * i] >> 14);
+            sum_r += abs(raw_i2s_buffer[2 * i + 1] >> 14);
+        }
+        if (sum_l > 40 || sum_r > 40) {
+            active_channel = (sum_r > sum_l) ? 1 : 0;
+            Serial.printf("[I2S Auto-Select] 🎯 Đã khóa kênh micro: %s (L:%lld, R:%lld)\n",
+                          active_channel == 1 ? "PHẢI (RIGHT)" : "TRÁI (LEFT)", (long long)sum_l, (long long)sum_r);
+        }
+    }
+
+    int ch_offset = (active_channel == 1) ? 1 : 0;
+    for (int i = 0; i < frames_count; i++) {
+        int32_t x;
+        if (active_channel != -1) {
+            x = raw_i2s_buffer[2 * i + ch_offset] >> 14;
+        } else {
+            int32_t xl = raw_i2s_buffer[2 * i] >> 14;
+            int32_t xr = raw_i2s_buffer[2 * i + 1] >> 14;
+            x = (abs(xr) > abs(xl)) ? xr : xl;
+        }
 
         // Bộ lọc DC-Blocker IIR: y[n] = x[n] - x[n-1] + 0.975 * y[n-1]
         int32_t y = x - dc_prev_x + (int32_t)((dc_prev_y * 998) >> 10);
@@ -168,29 +311,30 @@ int32_t calculate_rms(int16_t* samples, int count) {
 }
 
 void calibrate_ambient_noise() {
-    Serial.print("[VAD] Đang đo độ ồn phòng (1.0s)... ");
+    Serial.print("[VAD] Đang đo độ ồn phòng và dò kênh micro (1.2s)... ");
     int64_t total_rms = 0;
     int valid_frames = 0;
     unsigned long start_cal = millis();
 
-    while (millis() - start_cal < 1000) {
+    while (millis() - start_cal < 1200) {
         size_t bytes_read = 0;
-        i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50 / portTICK_PERIOD_MS);
+        i2s_channel_read(rx_chan, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50);
         if (bytes_read > 0) {
-            int samples_count = bytes_read / sizeof(int32_t);
-            process_i2s_samples(samples_count);
-            total_rms += calculate_rms(pcm_samples, samples_count);
+            int frames_count = bytes_read / (sizeof(int32_t) * 2);
+            process_i2s_samples(frames_count);
+            total_rms += calculate_rms(pcm_samples, frames_count);
             valid_frames++;
         }
     }
 
-    int32_t baseline = (valid_frames > 0) ? (total_rms / valid_frames) : 35;
-    // Ngưỡng VAD: Nhạy bén thu âm từ xa, chỉ cần vượt 1.4x độ ồn thực tế
-    dynamic_vad_threshold = (int32_t)(baseline * VAD_MULTIPLIER);
+    int32_t baseline = (valid_frames > 0) ? (int32_t)(total_rms / valid_frames) : 25;
+    dynamic_vad_threshold = (int32_t)(baseline * VAD_MULTIPLIER + 12);
     if (dynamic_vad_threshold < MIN_VAD_THRESHOLD) dynamic_vad_threshold = MIN_VAD_THRESHOLD;
-    if (dynamic_vad_threshold > 350) dynamic_vad_threshold = 350;
+    if (dynamic_vad_threshold > 300) dynamic_vad_threshold = 300;
 
-    Serial.printf("Xong! Độ ồn nền: %d | Ngưỡng kích hoạt VAD: %d (Siêu nhạy)\n", baseline, dynamic_vad_threshold);
+    Serial.printf("Xong! Nền phòng: %d | Ngưỡng VAD: %d (Kênh: %s)\n",
+                  (int)baseline, (int)dynamic_vad_threshold,
+                  (active_channel == 1) ? "RIGHT" : (active_channel == 0 ? "LEFT" : "DÒ ĐỘNG"));
 }
 
 void send_udp_chunk(uint8_t* data, size_t length) {
@@ -214,11 +358,12 @@ void setup() {
     Serial.println("  THAY THẾ MICRO REMOTE - ĐIỀU KHIỂN TIVI SIÊU NHẠY     ");
     Serial.println("========================================================");
     Serial.printf("[Chân] SCK: GPIO%d | WS: GPIO%d | SD: GPIO%d | LED: GPIO%d\n",
-                  PIN_I2S_SCK, PIN_I2S_WS, PIN_I2S_SD, PIN_STATUS_LED);
+                  pin_i2s_sck, pin_i2s_ws, pin_i2s_sd, PIN_STATUS_LED);
 
     pinMode(PIN_STATUS_LED, OUTPUT);
     set_led(false);
 
+    auto_detect_pins();
     setup_i2s();
     connect_wifi();
     calibrate_ambient_noise();
@@ -240,13 +385,35 @@ void loop() {
     }
 
     size_t bytes_read = 0;
-    esp_err_t err = i2s_read(I2S_PORT, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50 / portTICK_PERIOD_MS);
+    esp_err_t err = i2s_channel_read(rx_chan, raw_i2s_buffer, sizeof(raw_i2s_buffer), &bytes_read, 50);
     if (err != ESP_OK || bytes_read == 0) return;
 
-    int samples_count = bytes_read / sizeof(int32_t);
-    process_i2s_samples(samples_count);
+    int frames_count = bytes_read / (sizeof(int32_t) * 2);
+    process_i2s_samples(frames_count);
 
-    int32_t energy = calculate_rms(pcm_samples, samples_count);
+    int32_t energy = calculate_rms(pcm_samples, frames_count);
+
+    // Dynamic noise floor tracking khi phòng yên tĩnh
+    if (!is_speaking && energy < dynamic_vad_threshold) {
+        static unsigned long last_dyn_update = 0;
+        if (now - last_dyn_update > 500) {
+            last_dyn_update = now;
+            int32_t target_th = (int32_t)(energy * 1.35f + 14);
+            if (target_th < MIN_VAD_THRESHOLD) target_th = MIN_VAD_THRESHOLD;
+            if (target_th > 300) target_th = 300;
+            // Cập nhật mượt mà ngưỡng VAD theo môi trường thực tế
+            dynamic_vad_threshold = (dynamic_vad_threshold * 7 + target_th) / 8;
+        }
+    }
+
+    // Diagnostic log mỗi 2s để theo dõi trực tiếp trạng thái micro
+    if (now - last_diag_log > 2000) {
+        last_diag_log = now;
+        Serial.printf("[Mic Status] RMS: %d | Thresh: %d | Kênh: %s | Raw0: 0x%08lX | Raw1: 0x%08lX\n",
+                      (int)energy, (int)dynamic_vad_threshold,
+                      (active_channel == 1) ? "RIGHT" : (active_channel == 0 ? "LEFT" : "CHƯA KHÓA"),
+                      (unsigned long)raw_i2s_buffer[0], (unsigned long)raw_i2s_buffer[1]);
+    }
 
     if (!is_speaking) {
         // Lưu vào bộ đệm trượt 192ms chống nuốt âm đầu
@@ -260,7 +427,7 @@ void loop() {
             last_sound_time = now;
             set_led(true); // BẬT ĐÈN LED XANH BÁO HIỆU ĐANG THU ÂM
 
-            Serial.printf("[Voice Puck] 🎙️ Bắt đầu thu âm! (RMS: %d > %d)\n", energy, dynamic_vad_threshold);
+            Serial.printf("[Voice Puck] 🎙️ Bắt đầu thu âm! (RMS: %d > %d)\n", (int)energy, (int)dynamic_vad_threshold);
 
             send_event_marker("__START__");
 

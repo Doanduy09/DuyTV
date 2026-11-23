@@ -788,30 +788,32 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     is AppScreen.Player -> {
-                        PlayerScreen(
-                            slug = screen.slug,
-                            movieTitle = screen.movieTitle,
-                            episodeName = screen.episodeName,
-                            streamUrl = screen.streamUrl,
-                            posterUrl = screen.posterUrl,
-                            subtitleUrl = screen.subtitleUrl,
-                            initialPositionMs = screen.initialPositionMs,
-                            backupUrls = screen.backupUrls,
-                            episodes = screen.episodes,
-                            repository = repository,
-                            onClose = {
-                                if (screen.slug.startsWith("live_launcher_")) {
-                                    currentScreen = AppScreen.Home
-                                    moveTaskToBack(true)
-                                } else {
-                                    currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
-                                }
-                            },
-                            onNavigate = { targetScreen ->
-                                currentScreen = targetScreen
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        androidx.compose.runtime.key(screen.slug, screen.streamUrl) {
+                            PlayerScreen(
+                                slug = screen.slug,
+                                movieTitle = screen.movieTitle,
+                                episodeName = screen.episodeName,
+                                streamUrl = screen.streamUrl,
+                                posterUrl = screen.posterUrl,
+                                subtitleUrl = screen.subtitleUrl,
+                                initialPositionMs = screen.initialPositionMs,
+                                backupUrls = screen.backupUrls,
+                                episodes = screen.episodes,
+                                repository = repository,
+                                onClose = {
+                                    if (screen.slug.startsWith("live_launcher_")) {
+                                        currentScreen = AppScreen.Home
+                                        moveTaskToBack(true)
+                                    } else {
+                                        currentScreen = if (screen.slug.startsWith("live_")) AppScreen.Home else AppScreen.Detail(screen.slug)
+                                    }
+                                },
+                                onNavigate = { targetScreen ->
+                                    currentScreen = targetScreen
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                     is AppScreen.PhotoViewer -> {
                         PhotoViewerScreen(
