@@ -23,3 +23,7 @@ launcher/build
 keystore.properties
 keystore/
 .kotlin/
+
+*.apk
+__pycache__/
+*.pyc
