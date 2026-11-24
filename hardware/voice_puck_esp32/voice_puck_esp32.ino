@@ -25,9 +25,9 @@ const char* SERVER_IP       = "192.168.1.189";
 const uint16_t SERVER_PORT  = 8995;
 
 // 2. CẤU HÌNH CHÂN HÀN CHO BO HW-953AB (ESP32-C3 SUPERMINI)
-int pin_i2s_sck = 5;
-int pin_i2s_ws  = 4;
-int pin_i2s_sd  = 6;
+int pin_i2s_sck = 7;  // Chân 7 nối SCK micro
+int pin_i2s_ws  = 6;  // Chân 6 nối WS micro
+int pin_i2s_sd  = 4;  // Chân 4 nối SD micro
 #define PIN_STATUS_LED      8
 #define LED_ACTIVE_STATE    LOW
 
@@ -144,6 +144,8 @@ bool init_i2s(int sck, int ws, int sd) {
     };
     std_cfg.slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT;
     std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
+    std_cfg.slot_cfg.left_align = false;
+    std_cfg.slot_cfg.bit_shift = true;
 
     ret = i2s_channel_init_std_mode(rx_chan, &std_cfg);
     if (ret != ESP_OK) {
@@ -161,52 +163,67 @@ bool init_i2s(int sck, int ws, int sd) {
         return false;
     }
 
+    // Bật pull-up trên chân SD để kiểm tra trạng thái lái bus của micro
+    gpio_set_pull_mode((gpio_num_t)sd, GPIO_PULLUP_ONLY);
+
     return true;
 }
 
-bool probe_pins(int sck, int ws, int sd) {
-    if (!init_i2s(sck, ws, sd)) return false;
-    delay(40);
+int32_t probe_pins(int sck, int ws, int sd) {
+    if (!init_i2s(sck, ws, sd)) return 0;
+    delay(50);
 
     int32_t buf[128];
     size_t br = 0;
-    // Đọc 2 lần để loại bỏ nhiễu khởi động
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < 3; t++) {
         i2s_channel_read(rx_chan, buf, sizeof(buf), &br, 50);
     }
 
-    int non_zero_count = 0;
+    int32_t min_val = INT32_MAX;
+    int32_t max_val = INT32_MIN;
+    int64_t sum_jitter = 0;
     int total_samples = br / sizeof(int32_t);
+
     for (int i = 0; i < total_samples; i++) {
-        if (buf[i] != 0 && buf[i] != (int32_t)0xFFFFFFFF) {
-            non_zero_count++;
-        }
+        int32_t s = buf[i];
+        if (s < min_val) min_val = s;
+        if (s > max_val) max_val = s;
+        if (i > 0) sum_jitter += abs(buf[i] - buf[i - 1]);
     }
 
-    // Giải phóng kênh I2S sau khi test
+    int32_t peak_to_peak = (total_samples > 0 && max_val >= min_val) ? (max_val - min_val) : 0;
+    int32_t avg_jitter = (total_samples > 1) ? (int32_t)(sum_jitter / (total_samples - 1)) : 0;
+
     i2s_channel_disable(rx_chan);
     i2s_del_channel(rx_chan);
     rx_chan = NULL;
 
-    if (non_zero_count > 10) {
-        Serial.printf("[Samples: %d, non-zero: %d, val0: 0x%08lX, val1: 0x%08lX] ",
-                      total_samples, non_zero_count, (unsigned long)buf[0], (unsigned long)buf[1]);
-        return true;
+    Serial.printf("[P-P: %ld | Jitter: %ld | V0: 0x%08lX] ",
+                  (long)peak_to_peak, (long)avg_jitter, (unsigned long)buf[0]);
+
+    // Lọc bỏ hoàn toàn nhiễu treo chân (0x00000001 / 0xFFFFFFFE chỉ có P-P <= 3)
+    if (peak_to_peak > 500 && avg_jitter > 50) {
+        return peak_to_peak;
     }
-    return false;
+    return 0;
 }
 
 void auto_detect_pins() {
-    Serial.println("[Auto-Pin] 🔍 Đang quét tự động dò chân micro INMP441...");
+    Serial.println("[Auto-Pin] 🔍 Bắt đầu quét toàn bộ 18 cấu hình chân micro INMP441...");
     int total_cands = sizeof(pin_candidates) / sizeof(pin_candidates[0]);
     int best_cand = -1;
+    int32_t max_pp = 0;
+
     for (int i = 0; i < total_cands; i++) {
         const auto& cand = pin_candidates[i];
-        Serial.printf("  [%d/%d] Thử %s ... ", i + 1, total_cands, cand.desc);
-        if (probe_pins(cand.sck, cand.ws, cand.sd)) {
-            Serial.println(">>> ✅ CÓ TÍN HIỆU ÂM THANH!");
-            best_cand = i;
-            break;
+        Serial.printf("  [%d/%d] %s => ", i + 1, total_cands, cand.desc);
+        int32_t pp = probe_pins(cand.sck, cand.ws, cand.sd);
+        if (pp > 0) {
+            Serial.printf(">>> ✅ CÓ TÍN HIỆU ÂM HỌC! (Biên độ P-P: %ld)\n", (long)pp);
+            if (pp > max_pp) {
+                max_pp = pp;
+                best_cand = i;
+            }
         } else {
             Serial.println("Không có tín hiệu.");
         }
@@ -215,9 +232,11 @@ void auto_detect_pins() {
         pin_i2s_sck = pin_candidates[best_cand].sck;
         pin_i2s_ws  = pin_candidates[best_cand].ws;
         pin_i2s_sd  = pin_candidates[best_cand].sd;
-        Serial.printf("[Auto-Pin] 🎯 Khóa chân tối ưu: SCK=%d, WS=%d, SD=%d\n", pin_i2s_sck, pin_i2s_ws, pin_i2s_sd);
+        Serial.printf("\n[Auto-Pin] 🎯 Khóa chân có tín hiệu mạnh nhất: %s (P-P: %ld)\n\n",
+                      pin_candidates[best_cand].desc, (long)max_pp);
     } else {
-        Serial.println("[Auto-Pin] ⚠️ Không phát hiện chân tự động, giữ mặc định: SCK=5, WS=4, SD=6");
+        Serial.println("\n[Auto-Pin] ⚠️ CẢNH BÁO: Toàn bộ các chân đều không có sóng âm!");
+        Serial.println("[Auto-Pin] ⚠️ Micro chưa gửi dữ liệu âm thanh (Kiểm tra chân hàn VDD 3.3V, GND, L/R->GND, SD, WS, SCK)");
     }
 }
 
@@ -354,16 +373,15 @@ void setup() {
     delay(400);
 
     Serial.println("\n========================================================");
-    Serial.println("  DUYTV VOICE PUCK - ESP32-C3 SUPERMINI (REMOTE MIC V3) ");
+    Serial.println("  DUYTV VOICE PUCK - ESP32-C3 SUPERMINI (REMOTE MIC V4) ");
     Serial.println("  THAY THẾ MICRO REMOTE - ĐIỀU KHIỂN TIVI SIÊU NHẠY     ");
     Serial.println("========================================================");
-    Serial.printf("[Chân] SCK: GPIO%d | WS: GPIO%d | SD: GPIO%d | LED: GPIO%d\n",
+    Serial.printf("[Chân Đã Khóa] SCK: GPIO%d | WS: GPIO%d | SD: GPIO%d | LED: GPIO%d\n",
                   pin_i2s_sck, pin_i2s_ws, pin_i2s_sd, PIN_STATUS_LED);
 
     pinMode(PIN_STATUS_LED, OUTPUT);
     set_led(false);
 
-    auto_detect_pins();
     setup_i2s();
     connect_wifi();
     calibrate_ambient_noise();
@@ -406,10 +424,10 @@ void loop() {
         }
     }
 
-    // Diagnostic log mỗi 2s để theo dõi trực tiếp trạng thái micro
-    if (now - last_diag_log > 2000) {
+    // Diagnostic log mỗi 800ms để theo dõi trực tiếp trạng thái micro
+    if (now - last_diag_log > 800) {
         last_diag_log = now;
-        Serial.printf("[Mic Status] RMS: %d | Thresh: %d | Kênh: %s | Raw0: 0x%08lX | Raw1: 0x%08lX\n",
+        Serial.printf("[Mic Status] RMS: %d | Thresh: %d | Kênh: %s | L: 0x%08lX | R: 0x%08lX\n",
                       (int)energy, (int)dynamic_vad_threshold,
                       (active_channel == 1) ? "RIGHT" : (active_channel == 0 ? "LEFT" : "CHƯA KHÓA"),
                       (unsigned long)raw_i2s_buffer[0], (unsigned long)raw_i2s_buffer[1]);
