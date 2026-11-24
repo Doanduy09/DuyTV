@@ -39,9 +39,9 @@ int pin_i2s_sd  = 4;  // Chân 4 nối SD micro
 #define I2S_PORT            I2S_NUM_0
 
 // 4. THÔNG SỐ VAD ĐỘ NHẠY CAO (SIÊU NHẠY THAY THẾ REMOTE MICRO - KHOẢNG CÁCH 2M-3M)
-#define MIN_SPEECH_DURATION_MS  1100  // BẮT BUỘC thu tối thiểu 1.1s (chống ngắt ngang câu nói)
-#define SILENCE_TIMEOUT_MS      750   // Khoảng lặng 750ms sau khi nói xong để chốt câu lệnh
-#define MAX_SPEECH_DURATION_MS  7000  // Tối đa 7.0s cho 1 khẩu lệnh dài
+#define MIN_SPEECH_DURATION_MS  900   // BẮT BUỘC thu tối thiểu 0.9s (đủ trọn vẹn 1 câu lệnh ngắn)
+#define SILENCE_TIMEOUT_MS      600   // Chốt kết thúc sau 600ms im lặng
+#define MAX_SPEECH_DURATION_MS  6500  // Tối đa 6.5s cho 1 khẩu lệnh dài
 #define PRE_BUFFER_CHUNKS       12    // 12 chunk x 16ms = ~192ms âm đệm chống nuốt từ đầu
 
 WiFiUDP udpClient;
@@ -60,13 +60,19 @@ unsigned long last_heartbeat = 0;
 unsigned long last_diag_log = 0;
 int32_t baseline_rms = 100;
 int32_t vad_threshold_start = 350;
-int32_t vad_threshold_continue = 220;
+int32_t vad_threshold_continue = 200;
+static float energy_smooth = 120.0f;
 static int active_channel = 0; // Chân L/R micro đã nối GND => Khóa cứng kênh LEFT (0)
 
-// Bộ lọc High-Pass IIR 1st Order (~90Hz cutoff tại 16kHz) loại bỏ triệt để ù nền & DC bias
-static float hp_prev_x = 0;
-static float hp_prev_y = 0;
-const float hp_alpha = 0.965f;
+// Bộ lọc High-Pass Butterworth Bậc 2 (Cutoff 180Hz tại 16kHz)
+// Triệt tiêu 100% tiếng ù nguồn 50Hz/100Hz và rung cơ học, bảo toàn dải giọng nói
+static float hp_x1 = 0.0f, hp_x2 = 0.0f;
+static float hp_y1 = 0.0f, hp_y2 = 0.0f;
+const float hp_b0 =  0.951245f;
+const float hp_b1 = -1.902491f;
+const float hp_b2 =  0.951245f;
+const float hp_a1 = -1.900112f;
+const float hp_a2 =  0.904869f;
 
 void set_led(bool turn_on) {
     if (PIN_STATUS_LED >= 0) {
@@ -297,17 +303,20 @@ void process_i2s_samples(int frames_count) {
     for (int i = 0; i < frames_count; i++) {
         int32_t x;
         if (active_channel != -1) {
-            x = raw_i2s_buffer[2 * i + ch_offset] >> 14;
+            x = raw_i2s_buffer[2 * i + ch_offset] >> 13;
         } else {
-            int32_t xl = raw_i2s_buffer[2 * i] >> 14;
-            int32_t xr = raw_i2s_buffer[2 * i + 1] >> 14;
+            int32_t xl = raw_i2s_buffer[2 * i] >> 13;
+            int32_t xr = raw_i2s_buffer[2 * i + 1] >> 13;
             x = (abs(xr) > abs(xl)) ? xr : xl;
         }
 
-        // Bộ lọc High-Pass IIR (~90Hz cutoff tại 16kHz) loại bỏ 100% tiếng ù và DC bias
-        float y = hp_alpha * (hp_prev_y + (float)x - hp_prev_x);
-        hp_prev_x = (float)x;
-        hp_prev_y = y;
+        // Bộ lọc High-Pass Butterworth Bậc 2 (180Hz)
+        float xf = (float)x;
+        float y = hp_b0 * xf + hp_b1 * hp_x1 + hp_b2 * hp_x2 - hp_a1 * hp_y1 - hp_a2 * hp_y2;
+        hp_x2 = hp_x1;
+        hp_x1 = xf;
+        hp_y2 = hp_y1;
+        hp_y1 = y;
 
         // Giới hạn biên độ 16-bit chuẩn
         if (y > 32767.0f) y = 32767.0f;
@@ -342,16 +351,17 @@ void calibrate_ambient_noise() {
         }
     }
 
-    baseline_rms = (valid_frames > 0) ? (int32_t)(total_rms / valid_frames) : 80;
+    baseline_rms = (valid_frames > 0) ? (int32_t)(total_rms / valid_frames) : 70;
     if (baseline_rms < 30) baseline_rms = 30;
+    energy_smooth = (float)baseline_rms;
 
-    // Ngưỡng bắt đầu thu âm: Vượt 2.0x nền phòng + 150 (Tối thiểu 250)
-    vad_threshold_start = (int32_t)(baseline_rms * 2.0f + 150);
-    if (vad_threshold_start < 250) vad_threshold_start = 250;
+    // Ngưỡng bắt đầu thu âm: Vượt 1.8x nền phòng + 120 (Tối thiểu 260)
+    vad_threshold_start = (int32_t)(baseline_rms * 1.8f + 120);
+    if (vad_threshold_start < 260) vad_threshold_start = 260;
 
-    // Ngưỡng duy trì câu nói (chống ngắt ngang khi nói nhỏ cuối câu): 1.3x nền phòng + 60
-    vad_threshold_continue = (int32_t)(baseline_rms * 1.3f + 60);
-    if (vad_threshold_continue < 160) vad_threshold_continue = 160;
+    // Ngưỡng duy trì câu nói: 1.25x nền phòng + 50 (Tối thiểu 150)
+    vad_threshold_continue = (int32_t)(baseline_rms * 1.25f + 50);
+    if (vad_threshold_continue < 150) vad_threshold_continue = 150;
 
     Serial.printf("Xong! Nền phòng RMS: %ld | Ngưỡng Bắt đầu: %ld | Ngưỡng Duy trì: %ld (Kênh: %s)\n",
                   (long)baseline_rms, (long)vad_threshold_start, (long)vad_threshold_continue,
@@ -415,25 +425,27 @@ void loop() {
     process_i2s_samples(frames_count);
 
     int32_t energy = calculate_rms(pcm_samples, frames_count);
+    energy_smooth = energy_smooth * 0.75f + (float)energy * 0.25f;
+    int32_t cur_energy = (int32_t)energy_smooth;
 
     // Dynamic noise floor tracking khi phòng yên tĩnh và ngoài thời gian cooldown
-    if (!is_speaking && now > speech_cooldown_until && energy < vad_threshold_continue) {
+    if (!is_speaking && now > speech_cooldown_until && cur_energy < vad_threshold_continue) {
         static unsigned long last_dyn_update = 0;
         if (now - last_dyn_update > 400) {
             last_dyn_update = now;
-            baseline_rms = (baseline_rms * 15 + energy) / 16;
-            vad_threshold_start = (int32_t)(baseline_rms * 2.0f + 150);
-            if (vad_threshold_start < 250) vad_threshold_start = 250;
-            vad_threshold_continue = (int32_t)(baseline_rms * 1.3f + 60);
-            if (vad_threshold_continue < 160) vad_threshold_continue = 160;
+            baseline_rms = (baseline_rms * 15 + cur_energy) / 16;
+            vad_threshold_start = (int32_t)(baseline_rms * 1.8f + 120);
+            if (vad_threshold_start < 260) vad_threshold_start = 260;
+            vad_threshold_continue = (int32_t)(baseline_rms * 1.25f + 50);
+            if (vad_threshold_continue < 150) vad_threshold_continue = 150;
         }
     }
 
     // Diagnostic log mỗi 1000ms để theo dõi trực tiếp trạng thái micro
     if (now - last_diag_log > 1000) {
         last_diag_log = now;
-        Serial.printf("[Mic Status] RMS: %d | Thresh: %d/%d | Base: %d | Kênh: %s\n",
-                      (int)energy, (int)vad_threshold_start, (int)vad_threshold_continue, (int)baseline_rms,
+        Serial.printf("[Mic Status] RMS: %d (Sm: %d) | Thresh: %d/%d | Base: %d | Kênh: %s\n",
+                      (int)energy, (int)cur_energy, (int)vad_threshold_start, (int)vad_threshold_continue, (int)baseline_rms,
                       (active_channel == 1) ? "RIGHT" : (active_channel == 0 ? "LEFT" : "CHƯA KHÓA"));
     }
 
@@ -443,13 +455,13 @@ void loop() {
         pre_buf_index = (pre_buf_index + 1) % PRE_BUFFER_CHUNKS;
         if (pre_buf_index == 0) pre_buf_full = true;
 
-        if (now > speech_cooldown_until && energy > vad_threshold_start) {
+        if (now > speech_cooldown_until && cur_energy > vad_threshold_start) {
             is_speaking = true;
             speech_start_time = now;
             last_sound_time = now;
             set_led(true); // BẬT ĐÈN LED BÁO HIỆU ĐANG THU ÂM
 
-            Serial.printf("[Voice Puck] 🎙️ Bắt đầu thu âm! (RMS: %d > %d)\n", (int)energy, (int)vad_threshold_start);
+            Serial.printf("[Voice Puck] 🎙️ Bắt đầu thu âm! (RMS: %d > %d)\n", (int)cur_energy, (int)vad_threshold_start);
 
             send_event_marker("__START__");
 
@@ -469,7 +481,7 @@ void loop() {
         // Truyền liên tục các gói PCM âm thanh qua UDP
         send_udp_chunk((uint8_t*)pcm_samples, sizeof(pcm_samples));
 
-        if (energy > vad_threshold_continue) {
+        if (cur_energy > vad_threshold_continue) {
             last_sound_time = now;
         }
 
@@ -480,7 +492,7 @@ void loop() {
 
         if (is_silence || is_max_len) {
             is_speaking = false;
-            speech_cooldown_until = now + 400; // Cooldown 400ms chống dội âm và retrigger tức thời
+            speech_cooldown_until = now + 500; // Cooldown 500ms chống dội âm và retrigger tức thời
             set_led(false);
 
             Serial.printf("[Voice Puck] ⏹️ Kết thúc thu âm (%lu ms) -> Gửi máy chủ!\n", now - speech_start_time);

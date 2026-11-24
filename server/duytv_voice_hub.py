@@ -44,7 +44,7 @@ HERMES_BRIDGE_URL = "http://127.0.0.1:8100/v1/chat/completions"
 
 # BẢNG THIẾT BỊ NỘI MẠNG ĐỘNG (DYNAMIC LAN REGISTRY)
 DEVICES_LOCK = threading.Lock()
-DISCOVERED_DEVICES = {
+DEFAULT_DEVICES = {
     "sharp_tv": {
         "id": "sharp_tv",
         "name": "Tivi Sharp",
@@ -66,6 +66,7 @@ DISCOVERED_DEVICES = {
         "last_seen": time.time()
     }
 }
+DISCOVERED_DEVICES = {k: v.copy() for k, v in DEFAULT_DEVICES.items()}
 LAST_ACTIVE_DEVICE_ID = "shield_tv"  # Ưu tiên mặc định Shield TV khi khởi động hoặc thiết bị đang thức
 
 # ANDROID KEYCODES
@@ -243,13 +244,17 @@ def scan_network_for_tvs():
         }
 
     with DEVICES_LOCK:
+        # Giữ lại các thiết bị quan trọng (Shield TV, Sharp TV) ngay cả khi đang ở chế độ ngủ/standby
+        for did, dinfo in DEFAULT_DEVICES.items():
+            if did not in new_devices:
+                new_devices[did] = dinfo.copy()
         DISCOVERED_DEVICES.clear()
         DISCOVERED_DEVICES.update(new_devices)
 
     print("\n" + "=" * 65)
     print(f"🔍 [Auto-Discovery] Đã phát hiện {len(DISCOVERED_DEVICES)} Tivi/TV Box trên mạng router:")
     for idx, (did, dev) in enumerate(DISCOVERED_DEVICES.items(), 1):
-        tcp_stat = f"DuyTV Port 8990 (OK)" if dev["port"] else "DuyTV Port (Chưa mở)"
+        tcp_stat = f"DuyTV Port 8990 (OK)" if dev.get("port") else "DuyTV Port (Chưa mở)"
         print(f"  {idx}. {dev['name']} [{did}] - IP: {dev['ip']} (Model: {dev['model']} | {tcp_stat})")
     print("=" * 65 + "\n")
 
@@ -269,19 +274,44 @@ def auto_discovery_background_daemon():
 def pcm_to_wav(pcm_bytes, sample_rate=16000, channels=1, sampwidth=2):
     """
     Chuyển đổi dữ liệu PCM thô thành file WAV chuẩn.
-    Tự động chuẩn hóa biên độ (Automatic Peak Normalization / AGC)
-    giúp giọng nói ở khoảng cách xa 2m - 3m đạt chất lượng tối ưu trước khi nhận diện STT.
+    Tự động cắt bỏ khoảng lặng thừa (VAD Trimming) và chuẩn hóa biên độ (AGC)
+    giúp giọng nói ở khoảng cách xa 2m - 3m đạt độ nhạy tối đa cho Google STT.
     """
     import struct
+    import math
+
     num_samples = len(pcm_bytes) // 2
-    if num_samples > 0:
-        fmt = f"<{num_samples}h"
-        samples = list(struct.unpack(fmt, pcm_bytes[:num_samples * 2]))
-        max_abs = max(abs(s) for s in samples) if samples else 0
-        if 400 < max_abs < 26000:
-            gain = 26000.0 / max_abs
-            samples = [int(max(-32768, min(32767, s * gain))) for s in samples]
-            pcm_bytes = struct.pack(fmt, *samples)
+    if num_samples < 3200: # < 0.2s
+        return b""
+
+    fmt = f"<{num_samples}h"
+    samples = list(struct.unpack(fmt, pcm_bytes[:num_samples * 2]))
+
+    # 1. Trimming khoảng lặng trước và sau câu nói (100ms window)
+    win_size = 1600 # 100ms
+    num_wins = len(samples) // win_size
+    if num_wins > 3:
+        rms_list = []
+        for w in range(num_wins):
+            seg = samples[w * win_size : (w + 1) * win_size]
+            rms_list.append(math.sqrt(sum(s**2 for s in seg) / win_size))
+
+        # Ngưỡng nhận diện vùng tiếng nói
+        voice_wins = [i for i, r in enumerate(rms_list) if r > 350]
+        if voice_wins:
+            start_win = max(0, voice_wins[0] - 2)      # 200ms trước tiếng nói
+            end_win = min(num_wins, voice_wins[-1] + 3) # 300ms sau tiếng nói
+            samples = samples[start_win * win_size : end_win * win_size]
+            num_samples = len(samples)
+            fmt = f"<{num_samples}h"
+
+    # 2. Peak Normalization lên -2 dBFS (~26000)
+    max_abs = max(abs(s) for s in samples) if samples else 0
+    if 300 < max_abs < 26000:
+        gain = 26000.0 / max_abs
+        samples = [int(max(-32768, min(32767, s * gain))) for s in samples]
+
+    pcm_bytes = struct.pack(fmt, *samples)
 
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wav_file:
@@ -620,8 +650,10 @@ def run_adb_async(adb_serial, cmd_args):
     """Chạy lệnh ADB bất đồng bộ trên luồng riêng để không làm nghẽn server."""
     def _worker():
         try:
+            # Tự động kết nối ADB Wi-Fi nếu thiết bị đang ở trạng thái ngủ
+            subprocess.run(["adb", "connect", adb_serial], capture_output=True, timeout=3)
             full_cmd = ["adb", "-s", adb_serial] + cmd_args
-            subprocess.run(full_cmd, capture_output=True, timeout=12)
+            subprocess.run(full_cmd, capture_output=True, timeout=8)
         except Exception:
             pass
     threading.Thread(target=_worker, daemon=True).start()
