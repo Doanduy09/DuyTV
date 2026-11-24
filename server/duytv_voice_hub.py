@@ -267,7 +267,22 @@ def auto_discovery_background_daemon():
 # =============================================================================
 
 def pcm_to_wav(pcm_bytes, sample_rate=16000, channels=1, sampwidth=2):
-    """Chuyển đổi dữ liệu PCM thô thành file WAV chuẩn."""
+    """
+    Chuyển đổi dữ liệu PCM thô thành file WAV chuẩn.
+    Tự động chuẩn hóa biên độ (Automatic Peak Normalization / AGC)
+    giúp giọng nói ở khoảng cách xa 2m - 3m đạt chất lượng tối ưu trước khi nhận diện STT.
+    """
+    import struct
+    num_samples = len(pcm_bytes) // 2
+    if num_samples > 0:
+        fmt = f"<{num_samples}h"
+        samples = list(struct.unpack(fmt, pcm_bytes[:num_samples * 2]))
+        max_abs = max(abs(s) for s in samples) if samples else 0
+        if 400 < max_abs < 26000:
+            gain = 26000.0 / max_abs
+            samples = [int(max(-32768, min(32767, s * gain))) for s in samples]
+            pcm_bytes = struct.pack(fmt, *samples)
+
     wav_io = io.BytesIO()
     with wave.open(wav_io, 'wb') as wav_file:
         wav_file.setnchannels(channels)
@@ -292,7 +307,7 @@ def transcribe_audio_whisper_or_google(wav_bytes):
             pass
 
         r = sr.Recognizer()
-        r.energy_threshold = 80
+        r.energy_threshold = 120
         r.dynamic_energy_threshold = False
         with sr.AudioFile(io.BytesIO(wav_bytes)) as source:
             audio = r.record(source)
@@ -777,7 +792,7 @@ def udp_voice_listener():
                 continue
 
             if data == b"__END__":
-                if len(audio_buffer) >= 9600:
+                if len(audio_buffer) >= 16000:
                     duration_s = len(audio_buffer) / 32000.0
                     print(f"[ESP32] ⏹️ Kết thúc thu âm ({duration_s:.2f}s). Đang giải mã...")
                     wav_data = pcm_to_wav(bytes(audio_buffer))
@@ -796,9 +811,9 @@ def udp_voice_listener():
                 last_chunk_time = now
 
         except socket.timeout:
-            # Watchdog timeout: Nếu đang thu âm mà quá 0.9s không có thêm gói tin -> Tự động giải mã
+            # Watchdog timeout: Nếu đang thu âm mà quá 1.0s không có thêm gói tin -> Tự động giải mã
             now = time.time()
-            if is_recording and len(audio_buffer) >= 9600 and (now - last_chunk_time > 0.9):
+            if is_recording and len(audio_buffer) >= 16000 and (now - last_chunk_time > 1.0):
                 duration_s = len(audio_buffer) / 32000.0
                 print(f"[ESP32] ⏱️ Timeout khoảng lặng ({duration_s:.2f}s). Tự động giải mã...")
                 wav_data = pcm_to_wav(bytes(audio_buffer))
