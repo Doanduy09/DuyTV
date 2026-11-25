@@ -1,7 +1,7 @@
 {
   "versionCode": 99,
   "versionName": "2.7.0",
-  "sha256": "A54250EB10779C404AB28C277C535CADF02A83C908E702026EBE0394F6786C11",
+  "sha256": "82F8F5352700CCD5DDAC8F6A2DD1AF544C9EA7E5A3096374DEF42C4A156313AF",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
   "releaseNotes": "v2.7.0 (Build #99): Tăng cường bảo mật LAN/OTA SHA-256, sửa lọc quảng cáo HLS tránh cắt nhầm phim, chống lặp bộ giải mã & tối ưu tải kênh."
 }
