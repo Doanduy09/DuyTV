@@ -627,6 +627,7 @@ private fun PlayerScreenContent(
 
     var preWarmedEpisodeUrl by remember(currentEpisodeName) { mutableStateOf<String?>(null) }
     var hasSkippedIntroForEpisode by remember(currentStreamUrl) { mutableStateOf(false) }
+    var decoderRetryCount by remember(exoPlayer) { mutableIntStateOf(0) }
 
     fun togglePlayPause() {
         if (exoPlayer.isPlaying) {
@@ -698,6 +699,7 @@ private fun PlayerScreenContent(
 
     fun loadLiveStreamUrl(url: String) {
         val player = exoPlayer ?: return
+        decoderRetryCount = 0
         if (isLive) {
             currentStreamUrl = url
             try {
@@ -943,6 +945,7 @@ private fun PlayerScreenContent(
                         }
                     }
                 } else if (playbackState == Player.STATE_READY) {
+                    decoderRetryCount = 0
                     stallTimerJob?.cancel()
                     errorRetryJob?.cancel()
                     errorMessage = null
@@ -1013,20 +1016,34 @@ private fun PlayerScreenContent(
                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES
                 ) {
-                    errorMessage = null
-                    val savedPos = maxOf(0L, exoPlayer.currentPosition)
-                    scope.launch {
-                        try {
-                            exoPlayer.stop()
-                            delay(250L)
-                            exoPlayer.prepare()
-                            if (!isLive && savedPos > 0L) {
-                                exoPlayer.seekTo(savedPos)
-                            }
-                            exoPlayer.play()
-                        } catch (_: Exception) {}
+                    decoderRetryCount++
+                    if (decoderRetryCount <= 2) {
+                        errorMessage = null
+                        val savedPos = maxOf(0L, exoPlayer.currentPosition)
+                        val shouldStepDownQuality = decoderRetryCount == 2
+                        scope.launch {
+                            try {
+                                if (shouldStepDownQuality) {
+                                    val isLowRam = com.duytv.app.util.HardwareOptimizer.getProfile(context).isLowRamDevice
+                                    val maxW = if (isLowRam) 1280 else 1920
+                                    val maxH = if (isLowRam) 720 else 1080
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                        .buildUpon()
+                                        .setForceHighestSupportedBitrate(false)
+                                        .setMaxVideoSize(maxW, maxH)
+                                        .build()
+                                }
+                                exoPlayer.stop()
+                                delay(250L)
+                                exoPlayer.prepare()
+                                if (!isLive && savedPos > 0L) {
+                                    exoPlayer.seekTo(savedPos)
+                                }
+                                exoPlayer.play()
+                            } catch (_: Exception) {}
+                        }
+                        return
                     }
-                    return
                 }
                 val isFatal = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
                     error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||

@@ -472,8 +472,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.navigationBarColor = android.graphics.Color.BLACK
-        window.statusBarColor = android.graphics.Color.BLACK
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.BLACK
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.BLACK
+        }
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
         // [✅ ĐÃ CHUẨN - CẤM SỬA]: Coil Singleton chuẩn đã được khởi tạo tối ưu tại DuyTvApplication.newImageLoader()

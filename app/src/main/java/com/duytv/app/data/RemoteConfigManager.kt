@@ -29,13 +29,13 @@ object RemoteConfigManager {
     const val KHOGA_ALL_LIVE_API = "https://khoga1.live/api/matches/?status=live&page_size=40"
     const val THAPCAM_LIVE_URL = "https://thapcamtv.live"
     const val DUYTV_CLEAN_TV_M3U = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/tv_channels_clean.m3u"
-    const val COBAN66_SPORTS_M3U = "https://dl.dropboxusercontent.com/s/o5vygit34v9ryly71gam4/coban66.m3u?rlkey=auyoon54hfubajt16nc7u7dbn&st=70gyvtcu&dl=0"
+    const val COBAN66_SPORTS_M3U = ""
     const val COOCAA_SPORTS_M3U = "https://raw.githubusercontent.com/KevinNitroG/Entertainment/m3u/playlists/coocaa.m3u"
     const val DEFAULT_TV_M3U = "https://raw.githubusercontent.com/khanh71/All-In-One-IPTV/main/http-iptv.m3u"
     const val GIANGNAM_IPTV_M3U = "https://raw.githubusercontent.com/giangnam0201/All-In-One-IPTV/main/channels.m3u"
     const val IPTV_ORG_VN_M3U = "https://iptv-org.github.io/iptv/countries/vn.m3u"
     const val IPTV_ORG_SPORTS_M3U = "https://iptv-org.github.io/iptv/categories/sports.m3u"
-    const val A3_IPTV_M3U = "http://a3iptv.goitoi.co/playlist.m3u?r2h-token=9Pzpebvhp40NGRbSMuid"
+    const val A3_IPTV_M3U = ""
     private const val KEY_CUSTOM_SPORTS_LIST = "custom_sports_sources_v1"
 
     @Volatile
@@ -45,7 +45,7 @@ object RemoteConfigManager {
     private var remoteIptvUrl: String? = null
 
     fun getA3IptvUrl(): String {
-        return remoteIptvUrl?.takeIf { it.isNotBlank() } ?: A3_IPTV_M3U
+        return remoteIptvUrl?.trim().orEmpty()
     }
 
     suspend fun fetchRemoteConfig(): RemoteConfig = withContext(Dispatchers.IO) {
@@ -266,7 +266,7 @@ object RemoteConfigManager {
     }
 
     fun getSavedSportsSourcesDisplay(context: android.content.Context): List<Pair<String, String>> {
-        val baseList = mutableListOf(
+        val baseList = listOf(
             "⚽ Kho Gà & Xôi Chè Live API (Chính - Đa Luồng)" to KHOGA_LIVE_API_PRIMARY,
             "⚽ Kho Gà Mirror API (Dự Phòng #1)" to KHOGA_LIVE_API_MIRROR,
             "🔥 Thập Cẩm TV / AntLive (Dự Phòng #2 - Đa Server)" to THAPCAM_LIVE_URL,
@@ -275,7 +275,7 @@ object RemoteConfigManager {
             "📺 GiangNam All-In-One IPTV (424 Kênh & Thể Thao)" to GIANGNAM_IPTV_M3U,
             "📺 All-In-One IPTV (Truyền Hình & Thể Thao)" to DEFAULT_TV_M3U,
             "📋 Kho Gà M3U Paste (Dự Phòng #5)" to DEFAULT_SPORTS_M3U
-        )
+        ).filter { it.second.isNotBlank() }.toMutableList()
         val customs = getCustomSportsSources(context)
         customs.forEachIndexed { idx, raw ->
             val label = if (raw.contains("|")) {

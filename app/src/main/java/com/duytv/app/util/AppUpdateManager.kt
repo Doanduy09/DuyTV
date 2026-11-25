@@ -21,25 +21,18 @@ import java.util.concurrent.TimeUnit
 data class AppVersionInfo(
     val versionCode: Int = 0,
     val versionName: String = "",
-    val apkUrlLan: String = "http://192.168.1.189:8888/DuyTV-latest.apk",
+    val apkUrlLan: String = "",
     val apkUrlCloud: String = "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
     val releaseNotes: String = "",
     val sha256: String? = null
 )
 
 object AppUpdateManager {
-    private const val LAN_VERSION_URL = "http://192.168.1.189:8888/version.json"
     private const val CLOUD_VERSION_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/config/version.json"
     private const val FALLBACK_RAW_APK_URL = "https://raw.githubusercontent.com/Doanduy09/DuyTV/main/release/DuyTV-latest.apk"
+    private val SHA256_HEX_REGEX = Regex("^[0-9a-f]{64}$")
 
     private val gson = Gson()
-
-    private val lanClient: OkHttpClient by lazy {
-        SharedHttpClients.newClientBuilder()
-            .connectTimeout(1200, TimeUnit.MILLISECONDS)
-            .readTimeout(1200, TimeUnit.MILLISECONDS)
-            .build()
-    }
 
     private val cloudClient: OkHttpClient by lazy {
         SharedHttpClients.newClientBuilder()
@@ -67,11 +60,14 @@ object AppUpdateManager {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    internal fun verifyOptionalSha256(file: File, expectedSha256: String?): Boolean {
-        val cleanExpected = expectedSha256?.trim()?.lowercase()
-        if (cleanExpected.isNullOrBlank()) return true
+    internal fun verifyRequiredSha256(file: File, expectedSha256: String?): Boolean {
+        val cleanExpected = expectedSha256?.trim()?.lowercase() ?: return false
+        if (!SHA256_HEX_REGEX.matches(cleanExpected)) return false
         return computeFileSha256(file).equals(cleanExpected, ignoreCase = true)
     }
+
+    internal fun verifyOptionalSha256(file: File, expectedSha256: String?): Boolean =
+        verifyRequiredSha256(file, expectedSha256)
 
     private const val PREFS_NAME = "duytv_update_prefs"
     private const val KEY_LAST_CHECK_TIME = "last_check_timestamp"
@@ -135,13 +131,7 @@ object AppUpdateManager {
         }
     }
 
-    // [✅ ĐÃ CHUẨN - CẤM SỬA]: Ưu tiên kiểm tra GitHub Cloud trước để luôn lấy bản mới nhất tức thì,
-    // tránh nghẽn 1.5s-4s khi máy chủ LAN (192.168.1.189:8888) đang tắt hoặc chứa bản cũ.
     suspend fun checkForUpdate(): AppVersionInfo? = withContext(Dispatchers.IO) {
-        var cloudVersion: AppVersionInfo? = null
-        var lanVersion: AppVersionInfo? = null
-
-        // 1. Kiểm tra GitHub Cloud
         try {
             val req = Request.Builder()
                 .url("$CLOUD_VERSION_URL?t=${System.currentTimeMillis()}")
@@ -153,39 +143,13 @@ object AppUpdateManager {
                     if (!body.isNullOrBlank()) {
                         val parsed = gson.fromJson(body, AppVersionInfo::class.java)
                         if (parsed != null && parsed.versionCode > 0) {
-                            cloudVersion = parsed
+                            return@withContext parsed
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
-
-        // 2. Kiểm tra máy chủ LAN nội bộ (tránh trễ cache CDN 5 phút của GitHub Raw)
-        try {
-            val req = Request.Builder()
-                .url("$LAN_VERSION_URL?t=${System.currentTimeMillis()}")
-                .header("Cache-Control", "no-cache")
-                .build()
-            lanClient.newCall(req).execute().use { res ->
-                if (res.isSuccessful) {
-                    val body = res.body?.string()
-                    if (!body.isNullOrBlank()) {
-                        val parsed = gson.fromJson(body, AppVersionInfo::class.java)
-                        if (parsed != null && parsed.versionCode > 0) {
-                            lanVersion = parsed
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        // Luôn chọn bản có versionCode cao nhất giữa Cloud và LAN
-        when {
-            lanVersion != null && cloudVersion != null ->
-                if (lanVersion!!.versionCode >= cloudVersion!!.versionCode) lanVersion else cloudVersion
-            lanVersion != null -> lanVersion
-            else -> cloudVersion
-        }
+        null
     }
 
     suspend fun downloadAndInstallApk(
@@ -200,9 +164,8 @@ object AppUpdateManager {
         } catch (_: Exception) {}
 
         val candidateUrls = listOfNotNull(
-            versionInfo.apkUrlCloud.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" },
-            "$FALLBACK_RAW_APK_URL?t=${System.currentTimeMillis()}",
-            versionInfo.apkUrlLan.takeIf { it.isNotBlank() }?.let { "$it?t=${System.currentTimeMillis()}" }
+            versionInfo.apkUrlCloud.takeIf { it.startsWith("https://", ignoreCase = true) }?.let { "$it?t=${System.currentTimeMillis()}" },
+            "$FALLBACK_RAW_APK_URL?t=${System.currentTimeMillis()}"
         ).distinct()
 
         var downloadedSuccess = false
@@ -236,7 +199,7 @@ object AppUpdateManager {
                             output.flush()
                         }
                     }
-                    if (outFile.exists() && outFile.length() > 1_000_000L && verifyOptionalSha256(outFile, versionInfo.sha256)) {
+                    if (outFile.exists() && outFile.length() > 1_000_000L && verifyRequiredSha256(outFile, versionInfo.sha256)) {
                         downloadedSuccess = true
                     } else if (outFile.exists()) {
                         android.util.Log.w("AppUpdateManager", "OTA APK invalid size or SHA-256 mismatch from $url (size=${outFile.length()})")

@@ -78,4 +78,30 @@ class HlsAdBlockEngineTest {
         assertTrue(idx1080 in 0 until idx720)
         assertTrue(idx720 < idx360)
     }
+
+    @Test
+    fun `test hex hash segment names with b52 m88 w88 bk8 ok9 are not false positives`() {
+        val m3u8 = """
+            #EXTM3U
+            #EXT-X-VERSION:3
+            #EXTINF:4.0,
+            https://cdn.example.com/hls/seg_a1b52c9.ts
+            #EXTINF:4.0,
+            https://cdn.example.com/hls/chunk_f9m88e1.ts
+            #EXTINF:4.0,
+            https://cdn.example.com/hls/part_0w88bk8ok9.ts
+            #EXTINF:6.0,
+            https://m88.bet/spot/ad_segment.ts
+            #EXTINF:6.0,
+            https://cdn.ok9.vip/qc_01.ts
+            #EXT-X-ENDLIST
+        """.trimIndent()
+
+        val cleaned = HlsAdBlockEngine.sanitizeM3u8Manifest(m3u8, "https://cdn.example.com/hls/index.m3u8")
+        assertTrue(cleaned.contains("seg_a1b52c9.ts"))
+        assertTrue(cleaned.contains("chunk_f9m88e1.ts"))
+        assertTrue(cleaned.contains("part_0w88bk8ok9.ts"))
+        assertFalse(cleaned.contains("m88.bet"))
+        assertFalse(cleaned.contains("ok9.vip"))
+    }
 }

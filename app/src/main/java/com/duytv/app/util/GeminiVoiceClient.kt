@@ -44,7 +44,7 @@ object GeminiVoiceClient {
     private const val KEY_GEMINI_API_KEY = "gemini_direct_api_key"
     private const val MEMORY_TTL_MS = 180_000L
     private const val MAX_HISTORY_TURNS = 5
-    const val DEFAULT_LAN_HOST_URL = "http://192.168.1.189:8100/v1/chat/completions"
+    const val DEFAULT_LAN_HOST_URL = ""
 
     @Volatile
     var hermesHostUrl: String = DEFAULT_LAN_HOST_URL
@@ -246,7 +246,8 @@ object GeminiVoiceClient {
             }
         }
 
-        // 2. Gọi qua Cổng LAN Gemini Pro Pool (192.168.1.189:8100)
+        // 2. Gọi qua Cổng LAN Gemini Pro Pool (chỉ khi người dùng cấu hình)
+        if (hermesHostUrl.isBlank()) return@withContext null
         try {
             val messages = mutableListOf<Map<String, String>>(
                 mapOf("role" to "system", "content" to systemPrompt)
@@ -307,7 +308,7 @@ object GeminiVoiceClient {
         apiKey: String
     ): GeminiVoiceAction? {
         try {
-            val cloudUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
+            val cloudUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
             val reqJson = JsonObject().apply {
                 val sysInst = JsonObject().apply {
                     val parts = JsonArray().apply {
@@ -345,6 +346,7 @@ object GeminiVoiceClient {
             val mediaType = "application/json; charset=utf-8".toMediaType()
             val request = Request.Builder()
                 .url(cloudUrl)
+                .header("x-goog-api-key", apiKey)
                 .post(reqJson.toString().toRequestBody(mediaType))
                 .build()
 

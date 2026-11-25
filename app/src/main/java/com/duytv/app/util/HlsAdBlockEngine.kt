@@ -6,7 +6,6 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import android.content.Context
-import okhttp3.ConnectionPool
 import okhttp3.Dns
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -139,7 +138,7 @@ object HlsAdBlockEngine {
         }
     }
 
-    private val sharedConnectionPool = ConnectionPool(8, 30, TimeUnit.SECONDS)
+    private const val MAX_MANIFEST_BYTES = 1024L * 1024L // 1 MB trần đọc manifest M3U8 chống OOM
 
     @Volatile
     var isEnabled: Boolean = true
@@ -147,15 +146,19 @@ object HlsAdBlockEngine {
     val totalAdsBlocked = AtomicInteger(0)
     var onAdBlockedCallback: ((Int) -> Unit)? = null
 
-    private val AD_KEYWORDS = listOf(
-        "adjump", "/ads/", "/ad/", "quangcao", "qc_", "promo", "banner",
+    private val AD_SUBSTRING_KEYWORDS = listOf(
+        "adjump", "/ads/", "/ad/", "quangcao", "promo", "banner",
         "intro_ad", "outro_ad", "preroll", "midroll", "scte35", "doubleclick", "popads", "adservice",
-        "8xbet", "88bet", "i9bet", "789bet", "f8bet", "okvip", "jun88", "new88",
-        "hi88", "shbet", "mb66", "casino", "nhacai", "v7bet", "kubet", "ku777",
-        "bong88", "saba", "cmd368", "sv388", "rikvip", "sunwin", "go88", "hitclub",
-        "b52", "fb88", "w88", "m88", "dafabet", "vn88", "fun88", "bk8", "188bet",
-        "v9bet", "ok9", "gk88", "qq88", "8kbet", "bet88", "f168", "tx88", "ta88",
-        "uk88", "debet", "zbet", "five88", "red88", "sin88", "sky88", "mibet", "lucky88", "one88"
+        "8xbet", "88bet", "789bet", "okvip", "jun88", "new88",
+        "shbet", "mb66", "casino", "nhacai", "v7bet", "kubet", "ku777",
+        "bong88", "saba", "cmd368", "sv388", "rikvip", "sunwin", "hitclub",
+        "dafabet", "fun88", "188bet", "five88", "red88", "sin88", "sky88",
+        "lucky88", "one88", "debet", "f168", "gk88", "qq88", "8kbet", "bet88"
+    )
+
+    // Từ khóa ngắn 2-5 ký tự chỉ khớp theo ranh giới host/path, tránh cắt nhầm segment hash hex như seg_a1b52c9.ts
+    private val SHORT_AD_BOUNDARY_REGEX = Regex(
+        """(?i)(?:^|[/:.?&_-])(?:b52|w88|m88|bk8|ok9|fb88|go88|vn88|v9bet|i9bet|f8bet|hi88|tx88|ta88|uk88|zbet|mibet|qc)(?:[/:.?&_-]|$)"""
     )
 
     private val BOOKMAKER_TEXT_REGEX = Regex(
@@ -164,7 +167,7 @@ object HlsAdBlockEngine {
 
     fun isAdOrBookmakerUrl(url: String): Boolean {
         val lower = url.lowercase()
-        return AD_KEYWORDS.any { lower.contains(it) }
+        return AD_SUBSTRING_KEYWORDS.any { lower.contains(it) } || SHORT_AD_BOUNDARY_REGEX.containsMatchIn(lower)
     }
 
     fun cleanBookmakerText(raw: String): String {
@@ -352,8 +355,7 @@ object HlsAdBlockEngine {
                     currentSection.totalDurationSec += pendingExtInfDuration
                     pendingExtInfDuration = 0.0
 
-                    val lower = line.lowercase()
-                    if (AD_KEYWORDS.any { lower.contains(it) }) {
+                    if (isAdOrBookmakerUrl(line)) {
                         currentSection.hasAdKeyword = true
                     }
                     currentSection.segmentPrefixes.add(extractDirPrefix(line))
@@ -449,6 +451,13 @@ object HlsAdBlockEngine {
 
         if (isEnabled && res.isSuccessful && isM3u8) {
             val body = res.body ?: return@Interceptor res
+            if (body.contentLength() > MAX_MANIFEST_BYTES) {
+                return@Interceptor res
+            }
+            val source = body.source()
+            if (source.request(MAX_MANIFEST_BYTES + 1L)) {
+                return@Interceptor res
+            }
             val rawText = body.string()
             val cleanedText = sanitizeM3u8Manifest(rawText, urlStr)
             val newBody = cleanedText.toResponseBody(body.contentType() ?: "application/vnd.apple.mpegurl".toMediaTypeOrNull())

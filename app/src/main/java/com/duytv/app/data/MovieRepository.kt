@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -53,126 +55,34 @@ class MovieRepository {
         val duytvCleanTvUrl = RemoteConfigManager.DUYTV_CLEAN_TV_M3U
         val customEntries = RemoteConfigManager.getCustomSportsSources()
 
-        val khogaApiDef = async { fetchKhoGaLiveApiMatches(now) }
-        val thapcamDef = async { fetchThapCamLiveMatches(now) }
-
-        val giangnamDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(giangnamUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (_: Exception) {
-                null
+        val fetchLimit = Semaphore(4)
+        suspend fun fetchPlaylistText(url: String, userAgent: String, noCache: Boolean = false): String? {
+            if (url.isBlank()) return null
+            return fetchLimit.withPermit {
+                try {
+                    val reqB = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", userAgent)
+                    if (noCache) reqB.header("Cache-Control", "no-cache")
+                    val res = executeSafe(reqB.build())
+                    if (res.isSuccessful) res.body?.string() else null
+                } catch (_: Exception) {
+                    null
+                }
             }
         }
 
-        val duytvCleanTvDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(duytvCleanTvUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-        val a3IptvDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(a3IptvUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        val sportsDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(sportsUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0")
-                    .header("Cache-Control", "no-cache")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        val tvDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(tvUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        val cobanDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(cobanUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        val coocaaDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(coocaaUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-        val iptvOrgVnDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(iptvOrgVnUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-        val iptvOrgSportsDef = async {
-            try {
-                val req = Request.Builder()
-                    .url(iptvOrgSportsUrl)
-                    .header("User-Agent", "TiviMate/4.7.0")
-                    .build()
-                val res = executeSafe(req)
-                if (res.isSuccessful) res.body?.string() else null
-            } catch (_: Exception) {
-                null
-            }
-        }
+        val khogaApiDef = async { fetchLimit.withPermit { fetchKhoGaLiveApiMatches(now) } }
+        val thapcamDef = async { fetchLimit.withPermit { fetchThapCamLiveMatches(now) } }
+        val giangnamDef = async { fetchPlaylistText(giangnamUrl, "TiviMate/4.7.0") }
+        val duytvCleanTvDef = async { fetchPlaylistText(duytvCleanTvUrl, "TiviMate/4.7.0") }
+        val a3IptvDef = async { fetchPlaylistText(a3IptvUrl, "TiviMate/4.7.0") }
+        val sportsDef = async { fetchPlaylistText(sportsUrl, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DuyTV/1.0", noCache = true) }
+        val tvDef = async { fetchPlaylistText(tvUrl, "TiviMate/4.7.0") }
+        val cobanDef = async { fetchPlaylistText(cobanUrl, "TiviMate/4.7.0") }
+        val coocaaDef = async { fetchPlaylistText(coocaaUrl, "TiviMate/4.7.0") }
+        val iptvOrgVnDef = async { fetchPlaylistText(iptvOrgVnUrl, "TiviMate/4.7.0") }
+        val iptvOrgSportsDef = async { fetchPlaylistText(iptvOrgSportsUrl, "TiviMate/4.7.0") }
 
         val customDefs = customEntries.mapIndexed { idx, rawEntry ->
             async {

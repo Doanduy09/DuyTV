@@ -13,6 +13,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
@@ -42,6 +44,7 @@ object LanMediaServer {
 
     private var serverJob: Job? = null
     private var serverSocket: ServerSocket? = null
+    private val connectionSemaphore = Semaphore(8)
     private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.w(TAG, "LanMediaServer coroutine error (recovered): ${throwable.message}")
     }
@@ -49,6 +52,36 @@ object LanMediaServer {
 
     @Volatile
     private var lastTransportState: String = "STOPPED"
+
+    internal fun isPrivateOrLoopbackIp(hostAddress: String?): Boolean {
+        if (hostAddress.isNullOrBlank()) return false
+        val clean = hostAddress.substringBefore('%').trim().lowercase()
+        if (clean == "::1" || clean == "localhost") return true
+        if (clean.startsWith("fc") || clean.startsWith("fd") || clean.startsWith("fe80:")) return true
+        val parts = clean.split(".")
+        if (parts.size != 4) return false
+        val o0 = parts[0].toIntOrNull() ?: return false
+        val o1 = parts[1].toIntOrNull() ?: return false
+        val o2 = parts[2].toIntOrNull() ?: return false
+        val o3 = parts[3].toIntOrNull() ?: return false
+        if (o0 !in 0..255 || o1 !in 0..255 || o2 !in 0..255 || o3 !in 0..255) return false
+        return o0 == 127 || o0 == 10 || (o0 == 192 && o1 == 168) || (o0 == 172 && o1 in 16..31)
+    }
+
+    internal fun isAllowedLanOrigin(origin: String?): Boolean {
+        if (origin.isNullOrBlank()) return true
+        return try {
+            val host = java.net.URI(origin.trim()).host?.trim()?.lowercase() ?: return false
+            host == "localhost" || isPrivateOrLoopbackIp(host)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    internal fun parseBoundedJsonBodyLength(contentLength: Long): Int? {
+        if (contentLength < 0L || contentLength > MAX_JSON_BODY_BYTES.toLong()) return null
+        return contentLength.toInt()
+    }
 
     fun start(context: Context) {
         if (serverJob != null && serverJob?.isActive == true) return
@@ -63,7 +96,11 @@ object LanMediaServer {
                     Log.i(TAG, "DuyTV LAN Media Server đang lắng nghe tại cổng HTTP $PORT")
                     while (isActive && serverSocket?.isClosed == false) {
                         val client = serverSocket?.accept() ?: break
-                        launch { handleClient(appCtx, client) }
+                        launch {
+                            connectionSemaphore.withPermit {
+                                handleClient(appCtx, client)
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.d(TAG, "LanMediaServer ServerSocket exception: ${e.message}. Khởi động lại sau 3s...")
@@ -115,8 +152,12 @@ object LanMediaServer {
     private fun handleClient(context: Context, socket: Socket) {
         try {
             socket.soTimeout = 15000
-            val bis = BufferedInputStream(socket.getInputStream(), 16 * 1024)
             val output = socket.getOutputStream()
+            if (!isPrivateOrLoopbackIp(socket.inetAddress?.hostAddress)) {
+                sendJsonResponse(output, 403, JSONObject().put("error", "LAN access only"))
+                return
+            }
+            val bis = BufferedInputStream(socket.getInputStream(), 16 * 1024)
 
             val headerBlock = readHeaderBlock(bis) ?: return
             val lines = headerBlock.split("\r\n", "\n")
@@ -141,8 +182,10 @@ object LanMediaServer {
 
             val contentLength = headers["content-length"]?.toLongOrNull() ?: 0L
             val contentType = headers["content-type"] ?: ""
+            val originHeader = headers["origin"]
             val soapAction = headers["soapaction"] ?: ""
             val rangeHeader = headers["range"]
+            val boundedJsonLen = parseBoundedJsonBodyLength(contentLength)
 
             when {
                 // Trang Web Remote & Bắn Media chính
@@ -184,7 +227,7 @@ object LanMediaServer {
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/AVTransport") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
                     if (bytes == null) {
                         sendPayloadTooLarge(output)
                     } else {
@@ -193,7 +236,7 @@ object LanMediaServer {
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/RenderingControl") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
                     if (bytes == null) {
                         sendPayloadTooLarge(output)
                     } else {
@@ -202,7 +245,7 @@ object LanMediaServer {
                 }
 
                 method == "POST" && rawPath.startsWith("/upnp/control/ConnectionManager") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
+                    val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
                     if (bytes == null) {
                         sendPayloadTooLarge(output)
                     } else {
@@ -212,66 +255,90 @@ object LanMediaServer {
 
                 // Bắn ảnh (POST JSON Base64 hoặc Raw bytes an toàn không hỏng binary)
                 method == "POST" && rawPath.startsWith("/api/cast_photo") -> {
-                    if (contentLength > MAX_JSON_BODY_BYTES) {
+                    if (!isAllowedLanOrigin(originHeader)) {
+                        sendJsonResponse(output, 403, JSONObject().put("error", "Forbidden Origin"))
+                    } else if (boundedJsonLen == null) {
                         sendPayloadTooLarge(output)
                     } else {
-                        handleCastPhoto(context, bis, contentLength.toInt().coerceAtLeast(0), contentType, output)
+                        handleCastPhoto(context, bis, boundedJsonLen, contentType, output)
                     }
                 }
 
                 // Tải trực tiếp file video quay trên điện thoại (streaming ra đĩa 64KB chunk, không ăn RAM)
                 method == "POST" && rawPath.startsWith("/api/upload_video") -> {
-                    handleUploadVideo(context, bis, rawPath, contentLength, output)
+                    if (!isAllowedLanOrigin(originHeader)) {
+                        sendJsonResponse(output, 403, JSONObject().put("error", "Forbidden Origin"))
+                    } else {
+                        handleUploadVideo(context, bis, rawPath, contentLength, output)
+                    }
                 }
 
-                // Bắn link video (POST JSON)
+                // Bắn link video (POST JSON - chống CSRF bằng Origin + JSON Content-Type)
                 method == "POST" && rawPath.startsWith("/api/cast_video") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
-                    if (bytes == null) {
-                        sendPayloadTooLarge(output)
+                    if (!isAllowedLanOrigin(originHeader)) {
+                        sendJsonResponse(output, 403, JSONObject().put("error", "Forbidden Origin"))
+                    } else if (!contentType.contains("application/json", ignoreCase = true)) {
+                        sendJsonResponse(output, 415, JSONObject().put("error", "Unsupported Media Type: JSON required"))
                     } else {
-                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
-                        val url = json.optString("url")
-                        val title = json.optString("title", "Video từ điện thoại")
-                        if (url.isNotBlank()) {
-                            MainActivity.openCastVideo(url, title)
-                            sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                        val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
+                        if (bytes == null) {
+                            sendPayloadTooLarge(output)
                         } else {
-                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing url"))
+                            val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                            val url = json.optString("url")
+                            val title = json.optString("title", "Video từ điện thoại")
+                            if (url.isNotBlank()) {
+                                MainActivity.openCastVideo(url, title)
+                                sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                            } else {
+                                sendJsonResponse(output, 400, JSONObject().put("error", "Missing url"))
+                            }
                         }
                     }
                 }
 
-                // Gửi thông báo gia đình (POST JSON - chống CSRF)
+                // Gửi thông báo gia đình (POST JSON - chống CSRF bằng Origin + JSON Content-Type)
                 method == "POST" && rawPath.startsWith("/api/notify") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
-                    if (bytes == null) {
-                        sendPayloadTooLarge(output)
+                    if (!isAllowedLanOrigin(originHeader)) {
+                        sendJsonResponse(output, 403, JSONObject().put("error", "Forbidden Origin"))
+                    } else if (!contentType.contains("application/json", ignoreCase = true)) {
+                        sendJsonResponse(output, 415, JSONObject().put("error", "Unsupported Media Type: JSON required"))
                     } else {
-                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
-                        val message = json.optString("message").ifBlank { json.optString("msg") }
-                        if (message.isNotBlank()) {
-                            MainActivity.showFamilyNotification(message)
-                            sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                        val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
+                        if (bytes == null) {
+                            sendPayloadTooLarge(output)
                         } else {
-                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing message"))
+                            val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                            val message = json.optString("message").ifBlank { json.optString("msg") }
+                            if (message.isNotBlank()) {
+                                MainActivity.showFamilyNotification(message)
+                                sendJsonResponse(output, 200, JSONObject().put("status", "ok"))
+                            } else {
+                                sendJsonResponse(output, 400, JSONObject().put("error", "Missing message"))
+                            }
                         }
                     }
                 }
 
-                // Điều khiển nhanh / lệnh giọng nói từ Web (POST JSON - chống CSRF)
+                // Điều khiển nhanh / lệnh giọng nói từ Web (POST JSON - chống CSRF bằng Origin + JSON Content-Type)
                 method == "POST" && rawPath.startsWith("/api/command") -> {
-                    val bytes = readExactBytes(bis, contentLength.toInt().coerceAtLeast(0))
-                    if (bytes == null) {
-                        sendPayloadTooLarge(output)
+                    if (!isAllowedLanOrigin(originHeader)) {
+                        sendJsonResponse(output, 403, JSONObject().put("error", "Forbidden Origin"))
+                    } else if (!contentType.contains("application/json", ignoreCase = true)) {
+                        sendJsonResponse(output, 415, JSONObject().put("error", "Unsupported Media Type: JSON required"))
                     } else {
-                        val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
-                        val cmd = json.optString("command").ifBlank { json.optString("raw_text") }
-                        if (cmd.isNotBlank()) {
-                            MainActivity.executeRemoteCommand(cmd, context)
-                            sendJsonResponse(output, 200, JSONObject().put("status", "ok").put("command", cmd))
+                        val bytes = boundedJsonLen?.let { readExactBytes(bis, it) }
+                        if (bytes == null) {
+                            sendPayloadTooLarge(output)
                         } else {
-                            sendJsonResponse(output, 400, JSONObject().put("error", "Missing command"))
+                            val json = try { JSONObject(String(bytes, Charsets.UTF_8)) } catch (_: Exception) { JSONObject() }
+                            val cmd = json.optString("command").ifBlank { json.optString("raw_text") }
+                            if (cmd.isNotBlank()) {
+                                MainActivity.executeRemoteCommand(cmd, context)
+                                sendJsonResponse(output, 200, JSONObject().put("status", "ok").put("command", cmd))
+                            } else {
+                                sendJsonResponse(output, 400, JSONObject().put("error", "Missing command"))
+                            }
                         }
                     }
                 }
@@ -758,6 +825,7 @@ object LanMediaServer {
             404 -> "Not Found"
             405 -> "Method Not Allowed"
             413 -> "Payload Too Large"
+            415 -> "Unsupported Media Type"
             else -> "Error"
         }
         val header = "HTTP/1.1 $statusCode $statusText\r\n" +

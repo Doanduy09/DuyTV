@@ -125,6 +125,7 @@ object AppCacheManager {
     }
 
     fun init(context: Context, defaultOfficialChannels: List<TvChannel> = emptyList()) {
+        if (isInitialized && activeChannels.isNotEmpty()) return
         appContext = context.applicationContext
         DeadLinkManager.init(context)
         val prefs = appContext!!.getSharedPreferences(FAV_PREFS, Context.MODE_PRIVATE)
@@ -138,7 +139,6 @@ object AppCacheManager {
                 favoriteMovies = gson.fromJson(favMoviesJson, type) ?: emptyList()
             }
         } catch (_: Exception) {}
-        if (isInitialized && activeChannels.isNotEmpty()) return
         isInitialized = true
         if (activeChannels.isEmpty() && defaultOfficialChannels.isNotEmpty()) {
             activeChannels = sortChannelsWithFavoritesFirst(defaultOfficialChannels)

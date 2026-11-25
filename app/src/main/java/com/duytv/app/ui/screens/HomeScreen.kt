@@ -2560,7 +2560,7 @@ fun SourceSettingsDialog(
                     OutlinedTextField(
                         value = lanAiUrl,
                         onValueChange = { lanAiUrl = it },
-                        label = { Text("Cổng LAN AI Bridge (VD: 192.168.1.189:8100)", color = Color(0xFF8892B0), fontSize = 11.sp) },
+                        label = { Text("Cổng LAN AI Bridge (VD: 192.168.1.100:8100)", color = Color(0xFF8892B0), fontSize = 11.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = TextFieldDefaults.colors(

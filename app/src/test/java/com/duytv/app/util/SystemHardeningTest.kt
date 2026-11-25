@@ -58,20 +58,50 @@ class SystemHardeningTest {
     }
 
     @Test
-    fun `AppUpdateManager verifies SHA-256 checksum accurately`() {
+    fun `AppUpdateManager strictly requires valid 64-hex SHA-256 checksum`() {
         val tempFile = File.createTempFile("duytv_sha_test", ".bin")
         try {
             tempFile.writeText("DuyTV-v2.6.5-Verification", Charsets.UTF_8)
             val actualHash = AppUpdateManager.computeFileSha256(tempFile)
             assertEquals(64, actualHash.length)
-            assertTrue(AppUpdateManager.verifyOptionalSha256(tempFile, actualHash))
+            assertTrue(AppUpdateManager.verifyRequiredSha256(tempFile, actualHash))
             assertTrue(AppUpdateManager.verifyOptionalSha256(tempFile, actualHash.uppercase()))
-            assertTrue(AppUpdateManager.verifyOptionalSha256(tempFile, null))
-            assertTrue(AppUpdateManager.verifyOptionalSha256(tempFile, "   "))
-            assertFalse(AppUpdateManager.verifyOptionalSha256(tempFile, "0000000000000000000000000000000000000000000000000000000000000000"))
+            assertFalse(AppUpdateManager.verifyRequiredSha256(tempFile, null))
+            assertFalse(AppUpdateManager.verifyOptionalSha256(tempFile, null))
+            assertFalse(AppUpdateManager.verifyRequiredSha256(tempFile, "   "))
+            assertFalse(AppUpdateManager.verifyRequiredSha256(tempFile, "invalid_short_hash"))
+            assertFalse(AppUpdateManager.verifyRequiredSha256(tempFile, "0000000000000000000000000000000000000000000000000000000000000000"))
         } finally {
             tempFile.delete()
         }
+    }
+
+    @Test
+    fun `LanMediaServer validates private LAN origins, IPs, and bounded JSON lengths`() {
+        assertTrue(LanMediaServer.isPrivateOrLoopbackIp("192.168.1.1"))
+        assertTrue(LanMediaServer.isPrivateOrLoopbackIp("127.0.0.1"))
+        assertTrue(LanMediaServer.isPrivateOrLoopbackIp("10.0.0.5"))
+        assertTrue(LanMediaServer.isPrivateOrLoopbackIp("172.16.4.2"))
+        assertFalse(LanMediaServer.isPrivateOrLoopbackIp("8.8.8.8"))
+        assertFalse(LanMediaServer.isPrivateOrLoopbackIp("172.32.0.1"))
+
+        assertTrue(LanMediaServer.isAllowedLanOrigin(null))
+        assertTrue(LanMediaServer.isAllowedLanOrigin("http://192.168.1.218:8888"))
+        assertFalse(LanMediaServer.isAllowedLanOrigin("https://evil.example.com"))
+        assertFalse(LanMediaServer.isAllowedLanOrigin("http://8.8.8.8:8888"))
+
+        assertEquals(256, LanMediaServer.parseBoundedJsonBodyLength(256L))
+        assertEquals(null, LanMediaServer.parseBoundedJsonBodyLength(-1L))
+        assertEquals(null, LanMediaServer.parseBoundedJsonBodyLength(Integer.MAX_VALUE.toLong() + 100L))
+    }
+
+    @Test
+    fun `LanCommandReceiver guards screen wakeup and exposes default blank LAN AI host`() {
+        assertTrue(LanCommandReceiver.shouldWakeScreenForPayload(null, "mở vtv1"))
+        assertTrue(LanCommandReceiver.shouldWakeScreenForPayload("notify", ""))
+        assertFalse(LanCommandReceiver.shouldWakeScreenForPayload(null, ""))
+        assertFalse(LanCommandReceiver.shouldWakeScreenForPayload(null, "tắt tivi phòng ngủ đi ngủ"))
+        assertEquals("", GeminiVoiceClient.DEFAULT_LAN_HOST_URL)
     }
 
     @Test

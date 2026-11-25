@@ -42,10 +42,15 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add config/sources.json .config
+            BUILD_FILES_CHANGED=$(git diff --cached --name-only | grep -E '^(app/|config/version\.json)' || true)
             git commit -m "fix(sources): tự động tìm mirror mới và loại bỏ nguồn chết [skip ci]" || echo "Không có thay đổi mới"
             git pull --rebase origin main || true
             git push origin main || echo "Bỏ qua push"
-            echo "TRIGGER_BUILD=true" >> "$GITHUB_ENV"
+            if [ -n "$BUILD_FILES_CHANGED" ]; then
+              echo "TRIGGER_BUILD=true" >> "$GITHUB_ENV"
+            else
+              echo "TRIGGER_BUILD=false" >> "$GITHUB_ENV"
+            fi
           else
             echo "TRIGGER_BUILD=false" >> "$GITHUB_ENV"
           fi

@@ -39,11 +39,16 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add config/sources.json config/tv_channels_clean.m3u app/src/main/assets/tv_channels_clean.m3u .config config/version.json app/build.gradle.kts
+            BUILD_FILES_CHANGED=$(git diff --cached --name-only | grep -E '^(app/|config/version\.json)' || true)
             git commit -m "feat(auto-pilot): tự động phát hiện, vá nguồn phim & cập nhật kênh TV [skip ci]" || echo "Không có thay đổi"
             git pull --rebase origin main || true
             git push origin main || echo "Bỏ qua push"
-            echo "🚀 Đang kích hoạt tiến trình Build APK mới tinh..."
-            gh workflow run build-apk.yml --ref main || echo "Đã kích hoạt tự động qua push"
+            if [ -n "$BUILD_FILES_CHANGED" ]; then
+              echo "🚀 Phát hiện thay đổi mã nguồn/phiên bản ($BUILD_FILES_CHANGED), kích hoạt Build APK..."
+              gh workflow run build-apk.yml --ref main || echo "Đã kích hoạt tự động qua push"
+            else
+              echo "ℹ️ Chỉ cập nhật cấu hình/kênh động (app tải trực tiếp từ GitHub Raw), không cần rebuild APK."
+            fi
           else
             echo "✅ Toàn bộ hệ thống nguồn phim và kênh TV đang hoàn hảo 100%. Không cần build lại."
           fi

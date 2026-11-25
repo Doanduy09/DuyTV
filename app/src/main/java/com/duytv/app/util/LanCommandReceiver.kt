@@ -14,9 +14,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.OutputStreamWriter
 import java.net.ServerSocket
 import java.net.Socket
@@ -29,9 +31,11 @@ import java.net.Socket
 object LanCommandReceiver {
     private const val TAG = "LanCommandReceiver"
     const val PORT = 8990
+    internal const val MAX_COMMAND_BYTES = 8192
 
     private var serverJob: Job? = null
     private var serverSocket: ServerSocket? = null
+    private val connectionSemaphore = Semaphore(6)
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
             Log.w(TAG, "LanCommandReceiver coroutine error (recovered): ${e.message}")
@@ -80,7 +84,11 @@ object LanCommandReceiver {
                     Log.i(TAG, "DuyTV LAN Command Receiver đang lắng nghe tại cổng TCP $PORT (24/7 Watchdog Active)")
                     while (isActive && serverSocket?.isClosed == false) {
                         val clientSocket = serverSocket?.accept() ?: break
-                        launch { handleClient(context, clientSocket) }
+                        launch {
+                            connectionSemaphore.withPermit {
+                                handleClient(context, clientSocket)
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.d(TAG, "ServerSocket exception: ${e.message}. Khởi động lại sau 2.5s...")
@@ -92,18 +100,58 @@ object LanCommandReceiver {
         }
     }
 
+    internal fun readBoundedLine(input: InputStream, maxBytes: Int = MAX_COMMAND_BYTES): String? {
+        val baos = ByteArrayOutputStream(256)
+        while (baos.size() < maxBytes) {
+            val b = input.read()
+            if (b == -1) break
+            if (b == '\n'.code) break
+            if (b != '\r'.code) {
+                baos.write(b)
+            }
+        }
+        return if (baos.size() == 0) null else baos.toString("UTF-8")
+    }
+
+    internal fun shouldWakeScreenForPayload(action: String?, rawText: String): Boolean {
+        val act = action?.lowercase().orEmpty()
+        if (act == "cast_image" || act == "cast_photo" || act == "cast_video" || act == "notify" || act == "family_hud") {
+            return true
+        }
+        val clean = rawText.trim().lowercase()
+        if (clean.isBlank()) return false
+        val isSleepCommand = clean.contains("tắt tivi") ||
+            clean.contains("tắt tv") ||
+            clean.contains("tắt màn hình") ||
+            clean.contains("đi ngủ") ||
+            clean.contains("power off") ||
+            clean == "sleep"
+        return !isSleepCommand
+    }
+
     private fun handleClient(context: Context, socket: Socket) {
         try {
             socket.soTimeout = 3000
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
+            if (!LanMediaServer.isPrivateOrLoopbackIp(socket.inetAddress?.hostAddress)) {
+                return
+            }
             val writer = OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8)
-            val line = reader.readLine()
+            val line = readBoundedLine(socket.getInputStream())
             if (!line.isNullOrBlank()) {
                 val json = try { JSONObject(line) } catch (_: Exception) { null }
                 val action = json?.optString("action")?.lowercase()
-                
-                // Đánh thức màn hình TV ngay lập tức nếu đang ngủ (Standby)
-                wakeUpScreenIfAsleep(context)
+                val rawText = if (action in listOf("cast_image", "cast_photo", "cast_video", "notify", "family_hud")) {
+                    ""
+                } else {
+                    json?.optString("raw_text")?.takeIf { it.isNotBlank() }
+                        ?: json?.optString("command")?.takeIf { it.isNotBlank() }
+                        ?: line.trim()
+                }
+
+                // Chỉ đánh thức màn hình sau khi xác nhận nguồn LAN và lệnh hợp lệ (không tự bật màn hình khi quét cổng hoặc lệnh tắt TV)
+                if (shouldWakeScreenForPayload(action, rawText)) {
+                    wakeUpScreenIfAsleep(context)
+                }
 
                 when (action) {
                     "cast_image", "cast_photo" -> {
@@ -136,10 +184,6 @@ object LanCommandReceiver {
                         }
                     }
                     else -> {
-                        val rawText = json?.optString("raw_text")?.takeIf { it.isNotBlank() }
-                            ?: json?.optString("command")?.takeIf { it.isNotBlank() }
-                            ?: line.trim()
-
                         if (rawText.isNotBlank()) {
                             Log.i(TAG, "Nhận lệnh Wi-Fi nội bộ: '$rawText'")
                             MainActivity.executeRemoteCommand(rawText, context)
