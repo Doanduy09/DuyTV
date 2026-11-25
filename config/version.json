@@ -1,7 +1,7 @@
 {
-  "versionCode": 98,
-  "versionName": "2.6.9",
-  "sha256": "7E2CF9FA6C18F6F9CC91E2EC1FED2A7400CB118D83C2F625D6D82C41EF94C62B",
+  "versionCode": 99,
+  "versionName": "2.7.0",
+  "sha256": "A54250EB10779C404AB28C277C535CADF02A83C908E702026EBE0394F6786C11",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
-  "releaseNotes": "v2.6.9 (Build #98): Hệ thống Auto-Pilot tự động phát hiện, vá nguồn phim và cập nhật kênh truyền hình sống mới 100%."
+  "releaseNotes": "v2.7.0 (Build #99): Tăng cường bảo mật LAN/OTA SHA-256, sửa lọc quảng cáo HLS tránh cắt nhầm phim, chống lặp bộ giải mã & tối ưu tải kênh."
 }
