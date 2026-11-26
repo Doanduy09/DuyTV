@@ -8,7 +8,7 @@
       "name": "KKPhim",
       "api_base": "https://phimapi.com",
       "image_cdn": "https://phimimg.com",
-      "enabled": false
+      "enabled": true
     },
     "ophim": {
       "name": "OPhim",
