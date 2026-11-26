@@ -16,7 +16,7 @@ http://125hvt.ddns.net:21585/vtv2/playlist.m3u8
 https://dethich.pw/vtv3/index.m3u8
 
 #EXTINF:-1 tvg-id="vtv3_hd_bk" tvg-name="VTV3 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/3N4w1bY.png" group-title="VTV Quốc Gia",VTV3 HD (Dự Phòng)
-https://vmttv.dpdns.org/tv360/?id=vtv3
+https://a3iptv.goitoi.co/VTV/VTV3?r2h-token=9Pzpebvhp40NGRbSMuid
 
 #EXTINF:-1 tvg-id="vtv4_hd" tvg-name="VTV4 HD" tvg-logo="https://i.imgur.com/4N3yLzG.png" group-title="VTV Quốc Gia",VTV4 HD
 https://dethich.pw/vtv4/index.m3u8
@@ -69,6 +69,9 @@ https://dethich.pw/htv9/index.m3u8
 #EXTINF:-1 tvg-id="đồng_tháp_1_hd" tvg-name="Đồng Tháp 1 HD" tvg-logo="https://i.imgur.com/U8cW2xJ.png" group-title="Đài Tỉnh Thành",Đồng Tháp 1 HD
 https://618b88f69e53b.streamlock.net/THDT/thdttv/playlist.m3u8
 
+#EXTINF:-1 tvg-id="hà_nội_1_hd" tvg-name="Hà Nội 1 HD" tvg-logo="https://i.imgur.com/H1tN9qP.png" group-title="Đài Tỉnh Thành",Hà Nội 1 HD
+http://luuchieu.truyenhinhso.vn/media/live/D8F673B9DBBAECC4D440A0B4/index.m3u8
+
 #EXTINF:-1 tvg-id="đà_nẵng_1_hd" tvg-name="Đà Nẵng 1 HD" tvg-logo="https://i.imgur.com/D1nW8xK.png" group-title="Đài Tỉnh Thành",Đà Nẵng 1 HD
 https://dethich.pw/danang1/index.m3u8
 
@@ -76,8 +79,8 @@ https://dethich.pw/danang1/index.m3u8
 https://live.mediatech.vn/live/285b59a111d76974225a8e3004bfc31a509/chunklist.m3u8
 
 #EXTINF:-1 tvg-id="cần_thơ_hd" tvg-name="Cần Thơ HD" tvg-logo="https://i.imgur.com/CTnW7xL.png" group-title="Đài Tỉnh Thành",Cần Thơ HD
-https://live.canthotv.vn/cs2/live.stream/chunklist_w1497265452.m3u8
+https://live.canthotv.vn/cs2/live.stream/playlist.m3u8
 
 #EXTINF:-1 tvg-id="cần_thơ_hd_bk" tvg-name="Cần Thơ HD (Dự Phòng)" tvg-logo="https://i.imgur.com/CTnW7xL.png" group-title="Đài Tỉnh Thành",Cần Thơ HD (Dự Phòng)
-https://live.canthotv.vn/live/tv/chunklist_w693005420.m3u8
+https://live.canthotv.vn/cs3/tv/chunklist.m3u8
 
