@@ -26,7 +26,7 @@
     },
     "cobephim": {
       "name": "CoBePhim",
-      "api_base": "https://cobephim.tv",
+      "api_base": "https://cobephim.club",
       "api_backend": "https://egluy2hhb21vaw5ndw9pbmhl.darkbytes.xyz",
       "enabled": true
     },
