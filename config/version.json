@@ -1,7 +1,7 @@
 {
-  "versionCode": 106,
+  "versionCode": 107,
   "versionName": "2.6.9",
-  "sha256": "AAA7CD8A97A3EB92B6D351C127687FB184B71E026A2639A042E247412C73ECF5",
+  "sha256": "",
   "apkUrlCloud": "https://github.com/Doanduy09/DuyTV/releases/latest/download/DuyTV-Full-Latest.apk",
-  "releaseNotes": "v2.6.9 (Build #106): Hệ thống Auto-Pilot tự động phát hiện, vá nguồn phim và cập nhật kênh truyền hình sống mới 100%."
+  "releaseNotes": "v2.6.9 (Build #107): Hệ thống Auto-Pilot tự động phát hiện, vá nguồn phim và cập nhật kênh truyền hình sống mới 100%."
 }
