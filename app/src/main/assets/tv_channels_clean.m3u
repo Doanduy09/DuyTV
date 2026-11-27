@@ -34,13 +34,13 @@ https://a3iptv.goitoi.co/VTV/VTV5?r2h-token=9Pzpebvhp40NGRbSMuid
 https://dethich.pw/vtv7/index.m3u8
 
 #EXTINF:-1 tvg-id="vtv7_hd_bk" tvg-name="VTV7 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/7P5wNzI.png" group-title="VTV Quốc Gia",VTV7 HD (Dự Phòng)
-https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv7/master.m3u8
+https://a3iptv.goitoi.co/VTV/VTV7?r2h-token=9Pzpebvhp40NGRbSMuid
 
 #EXTINF:-1 tvg-id="vtv8_hd" tvg-name="VTV8 HD" tvg-logo="https://i.imgur.com/8Q6wOzJ.png" group-title="VTV Quốc Gia",VTV8 HD
 https://dethich.pw/vtv8/index.m3u8
 
 #EXTINF:-1 tvg-id="vtv8_hd_bk" tvg-name="VTV8 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/8Q6wOzJ.png" group-title="VTV Quốc Gia",VTV8 HD (Dự Phòng)
-https://a3iptv.goitoi.co/VTV/VTV8?r2h-token=9Pzpebvhp40NGRbSMuid
+https://vtvgolive-sctvdrm.vtvdigital.vn/manifest/vtv8/master.m3u8
 
 #EXTINF:-1 tvg-id="vtv9_hd" tvg-name="VTV9 HD" tvg-logo="https://i.imgur.com/9R7wPzK.png" group-title="VTV Quốc Gia",VTV9 HD
 https://dethich.pw/vtv9/index.m3u8
@@ -73,6 +73,9 @@ https://618b88f69e53b.streamlock.net/THDT/thdttv/playlist.m3u8
 http://luuchieu.truyenhinhso.vn/media/live/D8F673B9DBBAECC4D440A0B4/index.m3u8
 
 #EXTINF:-1 tvg-id="đà_nẵng_1_hd" tvg-name="Đà Nẵng 1 HD" tvg-logo="https://i.imgur.com/D1nW8xK.png" group-title="Đài Tỉnh Thành",Đà Nẵng 1 HD
+https://dethich.pw/danang1/index.m3u8
+
+#EXTINF:-1 tvg-id="đà_nẵng_1_hd_bk" tvg-name="Đà Nẵng 1 HD (Dự Phòng)" tvg-logo="https://i.imgur.com/D1nW8xK.png" group-title="Đài Tỉnh Thành",Đà Nẵng 1 HD (Dự Phòng)
 https://live.mediatech.vn/live/285b59a111d76974225a8e3004bfc31a509/chunklist.m3u8
 
 #EXTINF:-1 tvg-id="cần_thơ_hd" tvg-name="Cần Thơ HD" tvg-logo="https://i.imgur.com/CTnW7xL.png" group-title="Đài Tỉnh Thành",Cần Thơ HD
